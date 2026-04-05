@@ -24,7 +24,7 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.1"
+VERSAO_APLICACAO = "v2.2"
 
 INTERVALO_LOOP_SEGUNDOS = 0.20
 INTERVALO_UI_MILISSEGUNDOS = 80

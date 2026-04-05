@@ -783,8 +783,7 @@ class MonitorDeUso:
         self.pausar()
 
     def zerar_sessao(self) -> None:
-        """Para o cronômetro e descarta a sessão local sem criar relatório de finalização.
-        Os dados de heartbeat já salvos no banco são preservados."""
+        """Para o cronômetro, salva relatório da sessão zerada e descarta o estado local."""
         with self._trava:
             if not self._sessao_carregada or self._id_sessao is None:
                 return
@@ -805,8 +804,14 @@ class MonitorDeUso:
             except Exception:
                 pass
 
+            # Capturar snapshots dentro do lock antes de zerar
             _id_snap = self._id_sessao
             _uid_snap = self._user_id
+            _id_ativ_snap = self._id_atividade
+            _seg_trab_snap = self._segundos_trabalhando_float
+            _seg_ocio_snap = self._segundos_ocioso_float
+            _seg_paus_snap = self._segundos_pausado_float
+
             self._sessao_carregada = False
             self._segundos_trabalhando_float = 0.0
             self._segundos_ocioso_float = 0.0
@@ -824,6 +829,34 @@ class MonitorDeUso:
             self._banco.executar(
                 "UPDATE cronometro_sessoes SET finalizado_em = %s WHERE id_sessao = %s",
                 [datetime.now(), _id_snap],
+            )
+        except Exception:
+            pass
+
+        # Inserir relatório para que o tempo fique disponível para declaração de tarefas
+        try:
+            segundos_total = converter_segundos_para_inteiro(
+                _seg_trab_snap + _seg_ocio_snap
+            )
+            self._banco.executar(
+                """
+                INSERT INTO cronometro_relatorios
+                    (id_sessao, user_id, id_atividade, relatorio, segundos_total,
+                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    _id_snap,
+                    _uid_snap,
+                    int(_id_ativ_snap) if _id_ativ_snap else None,
+                    "Sessão zerada",
+                    int(segundos_total),
+                    converter_segundos_para_inteiro(_seg_trab_snap),
+                    converter_segundos_para_inteiro(_seg_ocio_snap),
+                    converter_segundos_para_inteiro(_seg_paus_snap),
+                    datetime.now(),
+                ],
             )
         except Exception:
             pass

@@ -796,8 +796,6 @@ class RepositorioDeclaracoesDia:
         self._validar_periodo_editavel(user_id, self._normalizar_data(antes.get("referencia_data")))
 
         segundos_int = self._validar_segundos(segundos_gastos)
-        if segundos_int <= 0:
-            raise RuntimeError("Informe um tempo maior que zero para concluir a subtarefa.")
 
         self._validar_tempo_contra_monitoramento(
             user_id,

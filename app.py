@@ -1452,6 +1452,7 @@ class JanelaSubtarefas(tk.Toplevel):
             observacao = var_observacao.get()
             segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
+            deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
 
             def _operacao() -> None:
                 if subtarefa is None:
@@ -1463,7 +1464,7 @@ class JanelaSubtarefas(tk.Toplevel):
                         canal_entrega=canal,
                         observacao=observacao,
                     )
-                    if tempo_texto:
+                    if deve_concluir:
                         self._repositorio.concluir_subtarefa(
                             user_id=user_id,
                             id_subtarefa=novo_id,
@@ -1493,7 +1494,7 @@ class JanelaSubtarefas(tk.Toplevel):
                         observacao=observacao,
                         referencia_data=referencia_data,
                     )
-                    if tempo_texto:
+                    if deve_concluir:
                         self._repositorio.concluir_subtarefa(
                             user_id=user_id,
                             id_subtarefa=id_sub,

@@ -1,19 +1,22 @@
 <?php
 declare(strict_types=1);
 
+// Primeiro tenta servir o .exe local (build manual / XAMPP)
 $arquivo = __DIR__ . '/downloads/CronometroLeve.exe';
 
-if (!file_exists($arquivo)) {
-    http_response_code(404);
-    exit('Arquivo não encontrado.');
+if (file_exists($arquivo)) {
+    header('Content-Description: File Transfer');
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="CronometroLeve.exe"');
+    header('Content-Length: ' . filesize($arquivo));
+    header('Cache-Control: no-cache, must-revalidate');
+    header('Pragma: public');
+    readfile($arquivo);
+    exit;
 }
 
-header('Content-Description: File Transfer');
-header('Content-Type: application/octet-stream');
-header('Content-Disposition: attachment; filename="CronometroLeve.exe"');
-header('Content-Length: ' . filesize($arquivo));
-header('Cache-Control: no-cache, must-revalidate');
-header('Pragma: public');
+// Fallback: redireciona para a release mais recente no GitHub
+$url_release = 'https://github.com/LucasLgomes/Cltcron/releases/latest/download/CronometroLeve.exe';
 
-readfile($arquivo);
+header('Location: ' . $url_release, true, 302);
 exit;

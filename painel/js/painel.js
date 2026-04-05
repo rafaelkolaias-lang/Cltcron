@@ -131,14 +131,19 @@
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
+  let _dashboardDelegacaoVinculada = false;
   function vincularAcoesDashboard() {
-    document.querySelectorAll("button[data-acao-dashboard][data-uid]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const identificador_usuario = btn.getAttribute("data-uid") || "";
-        if (window.PainelAbaUsuarios?.abrirModalGestaoUsuario) {
-          window.PainelAbaUsuarios.abrirModalGestaoUsuario(identificador_usuario);
-        }
-      });
+    if (_dashboardDelegacaoVinculada) return;
+    _dashboardDelegacaoVinculada = true;
+    const tbody = document.getElementById("tbodyResumoUsuarios");
+    if (!tbody) return;
+    tbody.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-acao-dashboard][data-uid]");
+      if (!btn) return;
+      const identificador_usuario = btn.getAttribute("data-uid") || "";
+      if (window.PainelAbaUsuarios?.abrirModalGestaoUsuario) {
+        window.PainelAbaUsuarios.abrirModalGestaoUsuario(identificador_usuario);
+      }
     });
   }
 
@@ -199,7 +204,7 @@
       `;
     }).join("");
 
-    vincularAcoesDashboard();
+    vincularAcoesDashboard(); // event delegation — registra apenas 1 vez
   }
 
   // ==========================================================
@@ -269,8 +274,6 @@
     const aba = obterAbaVisivel();
 
     try {
-      await carregarUsuariosParaDashboard();
-
       if (aba === "abaUsuarios") {
         await window.PainelAbaUsuarios?.recarregarUsuariosNoEstado?.();
         window.PainelAbaUsuarios?.renderizarAbaUsuarios?.();
@@ -289,6 +292,7 @@
         return;
       }
 
+      await carregarUsuariosParaDashboard();
       renderizarDashboard();
     } catch (e) {
       mostrarAlerta("erro", "Falha ao atualizar", String(e && e.message ? e.message : e));
@@ -307,7 +311,11 @@
     });
 
     const entradaBusca = document.getElementById("entradaBuscaGeral");
-    if (entradaBusca) entradaBusca.addEventListener("input", renderizarDashboard);
+    let _debounceTimerBusca = null;
+    if (entradaBusca) entradaBusca.addEventListener("input", () => {
+      clearTimeout(_debounceTimerBusca);
+      _debounceTimerBusca = setTimeout(renderizarDashboard, 300);
+    });
 
     const botaoLimpar = document.getElementById("botaoLimparBusca");
     if (botaoLimpar) botaoLimpar.addEventListener("click", () => {
@@ -328,26 +336,40 @@
 
     let timerAuto = null;
     const botaoAuto = document.getElementById("botaoAutoAtualizacao");
+
+    function _pararTimerAuto() {
+      if (timerAuto) { clearInterval(timerAuto); timerAuto = null; }
+    }
+    function _iniciarTimerAuto() {
+      _pararTimerAuto();
+      timerAuto = setInterval(() => { rerenderizarAbaAtual(); }, 30000);
+    }
+
     if (botaoAuto) botaoAuto.addEventListener("click", () => {
       const ativo = botaoAuto.getAttribute("data-ativo") === "1";
 
       if (ativo) {
         botaoAuto.setAttribute("data-ativo", "0");
         botaoAuto.textContent = "Auto: off";
-        if (timerAuto) clearInterval(timerAuto);
-        timerAuto = null;
+        _pararTimerAuto();
         mostrarAlerta("info", "Auto atualização", "Desligada.");
         return;
       }
 
       botaoAuto.setAttribute("data-ativo", "1");
       botaoAuto.textContent = "Auto: on";
-
-      timerAuto = setInterval(() => {
-        rerenderizarAbaAtual();
-      }, 30000);
-
+      _iniciarTimerAuto();
       mostrarAlerta("info", "Auto atualização", "Ligada (30s).");
+    });
+
+    // Pausar auto-atualização quando a aba do navegador fica oculta
+    document.addEventListener("visibilitychange", () => {
+      if (!botaoAuto || botaoAuto.getAttribute("data-ativo") !== "1") return;
+      if (document.hidden) {
+        _pararTimerAuto();
+      } else {
+        _iniciarTimerAuto();
+      }
     });
   }
 

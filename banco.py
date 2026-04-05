@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
 import pymysql
@@ -20,6 +21,9 @@ DB_SENHA = "kolaias"
 DEBUG_BANCO = False
 
 
+PING_INTERVALO_SEGUNDOS = 60.0
+
+
 class BancoDados:
     """
     Conexão por thread (Tk + worker), evita travamento e erro de thread.
@@ -35,15 +39,21 @@ class BancoDados:
     def _obter_conexao_da_thread(self) -> pymysql.connections.Connection:
         conexao = getattr(self._local, "conexao", None)
         if conexao is not None:
-            try:
-                conexao.ping(reconnect=True)
-                return conexao
-            except Exception:
+            ultimo_ping = getattr(self._local, "ultimo_ping", 0.0)
+            agora = time.monotonic()
+            if (agora - ultimo_ping) >= PING_INTERVALO_SEGUNDOS:
                 try:
-                    conexao.close()
+                    conexao.ping(reconnect=True)
+                    self._local.ultimo_ping = agora
                 except Exception:
-                    pass
-                self._local.conexao = None
+                    try:
+                        conexao.close()
+                    except Exception:
+                        pass
+                    self._local.conexao = None
+                    conexao = None
+            if conexao is not None:
+                return conexao
 
         self._log("Abrindo nova conexão (thread).")
         conexao = pymysql.connect(
@@ -57,6 +67,7 @@ class BancoDados:
             cursorclass=pymysql.cursors.DictCursor,
         )
         self._local.conexao = conexao
+        self._local.ultimo_ping = time.monotonic()
         return conexao
 
     def fechar_conexao_da_thread(self) -> None:

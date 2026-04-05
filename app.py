@@ -98,6 +98,25 @@ def obter_aplicativo_em_foco() -> tuple[str, str]:
     return (nome_processo, titulo)
 
 
+_cache_nomes_processos: dict[int, tuple[str, float]] = {}
+_CACHE_PROCESSO_TTL = 60.0
+
+
+def _obter_nome_processo_cached(pid: int) -> str:
+    """Retorna nome do processo com cache de 60s por PID."""
+    agora = time.monotonic()
+    entrada = _cache_nomes_processos.get(pid)
+    if entrada and (agora - entrada[1]) < _CACHE_PROCESSO_TTL:
+        return entrada[0]
+    try:
+        nome = (psutil.Process(pid).name() or "").strip()
+    except Exception:
+        nome = ""
+    if nome:
+        _cache_nomes_processos[pid] = (nome, agora)
+    return nome
+
+
 def listar_nomes_apps_visiveis() -> set[str]:
     """Retorna set de nomes de processos que têm janela visível com título não-vazio."""
     nomes: set[str] = set()
@@ -119,13 +138,9 @@ def listar_nomes_apps_visiveis() -> set[str]:
         pid_val = int(pid.value or 0)
         if pid_val <= 0:
             return True
-        try:
-            proc = psutil.Process(pid_val)
-            nome = (proc.name() or "").strip()
-            if nome:
-                nomes.add(nome)
-        except Exception:
-            pass
+        nome = _obter_nome_processo_cached(pid_val)
+        if nome:
+            nomes.add(nome)
         return True
 
     try:
@@ -193,6 +208,8 @@ class MonitorDeUso:
 
         self._mapa_intervalos_apps: dict[str, dict] = {}
         self._ultimo_scan_apps_mono: float = 0.0
+        self._ultimo_save_estado_mono: float = 0.0
+        self._inicio_sessao_cache: datetime | None = None
 
     def _registrar_erro_locked(self, mensagem: str) -> None:
         self._ultimo_erro = (mensagem or "").strip()[:240]
@@ -231,18 +248,38 @@ class MonitorDeUso:
         with self._trava:
             return self._sessao_carregada
 
+    def _delta_tempo_locked(self) -> float:
+        if self._rodando and self._ultimo_marco_mono > 0:
+            return max(0.0, time.monotonic() - self._ultimo_marco_mono)
+        return 0.0
+
     def obter_segundos_cronometro(self) -> int:
         with self._trava:
-            estado = self._snapshot_locked()
-            return int(estado.segundos_trabalhando + estado.segundos_ocioso)
+            delta = self._delta_tempo_locked()
+            trab = self._segundos_trabalhando_float
+            ocioso = self._segundos_ocioso_float
+            if self._situacao_manual != "pausado":
+                if self._situacao_calculada == "ocioso":
+                    ocioso += delta
+                else:
+                    trab += delta
+            return int(trab + ocioso)
 
     def obter_segundos_trabalhando(self) -> int:
         with self._trava:
-            return int(self._snapshot_locked().segundos_trabalhando)
+            delta = self._delta_tempo_locked()
+            trab = self._segundos_trabalhando_float
+            if self._situacao_manual != "pausado" and self._situacao_calculada != "ocioso":
+                trab += delta
+            return int(trab)
 
     def obter_segundos_pausado(self) -> int:
         with self._trava:
-            return int(self._snapshot_locked().segundos_pausado)
+            delta = self._delta_tempo_locked()
+            pausado = self._segundos_pausado_float
+            if self._situacao_manual == "pausado":
+                pausado += delta
+            return int(pausado)
 
     def _acumular_tempo_ate_agora_locked(self, mono_agora: float) -> None:
         if self._ultimo_marco_mono <= 0:
@@ -317,8 +354,10 @@ class MonitorDeUso:
 
     def _atualizar_intervalos_apps_locked(self, apps_visiveis: set[str], delta: int) -> None:
         nome_foco = self._nome_app_foco or "desconhecido"
+        agora = datetime.now()
 
-        # Atualiza ou fecha intervalos de apps já conhecidos
+        # Acumula deltas em memória e fecha apps que sumiram
+        apps_fechados = []
         for nome_app in list(self._mapa_intervalos_apps.keys()):
             dados = self._mapa_intervalos_apps[nome_app]
             if nome_app in apps_visiveis:
@@ -326,54 +365,62 @@ class MonitorDeUso:
                     dados["segundos_em_foco"] += delta
                 else:
                     dados["segundos_segundo_plano"] += delta
-                try:
-                    self._banco.executar(
-                        """
-                        UPDATE cronometro_apps_intervalos
-                        SET segundos_em_foco = %s, segundos_segundo_plano = %s
-                        WHERE id_intervalo = %s
-                        """,
-                        [dados["segundos_em_foco"], dados["segundos_segundo_plano"], dados["id_intervalo"]],
-                    )
-                except Exception:
-                    pass
             else:
-                # App fechou — finaliza o intervalo
-                try:
-                    self._banco.executar(
-                        """
-                        UPDATE cronometro_apps_intervalos
-                        SET fim_em = %s, segundos_em_foco = %s, segundos_segundo_plano = %s
-                        WHERE id_intervalo = %s
-                        """,
-                        [datetime.now(), dados["segundos_em_foco"], dados["segundos_segundo_plano"], dados["id_intervalo"]],
-                    )
-                except Exception:
-                    pass
-                del self._mapa_intervalos_apps[nome_app]
+                apps_fechados.append(nome_app)
 
-        # Abre intervalos para apps novos
+        # Batch UPDATE de todos os apps ativos + fechados em uma operação
+        for nome_app in apps_fechados:
+            dados = self._mapa_intervalos_apps.pop(nome_app)
+            try:
+                self._banco.executar(
+                    """
+                    UPDATE cronometro_apps_intervalos
+                    SET fim_em = %s, segundos_em_foco = %s, segundos_segundo_plano = %s
+                    WHERE id_intervalo = %s
+                    """,
+                    [agora, dados["segundos_em_foco"], dados["segundos_segundo_plano"], dados["id_intervalo"]],
+                )
+            except Exception:
+                pass
+
+        # Batch UPDATE dos apps ativos (uma query com executar_muitos)
+        updates_ativos = []
+        for dados in self._mapa_intervalos_apps.values():
+            updates_ativos.append([dados["segundos_em_foco"], dados["segundos_segundo_plano"], dados["id_intervalo"]])
+        if updates_ativos:
+            try:
+                self._banco.executar_muitos(
+                    """
+                    UPDATE cronometro_apps_intervalos
+                    SET segundos_em_foco = %s, segundos_segundo_plano = %s
+                    WHERE id_intervalo = %s
+                    """,
+                    updates_ativos,
+                )
+            except Exception:
+                pass
+
+        # Abre intervalos para apps novos (INSERT já com valores corretos, sem UPDATE extra)
         for nome_app in apps_visiveis:
             if nome_app in self._mapa_intervalos_apps:
                 continue
             try:
-                id_intervalo = self._abrir_intervalo_app_locked(nome_app)
+                seg_foco = delta if nome_app == nome_foco else 0
+                seg_bg = 0 if nome_app == nome_foco else delta
+                id_intervalo = self._banco.executar(
+                    """
+                    INSERT INTO cronometro_apps_intervalos
+                        (id_sessao, user_id, nome_app, inicio_em, segundos_em_foco, segundos_segundo_plano)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [self._id_sessao, self._user_id, nome_app, agora, seg_foco, seg_bg],
+                )
                 if id_intervalo:
-                    seg_foco = delta if nome_app == nome_foco else 0
-                    seg_bg = 0 if nome_app == nome_foco else delta
                     self._mapa_intervalos_apps[nome_app] = {
                         "id_intervalo": id_intervalo,
                         "segundos_em_foco": seg_foco,
                         "segundos_segundo_plano": seg_bg,
                     }
-                    self._banco.executar(
-                        """
-                        UPDATE cronometro_apps_intervalos
-                        SET segundos_em_foco = %s, segundos_segundo_plano = %s
-                        WHERE id_intervalo = %s
-                        """,
-                        [seg_foco, seg_bg, id_intervalo],
-                    )
             except Exception:
                 pass
 
@@ -417,68 +464,36 @@ class MonitorDeUso:
 
         situacao = self._situacao_calculada or "pausado"
         atividade = self._montar_atividade_status_locked()
-        inicio_em = None
+        inicio_em = getattr(self, "_inicio_sessao_cache", None)
 
-        if self._id_sessao is not None:
+        if inicio_em is None and self._id_sessao is not None:
             linha_sessao = self._banco.consultar_um(
-                """
-                SELECT iniciado_em
-                FROM cronometro_sessoes
-                WHERE id_sessao = %s
-                LIMIT 1
-                """,
+                "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
                 [self._id_sessao],
             )
             if linha_sessao:
                 inicio_em = linha_sessao["iniciado_em"]
+                self._inicio_sessao_cache = inicio_em
 
         apps_json = self._montar_apps_json_locked()
-        segundos_pausado = int(self._snapshot_locked().segundos_pausado)
+        agora = datetime.now()
+        segundos_pausado = int(self._segundos_pausado_float)
 
-        existente = self._banco.consultar_um(
-            "SELECT id_status FROM usuarios_status_atual WHERE user_id = %s LIMIT 1",
-            [self._user_id],
+        self._banco.executar(
+            """
+            INSERT INTO usuarios_status_atual
+                (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                situacao = VALUES(situacao),
+                atividade = VALUES(atividade),
+                inicio_em = VALUES(inicio_em),
+                ultimo_em = VALUES(ultimo_em),
+                segundos_pausado = VALUES(segundos_pausado),
+                apps_json = VALUES(apps_json)
+            """,
+            [self._user_id, situacao, atividade, inicio_em, agora, segundos_pausado, apps_json],
         )
-
-        if existente:
-            self._banco.executar(
-                """
-                UPDATE usuarios_status_atual
-                SET situacao = %s,
-                    atividade = %s,
-                    inicio_em = %s,
-                    ultimo_em = %s,
-                    segundos_pausado = %s,
-                    apps_json = %s
-                WHERE user_id = %s
-                """,
-                [
-                    situacao,
-                    atividade,
-                    inicio_em,
-                    datetime.now(),
-                    segundos_pausado,
-                    apps_json,
-                    self._user_id,
-                ],
-            )
-        else:
-            self._banco.executar(
-                """
-                INSERT INTO usuarios_status_atual
-                    (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                [
-                    self._user_id,
-                    situacao,
-                    atividade,
-                    inicio_em,
-                    datetime.now(),
-                    segundos_pausado,
-                    apps_json,
-                ],
-            )
 
     def _limpar_status_atual(self) -> None:
         if not self._user_id:
@@ -489,34 +504,21 @@ class MonitorDeUso:
             ensure_ascii=False,
         )
 
-        existente = self._banco.consultar_um(
-            "SELECT id_status FROM usuarios_status_atual WHERE user_id = %s LIMIT 1",
-            [self._user_id],
+        self._banco.executar(
+            """
+            INSERT INTO usuarios_status_atual
+                (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
+            VALUES (%s, %s, %s, NULL, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                situacao = VALUES(situacao),
+                atividade = VALUES(atividade),
+                inicio_em = NULL,
+                ultimo_em = VALUES(ultimo_em),
+                segundos_pausado = VALUES(segundos_pausado),
+                apps_json = VALUES(apps_json)
+            """,
+            [self._user_id, "pausado", "", datetime.now(), 0, apps_json],
         )
-
-        if existente:
-            self._banco.executar(
-                """
-                UPDATE usuarios_status_atual
-                SET situacao = %s,
-                    atividade = %s,
-                    inicio_em = NULL,
-                    ultimo_em = %s,
-                    segundos_pausado = %s,
-                    apps_json = %s
-                WHERE user_id = %s
-                """,
-                ["pausado", "", datetime.now(), 0, apps_json, self._user_id],
-            )
-        else:
-            self._banco.executar(
-                """
-                INSERT INTO usuarios_status_atual
-                    (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                [self._user_id, "pausado", "", None, datetime.now(), 0, apps_json],
-            )
 
     def _salvar_estado_local_locked(self, sessao_em_aberto: bool) -> None:
         estado = self._snapshot_locked()
@@ -699,6 +701,10 @@ class MonitorDeUso:
                 return
             if not self._rodando:
                 return
+            # Impedir pausa enquanto estiver ocioso — evita que o editor
+            # esconda tempo ocioso reclassificando como "pausado"
+            if self._situacao_calculada == "ocioso":
+                return
 
             self._acumular_tempo_ate_agora_locked(time.monotonic())
             self._rodando = False
@@ -773,6 +779,7 @@ class MonitorDeUso:
             self._rodando = False
             self._situacao_manual = "pausado"
             self._situacao_calculada = "pausado"
+            self._inicio_sessao_cache = None
 
             try:
                 self._fechar_foco()
@@ -920,7 +927,9 @@ class MonitorDeUso:
                             except Exception as e:
                                 self._registrar_erro_locked(f"Falha status atual: {e}")
 
-                        self._salvar_estado_local_locked(sessao_em_aberto=True)
+                        if (mono_agora - self._ultimo_save_estado_mono) >= 10.0:
+                            self._ultimo_save_estado_mono = mono_agora
+                            self._salvar_estado_local_locked(sessao_em_aberto=True)
 
                 except Exception as e:
                     with self._trava:
@@ -1803,6 +1812,10 @@ class App(tk.Tk):
             messagebox.showerror("Erro", str(erro))
 
     def _pausar(self) -> None:
+        estado = self._monitor.obter_estado()
+        if estado.situacao == "ocioso":
+            self._var_status.set("OCIOSO — pausa bloqueada")
+            return
         self._monitor.pausar()
         if self._monitor.tem_sessao_carregada():
             self._var_status.set("PAUSADO")

@@ -1011,7 +1011,8 @@ ALTER TABLE `cronometro_relatorios`
   ADD PRIMARY KEY (`id_relatorio`),
   ADD KEY `idx_rel_sessao` (`id_sessao`),
   ADD KEY `idx_rel_user` (`user_id`),
-  ADD KEY `idx_rel_atividade` (`id_atividade`);
+  ADD KEY `idx_rel_atividade` (`id_atividade`),
+  ADD KEY `idx_rel_user_atividade_data` (`user_id`,`id_atividade`,`criado_em`);
 
 --
 -- Índices de tabela `cronometro_sessoes`

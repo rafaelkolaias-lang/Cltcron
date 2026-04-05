@@ -286,21 +286,23 @@
     vincularEventosUsuariosTabela();
   }
 
+  let _usuariosTabelaDelegacaoVinculada = false;
   function vincularEventosUsuariosTabela() {
+    if (_usuariosTabelaDelegacaoVinculada) return;
+    _usuariosTabelaDelegacaoVinculada = true;
     const nucleo = obterNucleo();
-
-    document.querySelectorAll("button[data-acao-usuario][data-uid]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const acao = btn.getAttribute("data-acao-usuario");
-        const uid = btn.getAttribute("data-uid");
-
-        if (acao === "abrir-gestao") {
-          await abrirModalGestaoUsuario(uid);
-          return;
-        }
-
-        nucleo.utilidades.mostrarAlerta("info", "Ação", "Ação não implementada.");
-      });
+    const tbody = document.getElementById("tbodyUsuarios");
+    if (!tbody) return;
+    tbody.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button[data-acao-usuario][data-uid]");
+      if (!btn) return;
+      const acao = btn.getAttribute("data-acao-usuario");
+      const uid = btn.getAttribute("data-uid");
+      if (acao === "abrir-gestao") {
+        await abrirModalGestaoUsuario(uid);
+        return;
+      }
+      nucleo.utilidades.mostrarAlerta("info", "Ação", "Ação não implementada.");
     });
   }
 
@@ -649,7 +651,11 @@
 
   function vincularEventosUsuarios() {
     const entradaBuscaUsuarios = document.getElementById("entradaBuscaUsuarios");
-    if (entradaBuscaUsuarios) entradaBuscaUsuarios.addEventListener("input", renderizarAbaUsuarios);
+    let _debounceTimerUsuarios = null;
+    if (entradaBuscaUsuarios) entradaBuscaUsuarios.addEventListener("input", () => {
+      clearTimeout(_debounceTimerUsuarios);
+      _debounceTimerUsuarios = setTimeout(renderizarAbaUsuarios, 300);
+    });
 
     const modalAddUsuario = document.getElementById("modalAdicionarUsuario");
     if (modalAddUsuario) modalAddUsuario.addEventListener("show.bs.modal", prepararModalAdicionarUsuario);

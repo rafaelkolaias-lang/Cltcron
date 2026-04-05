@@ -204,27 +204,33 @@ function graficos_obter_status_atuais(PDO $conexao_banco, array $usuarios_filtro
     }
 }
 
-function graficos_obter_mapa_pausado(PDO $conexao_banco, string $where_relatorios, array $parametros_relatorios): array
+function graficos_obter_mapa_tempos_relatorio(PDO $conexao_banco, string $where_relatorios, array $parametros_relatorios): array
 {
-    $sqlPausado = "
+    $sql = "
         SELECT
             cr.user_id,
+            SUM(cr.segundos_trabalhando) AS segundos_trabalhando,
+            SUM(cr.segundos_ocioso) AS segundos_ocioso,
             SUM(cr.segundos_pausado) AS segundos_pausado
         FROM cronometro_relatorios cr
         WHERE {$where_relatorios}
         GROUP BY cr.user_id
     ";
 
-    $cmdPausado = $conexao_banco->prepare($sqlPausado);
-    $cmdPausado->execute($parametros_relatorios);
-    $linhasPausado = $cmdPausado->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $cmd = $conexao_banco->prepare($sql);
+    $cmd->execute($parametros_relatorios);
+    $linhas = $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $mapaPausado = [];
-    foreach ($linhasPausado as $linha) {
-        $mapaPausado[(string)$linha['user_id']] = (int)($linha['segundos_pausado'] ?? 0);
+    $mapa = [];
+    foreach ($linhas as $linha) {
+        $mapa[(string)$linha['user_id']] = [
+            'segundos_trabalhando' => (int)($linha['segundos_trabalhando'] ?? 0),
+            'segundos_ocioso' => (int)($linha['segundos_ocioso'] ?? 0),
+            'segundos_pausado' => (int)($linha['segundos_pausado'] ?? 0),
+        ];
     }
 
-    return $mapaPausado;
+    return $mapa;
 }
 
 function graficos_obter_usuarios_base(PDO $conexao_banco, array $usuarios_filtro): array
@@ -253,13 +259,14 @@ function graficos_obter_usuarios_base(PDO $conexao_banco, array $usuarios_filtro
     return $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
-function graficos_garantir_usuario(array &$usuarios, string $user_id, array $linha = [], array $mapaPausado = []): void
+function graficos_garantir_usuario(array &$usuarios, string $user_id, array $linha = [], array $mapa_tempos = []): void
 {
     if ($user_id === '') {
         return;
     }
 
     if (!isset($usuarios[$user_id])) {
+        $tempos = $mapa_tempos[$user_id] ?? ['segundos_trabalhando' => 0, 'segundos_ocioso' => 0, 'segundos_pausado' => 0];
         $usuarios[$user_id] = [
             'user_id' => $user_id,
             'nome_exibicao' => graficos_montar_nome_usuario($linha),
@@ -270,7 +277,9 @@ function graficos_garantir_usuario(array &$usuarios, string $user_id, array $lin
             'status_desde_em' => '',
             'status_ultimo_em' => '',
             'segundos_pausado_atual' => 0,
-            'segundos_pausado_total' => (int)($mapaPausado[$user_id] ?? 0),
+            'segundos_trabalhando_total' => (int)($tempos['segundos_trabalhando'] ?? 0),
+            'segundos_ocioso_total' => (int)($tempos['segundos_ocioso'] ?? 0),
+            'segundos_pausado_total' => (int)($tempos['segundos_pausado'] ?? 0),
             'apps_abertos_agora' => [],
             'apps_resumo' => [],
             'periodos_foco' => [],
@@ -378,14 +387,14 @@ try {
     }
 
     $usuarios_base = graficos_obter_usuarios_base($conexao_banco, $usuarios_filtro);
-    $mapa_pausado = graficos_obter_mapa_pausado($conexao_banco, $where_relatorios, $parametros_relatorios);
+    $mapa_tempos = graficos_obter_mapa_tempos_relatorio($conexao_banco, $where_relatorios, $parametros_relatorios);
     $linhas_status_atuais = graficos_obter_status_atuais($conexao_banco, $usuarios_filtro);
 
     $usuarios = [];
 
     foreach ($usuarios_base as $linha_usuario_base) {
         $user_id = (string)($linha_usuario_base['user_id'] ?? '');
-        graficos_garantir_usuario($usuarios, $user_id, $linha_usuario_base, $mapa_pausado);
+        graficos_garantir_usuario($usuarios, $user_id, $linha_usuario_base, $mapa_tempos);
     }
 
     foreach ($linhas_status_atuais as $linha_status) {
@@ -394,7 +403,7 @@ try {
             continue;
         }
 
-        graficos_garantir_usuario($usuarios, $user_id, $linha_status, $mapa_pausado);
+        graficos_garantir_usuario($usuarios, $user_id, $linha_status, $mapa_tempos);
 
         $apps_json = graficos_decodificar_apps_json($linha_status['apps_json'] ?? null);
         $em_foco = is_array($apps_json['em_foco'] ?? null) ? $apps_json['em_foco'] : [];
@@ -458,7 +467,7 @@ try {
             continue;
         }
 
-        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_pausado);
+        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_tempos);
 
         $segundos_total_aberto = (int)($linha['segundos_total_aberto'] ?? 0);
         $segundos_em_foco = (int)($linha['segundos_em_foco'] ?? 0);
@@ -510,7 +519,7 @@ try {
             continue;
         }
 
-        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_pausado);
+        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_tempos);
 
         $usuarios[$user_id]['periodos_foco'][] = [
             'id_foco' => (int)($linha['id_foco'] ?? 0),
@@ -561,7 +570,7 @@ try {
             continue;
         }
 
-        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_pausado);
+        graficos_garantir_usuario($usuarios, $user_id, $linha, $mapa_tempos);
 
         $usuarios[$user_id]['apps_abertos_agora'][] = [
             'nome_app' => (string)($linha['nome_app'] ?? '—'),
@@ -626,6 +635,14 @@ try {
         'usuarios_com_dados' => count($usuarios),
         'apps_abertos_agora_total' => array_sum(array_map(
             static fn(array $u): int => (int)($u['quantidade_apps_abertos_agora'] ?? 0),
+            $usuarios
+        )),
+        'segundos_trabalhando_total' => array_sum(array_map(
+            static fn(array $u): int => (int)($u['segundos_trabalhando_total'] ?? 0),
+            $usuarios
+        )),
+        'segundos_ocioso_total' => array_sum(array_map(
+            static fn(array $u): int => (int)($u['segundos_ocioso_total'] ?? 0),
             $usuarios
         )),
         'segundos_pausado_total' => array_sum(array_map(

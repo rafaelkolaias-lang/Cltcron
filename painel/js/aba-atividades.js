@@ -515,7 +515,11 @@
   function registrarEventosBusca() {
     const busca = obterElemento(seletorBusca);
     if (!busca) return;
-    busca.addEventListener("input", () => aplicarFiltroETabela());
+    let _debounceTimerAtividades = null;
+    busca.addEventListener("input", () => {
+      clearTimeout(_debounceTimerAtividades);
+      _debounceTimerAtividades = setTimeout(() => aplicarFiltroETabela(), 300);
+    });
   }
 
   function tentarCarregarQuandoAbrirAba() {

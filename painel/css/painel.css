@@ -210,3 +210,121 @@ body{
 .progress-bar{
   background: rgba(46, 204, 113, .9);
 }
+
+/* ========== Gráficos — Layout redesenhado ========== */
+
+.secao-graficos{ margin-bottom: 24px; }
+
+.card-metrica{
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: border-color .2s;
+}
+.card-metrica:hover{ border-color: rgba(255,255,255,.16); }
+
+.card-metrica__rotulo{
+  font-size: .75rem;
+  color: var(--cor-texto-fraco);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+}
+.card-metrica__valor{
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.grafico-container{
+  width: 100%;
+  min-height: 280px;
+  border-radius: 12px;
+}
+
+.perfil-usuario-header{
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--cor-linha);
+  margin-bottom: 16px;
+}
+
+.perfil-avatar{
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(62,146,255,.3), rgba(167,75,255,.3));
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.indicador-status{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 600;
+}
+.indicador-status--trabalhando{
+  background: rgba(46,204,113,.15);
+  color: #4ade80;
+}
+.indicador-status--ocioso{
+  background: rgba(241,196,15,.15);
+  color: #fbbf24;
+}
+.indicador-status--pausado{
+  background: rgba(149,165,166,.15);
+  color: #94a3b8;
+}
+.indicador-status--sem_status{
+  background: rgba(255,255,255,.06);
+  color: var(--cor-texto-fraco);
+}
+
+.pill-app{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  font-size: .82rem;
+}
+.pill-app__dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+.filtros-compactos{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+.filtros-compactos label{
+  font-size: .75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--cor-texto-fraco);
+  margin-bottom: 4px;
+}
+
+.separador-sutil{
+  border: 0;
+  border-top: 1px solid rgba(255,255,255,.06);
+  margin: 20px 0;
+}

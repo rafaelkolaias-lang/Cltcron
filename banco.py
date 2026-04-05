@@ -7,7 +7,6 @@ from typing import Any
 
 import pymysql
 
-
 # =========================
 # CONFIG BANCO (chumbado)
 # =========================

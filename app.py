@@ -6,20 +6,19 @@ import platform
 import socket
 import threading
 import time
+import tkinter as tk
 import uuid
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from tkinter import messagebox, ttk
 
 import psutil
-import tkinter as tk
-from tkinter import messagebox, ttk
 
 from atividades import RepositorioAtividades
 from banco import BancoDados
 from declaracoes_dia import RepositorioDeclaracoesDia
-
 
 # =========================
 # CONFIGURAÇÕES
@@ -943,7 +942,7 @@ class MonitorDeUso:
 
 
 
-from typing import Callable
+from collections.abc import Callable
 
 
 class JanelaSubtarefas(tk.Toplevel):

@@ -1,0 +1,35 @@
+[project]
+name = "cronometro"
+version = "2.2"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = [
+    "E501",   # line too long (tratamos com line-length)
+    "E741",   # ambiguous variable name
+    "B028",   # no explicit stacklevel
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B", "UP"]
+"app.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "build", "dist"]
+skips = ["B101"]  # assert usado em testes

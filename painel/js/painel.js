@@ -246,6 +246,7 @@
 
     if (idAba === "abaGraficos") {
       window.PainelAbaGraficos?.renderizarAbaGraficos?.();
+      setTimeout(() => window.PainelAbaGraficos?.resizarGraficos?.(), 50);
       return;
     }
 

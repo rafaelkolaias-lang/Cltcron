@@ -1,6 +1,7 @@
 ##banco.py
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any
@@ -8,13 +9,13 @@ from typing import Any
 import pymysql
 
 # =========================
-# CONFIG BANCO (chumbado)
+# CONFIG BANCO (via ENV ou fallback local)
 # =========================
-DB_HOST = "76.13.112.108"
-DB_PORTA = 3306
-DB_NOME = "dados"
-DB_USUARIO = "kolaias"
-DB_SENHA = "kolaias"
+DB_HOST = os.environ.get("DB_HOST", "76.13.112.108")
+DB_PORTA = int(os.environ.get("DB_PORT", "3306"))
+DB_NOME = os.environ.get("DB_NAME", "dados")
+DB_USUARIO = os.environ.get("DB_USER", "kolaias")
+DB_SENHA = os.environ.get("DB_PASS", "kolaias")
 
 # log básico (se quiser desligar, deixe False)
 DEBUG_BANCO = False

@@ -174,7 +174,8 @@ body{
 }
 
 .modal .form-select option{
-  color: #0b1220;
+  color: #000 !important;
+  background-color: #fff !important;
 }
 
 /* ✅ foco dos botões dentro do modal (remove o “vazamento” branco) */
@@ -327,4 +328,10 @@ body{
   border: 0;
   border-top: 1px solid rgba(255,255,255,.06);
   margin: 20px 0;
+}
+
+input::placeholder,
+textarea::placeholder{
+  color: rgba(255,255,255,.5) !important;
+  opacity: 1;
 }

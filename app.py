@@ -303,8 +303,17 @@ class MonitorDeUso:
 
         self._ultimo_marco_mono = mono_agora
 
-    def _inserir_evento(self, tipo_evento: str, situacao: str, idle_segundos: int) -> None:
-        if self._id_sessao is None:
+    def _inserir_evento(
+        self,
+        tipo_evento: str,
+        situacao: str,
+        idle_segundos: int,
+        id_sessao: int | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        _id = id_sessao if id_sessao is not None else self._id_sessao
+        _uid = user_id if user_id is not None else self._user_id
+        if _id is None or not _uid:
             return
 
         self._banco.executar(
@@ -313,7 +322,7 @@ class MonitorDeUso:
                 (id_sessao, user_id, tipo_evento, situacao, ocorrido_em, idle_segundos)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            [self._id_sessao, self._user_id, tipo_evento, situacao, datetime.now(), int(idle_segundos)],
+            [_id, _uid, tipo_evento, situacao, datetime.now(), int(idle_segundos)],
         )
 
     def _abrir_foco(self, nome_app: str, titulo: str) -> None:
@@ -698,7 +707,7 @@ class MonitorDeUso:
         with self._trava:
             if not self._sessao_carregada:
                 return
-            if not self._rodando:
+            if not self._rodando or self._situacao_manual == "pausado":
                 return
             # Impedir pausa enquanto estiver ocioso — evita que o editor
             # esconda tempo ocioso reclassificando como "pausado"
@@ -722,9 +731,11 @@ class MonitorDeUso:
 
             self._salvar_estado_local_locked(sessao_em_aberto=True)
             self._atualizar_status_atual_locked()
+            _id_snap = self._id_sessao
+            _uid_snap = self._user_id
 
         try:
-            self._inserir_evento("pausa", "pausado", 0)
+            self._inserir_evento("pausa", "pausado", 0, _id_snap, _uid_snap)
         except Exception:
             pass
 
@@ -760,14 +771,67 @@ class MonitorDeUso:
 
             self._salvar_estado_local_locked(sessao_em_aberto=True)
             self._atualizar_status_atual_locked()
+            _id_snap = self._id_sessao
+            _uid_snap = self._user_id
 
         try:
-            self._inserir_evento("retorno", "trabalhando", 0)
+            self._inserir_evento("retorno", "trabalhando", 0, _id_snap, _uid_snap)
         except Exception:
             pass
 
     def pausar_e_preservar_sessao(self) -> None:
         self.pausar()
+
+    def zerar_sessao(self) -> None:
+        """Para o cronômetro e descarta a sessão local sem criar relatório de finalização.
+        Os dados de heartbeat já salvos no banco são preservados."""
+        with self._trava:
+            if not self._sessao_carregada or self._id_sessao is None:
+                return
+
+            self._acumular_tempo_ate_agora_locked(time.monotonic())
+            self._rodando = False
+            self._situacao_manual = "pausado"
+            self._situacao_calculada = "pausado"
+            self._inicio_sessao_cache = None
+
+            try:
+                self._fechar_foco()
+            except Exception:
+                pass
+
+            try:
+                self._fechar_todos_intervalos_apps_locked()
+            except Exception:
+                pass
+
+            _id_snap = self._id_sessao
+            _uid_snap = self._user_id
+            self._sessao_carregada = False
+            self._segundos_trabalhando_float = 0.0
+            self._segundos_ocioso_float = 0.0
+            self._segundos_pausado_float = 0.0
+            self._ultimo_marco_mono = 0.0
+            self._parar.set()
+            self._limpar_estado_local()
+
+        try:
+            self._inserir_evento("zerar", "pausado", 0, _id_snap, _uid_snap)
+        except Exception:
+            pass
+
+        try:
+            self._banco.executar(
+                "UPDATE cronometro_sessoes SET finalizado_em = %s WHERE id_sessao = %s",
+                [datetime.now(), _id_snap],
+            )
+        except Exception:
+            pass
+
+        try:
+            self._limpar_status_atual()
+        except Exception:
+            pass
 
     def finalizar(self, relatorio: str) -> None:
         with self._trava:
@@ -958,6 +1022,7 @@ class JanelaSubtarefas(tk.Toplevel):
         segundos_pausado: int = 0,
         modo_finalizacao: bool = False,
         ao_finalizar: Callable[[str], None] | None = None,
+        opcoes_canal: list[str] | None = None,
     ) -> None:
         super().__init__(mestre)
         self.title("Tarefas do dia")
@@ -970,6 +1035,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._usuario = usuario
         self._id_atividade = int(id_atividade)
         self._titulo_atividade = (titulo_atividade or "").strip()
+        self._opcoes_canal: list[str] = opcoes_canal or []
         self._segundos_trabalhando = int(segundos_trabalhando or 0)
         self._segundos_pausado = int(segundos_pausado or 0)
         self._modo_finalizacao = bool(modo_finalizacao)
@@ -998,12 +1064,27 @@ class JanelaSubtarefas(tk.Toplevel):
         def _em_thread() -> None:
             try:
                 resultado = funcao()
-                self.after(0, lambda r=resultado: ao_concluir(r))
+
+                def _despachar(r: object = resultado) -> None:
+                    try:
+                        if self.winfo_exists():
+                            ao_concluir(r)
+                    except Exception:
+                        pass
+
+                self.after(0, _despachar)
             except Exception as erro:
-                if ao_falhar:
-                    self.after(0, lambda e=erro: ao_falhar(e))
-                else:
-                    self.after(0, lambda e=erro: messagebox.showerror("Erro", str(e), parent=self))
+                def _despachar_erro(e: Exception = erro) -> None:
+                    try:
+                        if self.winfo_exists():
+                            if ao_falhar:
+                                ao_falhar(e)
+                            else:
+                                messagebox.showerror("Erro", str(e), parent=self)
+                    except Exception:
+                        pass
+
+                self.after(0, _despachar_erro)
 
         threading.Thread(target=_em_thread, daemon=True).start()
 
@@ -1048,9 +1129,8 @@ class JanelaSubtarefas(tk.Toplevel):
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))
 
-        ttk.Button(barra_acoes, text="Nova subtarefa", command=self._nova_subtarefa).pack(side="left")
+        ttk.Button(barra_acoes, text="Declarar Tarefa", command=self._nova_subtarefa).pack(side="left")
         ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa).pack(side="left", padx=(8, 0))
-        ttk.Button(barra_acoes, text="Reabrir", command=self._reabrir_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Excluir", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados).pack(side="right")
 
@@ -1166,6 +1246,13 @@ class JanelaSubtarefas(tk.Toplevel):
             return subtarefas, resumo, travado_ate
 
         def _aplicar(resultado: object) -> None:
+            try:
+                self._arvore.winfo_exists()
+            except Exception:
+                return
+            if not self._arvore.winfo_exists():
+                return
+
             subtarefas, resumo, travado_ate = resultado  # type: ignore[misc]
 
             self._subtarefas = subtarefas
@@ -1230,28 +1317,6 @@ class JanelaSubtarefas(tk.Toplevel):
             return
         self._abrir_formulario_subtarefa(id_subtarefa)
 
-    def _reabrir_subtarefa(self) -> None:
-        if not self._validar_nao_travado():
-            return
-        try:
-            id_subtarefa = self._obter_id_subtarefa_selecionada()
-        except Exception as erro:
-            messagebox.showwarning("Atenção", str(erro), parent=self)
-            return
-
-        if not messagebox.askyesno(
-            "Confirmar",
-            "Reabrir esta subtarefa? O tempo declarado dela será removido do espelho do dia.",
-            parent=self,
-        ):
-            return
-
-        user_id = self._usuario_id()
-        self._executar_em_background(
-            lambda: self._repositorio.reabrir_subtarefa(user_id=user_id, id_subtarefa=id_subtarefa),
-            lambda _: self._recarregar_dados(),
-        )
-
     def _excluir_subtarefa(self) -> None:
         if not self._validar_nao_travado():
             return
@@ -1274,15 +1339,16 @@ class JanelaSubtarefas(tk.Toplevel):
         subtarefa = self._mapa_subtarefas.get(int(id_subtarefa)) if id_subtarefa else None
 
         janela = tk.Toplevel(self)
-        janela.title("Subtarefa")
+        janela.title("Declarar Tarefa")
         janela.geometry("700x430")
         janela.resizable(False, False)
         janela.transient(self)
         janela.grab_set()
         janela.configure(padx=14, pady=14)
 
+        canal_inicial = (str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else self._titulo_atividade)
         var_titulo = tk.StringVar(value=(str(getattr(subtarefa, "titulo", "") or "") if subtarefa else ""))
-        var_canal = tk.StringVar(value=(str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else ""))
+        var_canal = tk.StringVar(value=canal_inicial)
         var_observacao = tk.StringVar(value=(str(getattr(subtarefa, "observacao", "") or "") if subtarefa else ""))
         referencia_atual = getattr(subtarefa, "referencia_data", None) if subtarefa else self._referencia_data
         var_referencia = tk.StringVar(
@@ -1290,10 +1356,10 @@ class JanelaSubtarefas(tk.Toplevel):
         )
         subtarefa_concluida = bool(getattr(subtarefa, "concluida", False)) if subtarefa else False
         var_tempo = tk.StringVar(
-            value=(formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)) if subtarefa_concluida else "")
+            value=(formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)) if subtarefa_concluida else "00:00:00")
         )
 
-        ttk.Label(janela, text="Subtarefa", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        ttk.Label(janela, text="Tarefa", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         ttk.Entry(janela, textvariable=var_titulo, width=82).pack(fill="x", pady=(4, 12))
 
         linha_superior = ttk.Frame(janela)
@@ -1304,7 +1370,8 @@ class JanelaSubtarefas(tk.Toplevel):
         coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
 
         ttk.Label(coluna_esquerda, text="Canal", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Entry(coluna_esquerda, textvariable=var_canal, width=34).pack(fill="x", pady=(4, 10))
+        combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="readonly")
+        combo_canal.pack(fill="x", pady=(4, 10))
 
         ttk.Label(coluna_direita, text="Data de referência", font=("Segoe UI", 10, "bold")).pack(anchor="w")
         ttk.Entry(coluna_direita, textvariable=var_referencia, width=18).pack(fill="x", pady=(4, 10))
@@ -1315,7 +1382,7 @@ class JanelaSubtarefas(tk.Toplevel):
         if subtarefa_concluida:
             ttk.Label(
                 janela,
-                text="Esta subtarefa já está concluída. Você pode ajustar título, canal, observação, data e tempo.",
+                text="Esta tarefa já está concluída. Você pode ajustar título, canal, observação, data e tempo.",
                 foreground="#0a5c2a",
             ).pack(anchor="w", pady=(4, 8))
         else:
@@ -1326,7 +1393,25 @@ class JanelaSubtarefas(tk.Toplevel):
             ).pack(anchor="w", pady=(4, 8))
 
         ttk.Label(janela, text="Tempo gasto (HH:MM:SS)", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Entry(janela, textvariable=var_tempo, width=18).pack(anchor="w", pady=(4, 10))
+        entry_tempo = ttk.Entry(janela, textvariable=var_tempo, width=18)
+        entry_tempo.pack(anchor="w", pady=(4, 10))
+
+        def _on_key_tempo(event: tk.Event) -> str:  # type: ignore[type-arg]
+            if event.keysym == "BackSpace":
+                digits = var_tempo.get().replace(":", "")
+                digits = ("0" + digits[:-1])[-6:]
+                var_tempo.set(f"{digits[0:2]}:{digits[2:4]}:{digits[4:6]}")
+                return "break"
+            if event.char.isdigit():
+                digits = var_tempo.get().replace(":", "")
+                digits = (digits[1:] + event.char)[-6:]
+                var_tempo.set(f"{digits[0:2]}:{digits[2:4]}:{digits[4:6]}")
+                return "break"
+            if event.keysym in ("Tab", "ISO_Left_Tab", "Return"):
+                return ""
+            return "break"
+
+        entry_tempo.bind("<Key>", _on_key_tempo)
 
         rodape = ttk.Frame(janela)
         rodape.pack(fill="x", pady=(12, 0))
@@ -1667,12 +1752,8 @@ class App(tk.Tk):
         ttk.Button(topo, text="Fixar", command=self._alternar_fixar).pack(side="right", padx=(6, 0))
         ttk.Button(topo, text="Sair", command=self._sair).pack(side="right")
 
-        seletor = ttk.Frame(quadro)
-        seletor.pack(fill="x", pady=(12, 0))
-
-        ttk.Label(seletor, text="Atividade:").pack(side="left")
-        self._combo = ttk.Combobox(seletor, textvariable=self._var_atividade, state="readonly", width=58, values=[])
-        self._combo.pack(side="left", padx=(10, 0), fill="x", expand=True)
+        # combo oculto — mantém a lógica de seleção de atividade sem exibir na tela
+        self._combo = ttk.Combobox(self, textvariable=self._var_atividade, state="readonly", width=58, values=[])
 
         painel = ttk.Frame(quadro)
         painel.pack(fill="both", expand=True, pady=(14, 0))
@@ -1681,14 +1762,14 @@ class App(tk.Tk):
         ttk.Label(painel, textvariable=self._var_status, font=("Segoe UI", 10, "bold")).pack(anchor="center", pady=(6, 0))
         ttk.Label(painel, textvariable=self._var_erro, foreground="#b00020").pack(anchor="center", pady=(6, 0))
 
+        self._var_texto_btn_principal = tk.StringVar(value="Iniciar")
+
         botoes = ttk.Frame(quadro)
         botoes.pack(fill="x", pady=(14, 0))
 
-        ttk.Button(botoes, text="Iniciar", command=self._iniciar).pack(side="left", expand=True, fill="x", padx=4)
-        ttk.Button(botoes, text="Pausar", command=self._pausar).pack(side="left", expand=True, fill="x", padx=4)
-        ttk.Button(botoes, text="Retomar", command=self._retomar).pack(side="left", expand=True, fill="x", padx=4)
+        ttk.Button(botoes, textvariable=self._var_texto_btn_principal, command=self._acao_principal).pack(side="left", expand=True, fill="x", padx=4)
         ttk.Button(botoes, text="Tarefas", command=self._abrir_tarefas_do_dia).pack(side="left", expand=True, fill="x", padx=4)
-        ttk.Button(botoes, text="Finalizar", command=self._finalizar).pack(side="left", expand=True, fill="x", padx=4)
+        ttk.Button(botoes, text="Zerar Cronômetro", command=self._finalizar).pack(side="left", expand=True, fill="x", padx=4)
 
         self._carregar_atividades()
 
@@ -1768,7 +1849,7 @@ class App(tk.Tk):
 
         self._combo["values"] = valores
 
-        if valores and not (self._var_atividade.get() or "").strip():
+        if valores:
             self._var_atividade.set(valores[0])
 
     def _definir_combo_por_id_atividade(self, id_atividade: int) -> None:
@@ -1794,6 +1875,14 @@ class App(tk.Tk):
                 self._definir_combo_por_id_atividade(id_atividade)
                 return id_atividade, titulo
         return self._obter_id_atividade_selecionada()
+
+    def _acao_principal(self) -> None:
+        if not self._monitor.tem_sessao_carregada():
+            self._iniciar()
+        elif self._monitor.obter_estado().rodando:
+            self._pausar()
+        else:
+            self._retomar()
 
     def _iniciar(self) -> None:
         if not self._usuario:
@@ -1859,26 +1948,18 @@ class App(tk.Tk):
             return
 
         if not self._monitor.tem_sessao_carregada():
-            messagebox.showwarning("Atenção", "Clique em INICIAR antes de FINALIZAR.")
+            messagebox.showwarning("Atenção", "Clique em INICIAR antes de ZERAR.")
             return
 
-        try:
-            id_atividade, titulo_atividade = self._obter_contexto_atividade_ativa()
-        except Exception as erro:
-            messagebox.showwarning("Atenção", str(erro))
+        if not messagebox.askyesno("Confirmar", "Deseja zerar o cronômetro?\nAs horas trabalhadas ficam salvas no banco."):
             return
 
-        JanelaSubtarefas(
-            self,
-            self._repositorio_declaracoes,
-            self._usuario,
-            id_atividade,
-            titulo_atividade,
-            segundos_trabalhando=self._monitor.obter_segundos_trabalhando(),
-            segundos_pausado=self._monitor.obter_segundos_pausado(),
-            modo_finalizacao=True,
-            ao_finalizar=self._executar_finalizacao_do_dia,
-        )
+        self._monitor.zerar_sessao()
+        self._var_tempo.set("00:00:00")
+        self._var_tempo_fixado.set("00:00:00")
+        self._var_status.set("PRONTO")
+        self._ultimo_segundo_renderizado = -1
+        self._ultimo_status_renderizado = ""
 
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
@@ -1900,6 +1981,7 @@ class App(tk.Tk):
             segundos_pausado=self._monitor.obter_segundos_pausado(),
             modo_finalizacao=False,
             ao_finalizar=None,
+            opcoes_canal=list(self._combo["values"]),
         )
 
     def _executar_finalizacao_do_dia(self, relatorio_final: str) -> None:
@@ -1936,6 +2018,14 @@ class App(tk.Tk):
             self._var_status.set(status_texto)
             self._var_status_fixado.set(status_texto if tem_sessao or estado.rodando else "")
             self._ultimo_status_renderizado = status_texto
+
+        if hasattr(self, "_var_texto_btn_principal"):
+            if not tem_sessao:
+                self._var_texto_btn_principal.set("Iniciar")
+            elif estado.rodando:
+                self._var_texto_btn_principal.set("Pausar")
+            else:
+                self._var_texto_btn_principal.set("Retomar")
 
         self._var_erro.set(f"Erro: {estado.ultimo_erro}" if estado.ultimo_erro else "")
 

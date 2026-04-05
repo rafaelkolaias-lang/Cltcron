@@ -27,3 +27,8 @@ painel/downloads/*.exe
 # Ambiente virtual
 venv/
 .env
+
+# Agentes internos e documentação de execução
+agents/
+\!executar.md
+\!projeto.md

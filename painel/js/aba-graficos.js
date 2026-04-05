@@ -901,11 +901,19 @@
     if (intervaloAutoAtualizacao) { clearInterval(intervaloAutoAtualizacao); intervaloAutoAtualizacao = null; }
   }
 
+  function resizarGraficos() {
+    ["chartDonutApps", "chartBarrasApps", "chartTimelineApps"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) echarts.getInstanceByDom(el)?.resize();
+    });
+  }
+
   // ─── API pública ──────────────────────────────────────────
   window.PainelAbaGraficos = {
     iniciarGraficos: () => {},
     renderizarAbaGraficos: atualizarGraficos,
     recarregarGraficosNoEstado: () => Promise.resolve(),
+    resizarGraficos,
   };
 
   document.addEventListener("DOMContentLoaded", () => {

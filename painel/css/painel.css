@@ -1,0 +1,212 @@
+:root{
+  --cor-fundo: #0b1220;
+  --cor-card: rgba(255,255,255,.06);
+  --cor-borda: rgba(255,255,255,.10);
+  --cor-texto: rgba(255,255,255,.92);
+  --cor-texto-fraco: rgba(255,255,255,.65);
+  --cor-linha: rgba(255,255,255,.07);
+}
+
+/* base */
+*{ box-sizing: border-box; }
+
+body{
+  background: radial-gradient(1200px 600px at 15% 10%, rgba(62,146,255,.18), transparent 60%),
+              radial-gradient(900px 500px at 80% 35%, rgba(167,75,255,.14), transparent 55%),
+              var(--cor-fundo);
+  color: var(--cor-texto);
+}
+
+.texto-fraco{ color: var(--cor-texto-fraco); }
+
+.cartao-grafite{
+  background: var(--cor-card);
+  border: 1px solid var(--cor-borda);
+  backdrop-filter: blur(8px);
+  border-radius: 16px;
+
+  /* ✅ importante: evita “vazamentos” visuais (botão/focus/progress/etc) */
+  overflow: hidden;
+}
+
+.sidebar{
+  min-height: 100vh;
+  background: rgba(0,0,0,.22);
+  border-right: 1px solid var(--cor-borda);
+}
+
+.sidebar__icone{
+  width: 42px;
+  height: 42px;
+}
+
+.nav-pills .nav-link{
+  color: var(--cor-texto-fraco);
+  border-radius: 12px;
+}
+
+.nav-pills .nav-link.active{
+  background: rgba(255,255,255,.10);
+  color: var(--cor-texto);
+}
+
+.badge-suave{
+  background: rgba(255,255,255,.10) !important;
+  border: 1px solid var(--cor-borda);
+}
+
+.tabela-suave tbody tr:hover{
+  background: rgba(255,255,255,.04);
+}
+
+.texto-mono{
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  letter-spacing: .2px;
+}
+
+.linha-detalhe{ line-height: 1.15; }
+
+.apps-wrap{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.badge-app{
+  background: rgba(255,255,255,.08) !important;
+  border: 1px solid rgba(255,255,255,.12);
+  color: rgba(255,255,255,.88);
+  font-weight: 600;
+}
+
+.status-wrap{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.status-dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.02);
+  display: inline-block;
+}
+
+.dot-trabalhando{ background: rgba(46, 204, 113, .95); }
+.dot-ocioso{ background: rgba(241, 196, 15, .95); }
+.dot-pausado{ background: rgba(149, 165, 166, .95); }
+.dot-bloqueado{ background: rgba(127, 140, 141, .95); }
+
+.cabecalho-tabela-sticky thead th{
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(12, 18, 32, .92) !important;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--cor-linha) !important;
+}
+
+.linha-header-card{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--cor-linha);
+  margin-bottom: 12px;
+}
+
+.campo-busca{
+  width: min(420px, 100%);
+}
+
+.legenda{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.86);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chip small{
+  font-weight: 700;
+  color: rgba(255,255,255,.65);
+}
+
+.botao-mini{
+  padding: 6px 10px;
+  border-radius: 12px;
+}
+
+.tabela-limite{
+  max-height: 560px;
+  overflow: auto;
+}
+
+.modal-content.bg-dark{
+  border: 1px solid rgba(255,255,255,.12) !important;
+
+  /* ✅ importante: evita “vazamentos” em bordas arredondadas */
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.modal .form-control,
+.modal .form-select{
+  color: rgba(255,255,255,.92) !important;
+}
+
+.modal .form-select option{
+  color: #0b1220;
+}
+
+/* ✅ foco dos botões dentro do modal (remove o “vazamento” branco) */
+.modal .btn:focus,
+.modal .btn:active:focus{
+  box-shadow: 0 0 0 .18rem rgba(255,255,255,.14) !important;
+}
+
+.modal .btn-light:focus,
+.modal .btn-light:active:focus{
+  box-shadow: 0 0 0 .18rem rgba(255,255,255,.18) !important;
+}
+
+/* garante que botões não ultrapassem o card */
+.modal .d-grid > .btn,
+.modal .btn-group{
+  max-width: 100%;
+}
+
+@media (max-width: 992px){
+  .tabela-limite{ max-height: 520px; }
+}
+
+.progress{
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.10);
+
+  /* deixa bonito e evita “sangrar” */
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar{
+  background: rgba(46, 204, 113, .9);
+}

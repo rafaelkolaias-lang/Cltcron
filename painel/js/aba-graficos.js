@@ -308,7 +308,7 @@
 
     const sel = document.getElementById("filtroGraficosUsuarioDetalhe");
     if (sel) {
-      sel.innerHTML = `<option value="">Selecione um editor…</option>`;
+      sel.innerHTML = `<option value="">— Todos os editores (visão geral) —</option>`;
       usuarios.forEach(u => {
         const opt = document.createElement("option");
         opt.value = u.user_id; opt.textContent = u.texto;
@@ -469,10 +469,15 @@
     }, true);
   }
 
-  // Estado da navegação dia a dia na timeline
+  // Estado da navegação dia a dia na timeline (detalhe individual)
   let _timelineDias = [];
   let _timelineIdxDia = 0;
   let _timelineUsuarioAtual = null;
+
+  // Estado da team timeline (visão global)
+  let _teamTimelineDias = [];
+  let _teamTimelineIdxDia = 0;
+  let _teamTimelineUsuarios = null;
 
   function _extrairDiaIso(datetimeStr) {
     const m = String(datetimeStr || "").match(/^(\d{4}-\d{2}-\d{2})/);
@@ -602,13 +607,274 @@
     renderizarTimelineDoDia();
   }
 
+  // ─── Visão Global (todos os usuários) ─────────────────────
+
+  function renderizarComparativoUsuarios(usuarios) {
+    const chart = criarOuObterChart("chartGlobalComparativo", 260);
+    if (!chart) return;
+    if (!usuarios.length) { chart.clear(); return; }
+
+    const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
+    const trabalhando = usuarios.map(u => u.segundos_trabalhando_total || 0).reverse();
+    const ocioso = usuarios.map(u => u.segundos_ocioso_total || 0).reverse();
+    const pausado = usuarios.map(u => u.segundos_pausado_total || 0).reverse();
+
+    chart.setOption({
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        backgroundColor: "rgba(15,20,35,.92)",
+        borderColor: "rgba(255,255,255,.1)",
+        textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (params) => {
+          const nome = params[0]?.axisValue || "";
+          let html = `<strong>${escaparHtml(nome)}</strong>`;
+          params.forEach(p => { html += `<br/>${p.marker} ${p.seriesName}: ${hhmm(p.value)}`; });
+          return html;
+        },
+      },
+      legend: {
+        data: ["Trabalhado", "Ocioso", "Pausado"],
+        textStyle: { color: "rgba(255,255,255,.65)", fontSize: 12 },
+        top: 0,
+      },
+      grid: { left: 8, right: 16, top: 32, bottom: 8, containLabel: true },
+      xAxis: { type: "value", axisLabel: { color: "rgba(255,255,255,.4)", formatter: v => hhmm(v) }, splitLine: { lineStyle: { color: "rgba(255,255,255,.06)" } } },
+      yAxis: { type: "category", data: nomes, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 120, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
+      series: [
+        { name: "Trabalhado", type: "bar", stack: "total", data: trabalhando, itemStyle: { color: "#34d399" }, barMaxWidth: 22 },
+        { name: "Ocioso", type: "bar", stack: "total", data: ocioso, itemStyle: { color: "#fbbf24" }, barMaxWidth: 22 },
+        { name: "Pausado", type: "bar", stack: "total", data: pausado, itemStyle: { color: "rgba(99,102,241,.35)", borderRadius: [0,3,3,0] }, barMaxWidth: 22 },
+      ],
+    }, true);
+  }
+
+  function renderizarGlobalApps(usuarios) {
+    const chart = criarOuObterChart("chartGlobalApps", 300);
+    if (!chart) return;
+
+    const mapaApps = {};
+    usuarios.forEach(u => {
+      (u.apps_resumo || []).forEach(a => {
+        const nome = a.nome_app || "—";
+        mapaApps[nome] = (mapaApps[nome] || 0) + (a.segundos_em_foco || 0);
+      });
+    });
+
+    const apps = Object.entries(mapaApps)
+      .map(([nome, seg]) => ({ nome, seg }))
+      .sort((a, b) => b.seg - a.seg)
+      .slice(0, 12);
+
+    if (!apps.length) { chart.clear(); return; }
+
+    const dados = apps.map((a, i) => ({
+      name: a.nome,
+      value: a.seg,
+      itemStyle: { color: PALETA[i % PALETA.length] },
+    }));
+
+    chart.setOption({
+      tooltip: {
+        trigger: "item",
+        backgroundColor: "rgba(15,20,35,.92)",
+        borderColor: "rgba(255,255,255,.1)",
+        textStyle: { color: "#e2e8f0", fontSize: 13 },
+        formatter: (p) => `<strong>${escaparHtml(p.name)}</strong><br/>Foco total: ${hhmm(p.value)}<br/>${p.percent?.toFixed(1)}%`,
+      },
+      legend: {
+        type: "scroll", orient: "vertical", right: 10, top: 20, bottom: 20,
+        textStyle: { color: "rgba(255,255,255,.7)", fontSize: 12 },
+        pageTextStyle: { color: "rgba(255,255,255,.5)" },
+      },
+      series: [{
+        type: "pie", radius: ["48%", "74%"], center: ["35%", "50%"],
+        avoidLabelOverlap: true, padAngle: 2,
+        itemStyle: { borderRadius: 6, borderColor: "rgba(11,18,32,.8)", borderWidth: 2 },
+        label: { show: false },
+        emphasis: {
+          label: { show: true, fontSize: 14, fontWeight: "bold", color: "#fff" },
+          itemStyle: { shadowBlur: 20, shadowColor: "rgba(99,102,241,.4)" },
+        },
+        data: dados,
+      }],
+    }, true);
+  }
+
+  function _atualizarLabelTeamTimeline() {
+    const label = document.getElementById("teamTimelineDiaLabel");
+    if (!label || !_teamTimelineDias.length) return;
+    label.textContent = _formatarDiaBr(_teamTimelineDias[_teamTimelineIdxDia]);
+    const btnAnt = document.getElementById("btnTeamTimelineDiaAnterior");
+    const btnProx = document.getElementById("btnTeamTimelineDiaProximo");
+    if (btnAnt) btnAnt.disabled = _teamTimelineIdxDia >= _teamTimelineDias.length - 1;
+    if (btnProx) btnProx.disabled = _teamTimelineIdxDia <= 0;
+  }
+
+  function _renderizarTeamTimelineDoDia() {
+    const chart = criarOuObterChart("chartGlobalTimeline", 200);
+    if (!chart || !_teamTimelineUsuarios) return;
+
+    const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
+    if (!diaSelecionado) { chart.clear(); return; }
+
+    const diaInicio = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFim = new Date(diaSelecionado + "T23:59:59").getTime();
+
+    const userNomes = [];
+    const dados = [];
+
+    _teamTimelineUsuarios.forEach((u, uIdx) => {
+      const nome = u.nome_exibicao || u.user_id || "—";
+      if (!userNomes.includes(nome)) userNomes.push(nome);
+
+      (u.periodos_foco || [])
+        .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado && p.inicio_em)
+        .forEach(p => {
+          const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
+          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
+          if (!isNaN(inicio.getTime())) {
+            dados.push({
+              name: p.nome_app || "—",
+              value: [nome, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0, p.nome_app || "—"],
+              itemStyle: { color: PALETA[uIdx % PALETA.length] },
+            });
+          }
+        });
+    });
+
+    if (!dados.length) {
+      chart.clear();
+      chart.setOption({ title: { text: "Sem atividade neste dia", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
+      return;
+    }
+
+    const alturaChart = Math.max(120, Math.min(400, userNomes.length * 48 + 60));
+    const el = document.getElementById("chartGlobalTimeline");
+    if (el) el.style.height = alturaChart + "px";
+    chart.resize();
+
+    chart.setOption({
+      tooltip: {
+        backgroundColor: "rgba(15,20,35,.92)",
+        borderColor: "rgba(255,255,255,.1)",
+        textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (p) => {
+          const v = p.value;
+          const ini = new Date(v[1]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const f = new Date(v[2]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          return `<strong>${escaparHtml(v[0])}</strong><br/>${escaparHtml(v[4])}<br/>${ini} → ${f}<br/>Duração: ${hhmm(v[3])}`;
+        },
+      },
+      grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
+      xAxis: {
+        type: "time", min: diaInicio, max: diaFim,
+        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
+        splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
+      },
+      yAxis: { type: "category", data: userNomes, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 120, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
+      series: [{
+        type: "custom",
+        renderItem: (params, api) => {
+          const catIdx = api.value(0);
+          const inicio = api.coord([api.value(1), catIdx]);
+          const fim = api.coord([api.value(2), catIdx]);
+          const bandH = api.size([0, 1])[1] * 0.6;
+          return {
+            type: "rect",
+            shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
+            style: { ...api.style(), fill: api.visual("color") },
+            styleEmphasis: { ...api.style(), opacity: 1 },
+          };
+        },
+        encode: { x: [1, 2], y: 0 },
+        data: dados,
+      }],
+    }, true);
+  }
+
+  function montarVisaoGeralTodosUsuarios(dados) {
+    const area = document.getElementById("areaUsuarioSelecionadoGraficos");
+    if (!area) return;
+
+    const usuarios = dados.usuarios || [];
+    if (!usuarios.length) {
+      area.innerHTML = `<div class="texto-fraco">Sem dados para o período selecionado.</div>`;
+      return;
+    }
+
+    area.innerHTML = `
+      <div class="perfil-usuario-header mb-3">
+        <div class="flex-grow-1">
+          <h5 class="mb-1 fw-bold">Visão Geral da Equipe</h5>
+          <div class="texto-fraco small">${usuarios.length} editor${usuarios.length !== 1 ? "es" : ""} no período</div>
+        </div>
+      </div>
+
+      <hr class="separador-sutil">
+
+      <div class="mb-4">
+        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Tempo por editor</div>
+        <div id="chartGlobalComparativo" class="grafico-container" style="height:${Math.max(160, usuarios.length * 40 + 60)}px"></div>
+      </div>
+
+      <div class="mb-4">
+        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Top apps da equipe (foco agregado)</div>
+        <div id="chartGlobalApps" class="grafico-container" style="height:300px"></div>
+      </div>
+
+      <div class="mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">Timeline da equipe</div>
+          <div class="d-flex align-items-center gap-2">
+            <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
+            <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
+            <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
+          </div>
+        </div>
+        <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
+      </div>
+    `;
+
+    _teamTimelineUsuarios = usuarios;
+    const diasSet = new Set();
+    usuarios.forEach(u => {
+      (u.periodos_foco || []).forEach(p => {
+        const dia = _extrairDiaIso(p.inicio_em);
+        if (dia) diasSet.add(dia);
+      });
+    });
+    _teamTimelineDias = [...diasSet].sort().reverse();
+    _teamTimelineIdxDia = 0;
+
+    setTimeout(() => {
+      renderizarComparativoUsuarios(usuarios);
+      renderizarGlobalApps(usuarios);
+      _atualizarLabelTeamTimeline();
+      _renderizarTeamTimelineDoDia();
+
+      window.addEventListener("resize", () => {
+        ["chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline"].forEach(id => {
+          echarts.getInstanceByDom(document.getElementById(id))?.resize();
+        });
+      }, { once: true });
+    }, 50);
+  }
+
   // ─── Detalhe do usuário selecionado ───────────────────────
   function montarDetalheUsuario(dados, userId) {
     const area = document.getElementById("areaUsuarioSelecionadoGraficos");
     if (!area) return;
 
     const usuarios = dados.usuarios || [];
-    let u = userId ? usuarios.find(x => x.user_id === userId) : null;
+
+    // Sem usuário específico → visão global da equipe
+    if (!userId) {
+      montarVisaoGeralTodosUsuarios(dados);
+      return;
+    }
+
+    let u = usuarios.find(x => x.user_id === userId);
     if (!u && usuarios.length) {
       u = usuarios[0];
       const sel = document.getElementById("filtroGraficosUsuarioDetalhe");
@@ -889,6 +1155,20 @@
           renderizarTimelineDoDia();
         }
       }
+      if (ev.target?.id === "btnTeamTimelineDiaAnterior") {
+        if (_teamTimelineIdxDia < _teamTimelineDias.length - 1) {
+          _teamTimelineIdxDia++;
+          _atualizarLabelTeamTimeline();
+          _renderizarTeamTimelineDoDia();
+        }
+      }
+      if (ev.target?.id === "btnTeamTimelineDiaProximo") {
+        if (_teamTimelineIdxDia > 0) {
+          _teamTimelineIdxDia--;
+          _atualizarLabelTeamTimeline();
+          _renderizarTeamTimelineDoDia();
+        }
+      }
     });
   }
 
@@ -902,7 +1182,8 @@
   }
 
   function resizarGraficos() {
-    ["chartDonutApps", "chartBarrasApps", "chartTimelineApps"].forEach((id) => {
+    ["chartDonutApps", "chartBarrasApps", "chartTimelineApps",
+     "chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) echarts.getInstanceByDom(el)?.resize();
     });

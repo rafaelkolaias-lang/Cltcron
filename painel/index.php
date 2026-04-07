@@ -1,4 +1,9 @@
 <?php
+require_once __DIR__ . '/commands/_comum/auth.php';
+if (!esta_logado()) {
+    header('Location: ./login.php');
+    exit;
+}
 header('Content-Type: text/html; charset=utf-8');
 ?>
 <!doctype html>
@@ -64,7 +69,8 @@ header('Content-Type: text/html; charset=utf-8');
         <div class="d-flex align-items-center gap-2 ms-2">
           <span class="texto-fraco small d-none d-xl-block" id="textoSubtitulo">Dashboard · visão geral</span>
           <button class="btn btn-sm btn-outline-light" type="button" id="botaoRecarregarAba" title="Recarregar aba atual">&#x21BB; Recarregar</button>
-          <a href="/baixar_app.php" class="btn btn-sm btn-light">Baixar App</a>
+          <a href="./baixar_app.php" class="btn btn-sm btn-light">Baixar App</a>
+          <a href="./logout.php" class="btn btn-sm btn-outline-danger" title="Sair do painel">Sair</a>
         </div>
       </div>
     </div>

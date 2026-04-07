@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../_comum/resposta.php';
+require_once __DIR__ . '/../_comum/auth.php';
+verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 
 function gerar_chave_acesso(): string

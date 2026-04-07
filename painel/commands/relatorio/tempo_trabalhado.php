@@ -5,6 +5,8 @@ header('Content-Type: application/json; charset=utf-8');
 date_default_timezone_set('America/Sao_Paulo');
 
 require_once __DIR__ . '/../_comum/resposta.php';
+require_once __DIR__ . '/../_comum/auth.php';
+verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 
 function relatorio_validar_data(?string $valor): ?string

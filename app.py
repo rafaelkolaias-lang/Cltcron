@@ -2047,11 +2047,15 @@ class App(tk.Tk):
                     self._var_status.set(f"Falha ao restaurar sessão: {erro}")
 
     def _verificar_atualizacao(self) -> None:
-        """Verifica atualização em background — não bloqueia a UI."""
+        """Verifica atualização em background — só roda quando executado como .exe (PyInstaller)."""
+
+        # Pula auto-update quando rodando pelo .py (modo desenvolvimento)
+        if not getattr(sys, "frozen", False):
+            return
 
         def _em_thread() -> None:
             try:
-                caminho_atual = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+                caminho_atual = Path(sys.executable).resolve()
                 tamanho_local = caminho_atual.stat().st_size
 
                 req = urllib.request.Request(URL_ATUALIZACAO, method="HEAD")
@@ -2232,6 +2236,17 @@ class App(tk.Tk):
         else:
             self._retomar()
 
+    def _rodar_em_background(self, operacao, ao_concluir, ao_falhar=None) -> None:
+        """Executa operacao() em thread, chama ao_concluir/ao_falhar na UI thread."""
+        def _thread():
+            try:
+                operacao()
+                self.after(0, lambda: ao_concluir() if self.winfo_exists() else None)
+            except Exception as e:
+                if ao_falhar:
+                    self.after(0, lambda: ao_falhar(e) if self.winfo_exists() else None)
+        threading.Thread(target=_thread, daemon=True).start()
+
     def _iniciar(self) -> None:
         if not self._usuario:
             return
@@ -2242,24 +2257,35 @@ class App(tk.Tk):
 
         try:
             id_atividade, titulo = self._obter_id_atividade_selecionada()
-            self._monitor.iniciar(self._usuario["user_id"], self._usuario["nome_exibicao"], id_atividade, titulo)
-            self._var_status.set("TRABALHANDO")
         except Exception as erro:
             messagebox.showerror("Erro", str(erro))
+            return
+
+        self._var_status.set("Iniciando...")
+        self._rodar_em_background(
+            lambda: self._monitor.iniciar(self._usuario["user_id"], self._usuario["nome_exibicao"], id_atividade, titulo),
+            lambda: self._var_status.set("TRABALHANDO"),
+            lambda e: (self._var_status.set("ERRO"), messagebox.showerror("Erro", str(e))),
+        )
 
     def _pausar(self) -> None:
         estado = self._monitor.obter_estado()
         if estado.situacao == "ocioso":
             self._var_status.set("OCIOSO — pausa bloqueada")
             return
-        self._monitor.pausar()
-        if self._monitor.tem_sessao_carregada():
-            self._var_status.set("PAUSADO")
+
+        self._var_status.set("Pausando...")
+        self._rodar_em_background(
+            lambda: self._monitor.pausar(),
+            lambda: self._var_status.set("PAUSADO") if self._monitor.tem_sessao_carregada() else None,
+        )
 
     def _retomar(self) -> None:
-        self._monitor.retomar()
-        if self._monitor.tem_sessao_carregada():
-            self._var_status.set("TRABALHANDO")
+        self._var_status.set("Retomando...")
+        self._rodar_em_background(
+            lambda: self._monitor.retomar(),
+            lambda: self._var_status.set("TRABALHANDO") if self._monitor.tem_sessao_carregada() else None,
+        )
 
     def _alternar_fixar(self) -> None:
         if self._janela_fixada and self._janela_fixada.winfo_exists():
@@ -2302,12 +2328,19 @@ class App(tk.Tk):
         if not messagebox.askyesno("Confirmar", "Deseja zerar o cronômetro?\nAs horas trabalhadas ficam salvas no banco."):
             return
 
-        self._monitor.zerar_sessao()
-        self._var_tempo.set("00:00:00")
-        self._var_tempo_fixado.set("00:00:00")
-        self._var_status.set("PRONTO")
-        self._ultimo_segundo_renderizado = -1
-        self._ultimo_status_renderizado = ""
+        self._var_status.set("Zerando...")
+
+        def _concluido():
+            self._var_tempo.set("00:00:00")
+            self._var_tempo_fixado.set("00:00:00")
+            self._var_status.set("PRONTO")
+            self._ultimo_segundo_renderizado = -1
+            self._ultimo_status_renderizado = ""
+
+        self._rodar_em_background(
+            lambda: self._monitor.zerar_sessao(),
+            _concluido,
+        )
 
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:

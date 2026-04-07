@@ -2062,22 +2062,11 @@ class App(tk.Tk):
                 if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
                     return  # sem atualização
 
-                # Pergunta ao usuário na thread da UI
-                self.after(0, lambda: _confirmar(caminho_atual))
+                # Atualiza silenciosamente sem perguntar
+                self.after(0, lambda: self._var_status.set("Atualizando…"))
+                _baixar(caminho_atual)
             except Exception:
                 pass  # falha silenciosa — atualização é opcional
-
-        def _confirmar(caminho_atual: Path) -> None:
-            resposta = messagebox.askyesno(
-                "Atualização disponível",
-                "Uma nova versão do CronometroLeve está disponível.\n\n"
-                "Deseja baixar e instalar agora?\n"
-                "(O aplicativo será reiniciado automaticamente.)",
-            )
-            if not resposta:
-                return
-            self._var_status.set("Baixando atualização…")
-            threading.Thread(target=_baixar, args=(caminho_atual,), daemon=True).start()
 
         def _baixar(caminho_atual: Path) -> None:
             pasta = caminho_atual.parent

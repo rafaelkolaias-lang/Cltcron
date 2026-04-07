@@ -66,6 +66,34 @@ try {
         $params[':concluida_em'] = $concluida ? date('Y-m-d H:i:s') : null;
     }
     if ($segundos !== null) {
+        // Validar: total declarado ACUMULADO (excluindo esta tarefa) + novo valor não pode exceder total trabalhado
+        $stTrab = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos), 0)
+            FROM registros_tempo
+            WHERE user_id = :uid AND situacao = 'trabalhando'
+        ");
+        $stTrab->execute([':uid' => $atual['user_id']]);
+        $trabalhado_total = (int)$stTrab->fetchColumn();
+
+        $stDecl = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos_gastos), 0)
+            FROM atividades_subtarefas
+            WHERE user_id = :uid AND id_subtarefa != :id_excluir
+        ");
+        $stDecl->execute([':uid' => $atual['user_id'], ':id_excluir' => $id_subtarefa]);
+        $declarado_outros = (int)$stDecl->fetchColumn();
+
+        if ($trabalhado_total > 0 && ($declarado_outros + $segundos) > $trabalhado_total) {
+            $disponivel = max(0, $trabalhado_total - $declarado_outros);
+            $disp_h = intdiv($disponivel, 3600);
+            $disp_m = intdiv($disponivel % 3600, 60);
+            responder_json(false, "Tempo excede o total trabalhado. Disponível: {$disp_h}h {$disp_m}m.", [
+                'segundos_trabalhados_total' => $trabalhado_total,
+                'segundos_declarados_outros' => $declarado_outros,
+                'segundos_disponiveis' => $disponivel,
+            ], 422);
+        }
+
         $sets[] = 'segundos_gastos = :segundos';
         $params[':segundos'] = $segundos;
     }
@@ -101,18 +129,20 @@ try {
         'observacao'      => $depois['observacao'],
     ];
 
-    // Registra histórico
+    // Registra histórico — user_id_executor usa o user_id do dono da tarefa
+    // (painel admin edita em nome do alvo; evita FK violation com ID inexistente)
     $stH = $pdo->prepare("
         INSERT INTO atividades_subtarefas_historico
             (id_subtarefa, acao, user_id_alvo, user_id_executor, dados_antes, dados_depois)
         VALUES
-            (:id_sub, 'edicao', :user_alvo, 'painel_adm', :antes, :depois)
+            (:id_sub, 'edicao', :user_alvo, :user_exec, :antes, :depois)
     ");
     $stH->execute([
-        ':id_sub'    => $id_subtarefa,
-        ':user_alvo' => (string)($atual['user_id'] ?? ''),
-        ':antes'     => json_encode($dados_antes, JSON_UNESCAPED_UNICODE),
-        ':depois'    => json_encode($dados_depois, JSON_UNESCAPED_UNICODE),
+        ':id_sub'     => $id_subtarefa,
+        ':user_alvo'  => (string)($atual['user_id'] ?? ''),
+        ':user_exec'  => (string)($atual['user_id'] ?? ''),
+        ':antes'      => json_encode($dados_antes, JSON_UNESCAPED_UNICODE),
+        ':depois'     => json_encode($dados_depois, JSON_UNESCAPED_UNICODE),
     ]);
 
     $pdo->commit();

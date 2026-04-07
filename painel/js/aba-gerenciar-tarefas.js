@@ -198,6 +198,23 @@
       info.textContent = `${tarefa.nome_exibicao || tarefa.user_id} · ${dataIsoBr(tarefa.referencia_data)} · ${tarefa.atividade_titulo || "—"}`;
     }
 
+    // Painel de horas acumuladas: trabalhadas / declaradas / disponíveis (todas as datas)
+    const horasBox = el("gtEditHorasInfo");
+    if (horasBox && tarefa.segundos_trabalhados_total !== undefined) {
+      const trab = tarefa.segundos_trabalhados_total || 0;
+      const decl = tarefa.segundos_declarados_total || 0;
+      const disp = Math.max(0, trab - decl + tarefa.segundos_gastos); // disponível = trab - outros declarados
+      const elTrab = el("gtHorasTrabalhado");
+      const elDecl = el("gtHorasDeclarado");
+      const elDisp = el("gtHorasDisponivel");
+      if (elTrab) elTrab.textContent = segundosParaHm(trab);
+      if (elDecl) elDecl.textContent = segundosParaHm(decl);
+      if (elDisp) elDisp.textContent = segundosParaHm(disp);
+      horasBox.classList.remove("d-none");
+    } else if (horasBox) {
+      horasBox.classList.add("d-none");
+    }
+
     const btn = el("gtBtnSalvar");
     if (btn) btn.disabled = false;
 

@@ -140,6 +140,8 @@ try {
         )
     ");
 
+    $pdo->beginTransaction();
+
     $st->execute([
         ':id_usuario' => $id_usuario,
         ':data_pagamento' => $data_pagamento,
@@ -150,8 +152,57 @@ try {
         ':observacao' => $observacao !== '' ? $observacao : null,
     ]);
 
-    responder_json(true, 'Pagamento registrado.', [
-        'id_pagamento' => (int)$pdo->lastInsertId(),
+    $id_pagamento = (int)$pdo->lastInsertId();
+
+    // Travar subtarefas com referencia_data <= travado_ate_data para este membro
+    $stLock = $pdo->prepare("
+        UPDATE atividades_subtarefas
+        SET bloqueada_pagamento = 1,
+            id_pagamento = :id_pag,
+            bloqueada_em = NOW()
+        WHERE user_id = :user_id
+          AND referencia_data IS NOT NULL
+          AND referencia_data <= :travado_ate
+          AND bloqueada_pagamento = 0
+    ");
+    $stLock->execute([
+        ':id_pag'      => $id_pagamento,
+        ':user_id'     => $user_id,
+        ':travado_ate' => $travado_ate_data,
+    ]);
+    $travadas = $stLock->rowCount();
+
+    // Registrar no histórico de cada subtarefa travada
+    $stIds = $pdo->prepare("
+        SELECT id_subtarefa, user_id
+        FROM atividades_subtarefas
+        WHERE id_pagamento = :id_pag
+    ");
+    $stIds->execute([':id_pag' => $id_pagamento]);
+    $subtsTravadas = $stIds->fetchAll(PDO::FETCH_ASSOC);
+
+    if (count($subtsTravadas) > 0) {
+        $stH = $pdo->prepare("
+            INSERT INTO atividades_subtarefas_historico
+                (id_subtarefa, acao, user_id_alvo, user_id_executor, dados_antes, dados_depois)
+            VALUES
+                (:id_sub, 'bloqueio_pagamento', :user_alvo, :user_exec, :antes, :depois)
+        ");
+        foreach ($subtsTravadas as $sub) {
+            $stH->execute([
+                ':id_sub'     => $sub['id_subtarefa'],
+                ':user_alvo'  => $sub['user_id'],
+                ':user_exec'  => $sub['user_id'],
+                ':antes'      => json_encode(['bloqueada_pagamento' => false]),
+                ':depois'     => json_encode(['bloqueada_pagamento' => true, 'id_pagamento' => $id_pagamento]),
+            ]);
+        }
+    }
+
+    $pdo->commit();
+
+    responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s).", [
+        'id_pagamento' => $id_pagamento,
         'user_id' => $user_id,
         'id_usuario' => $id_usuario,
         'data_pagamento' => $data_pagamento,
@@ -160,7 +211,12 @@ try {
         'travado_ate_data' => $travado_ate_data,
         'valor' => round($valor, 2),
         'observacao' => $observacao,
+        'tarefas_travadas' => $travadas,
     ], 201);
 } catch (Throwable $e) {
-    responder_json(false, 'falha ao criar pagamento', ['erro' => $e->getMessage()], 500);
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+        try { $pdo->rollBack(); } catch (Throwable $t) {}
+    }
+    $dados = debug_ativo() ? ['erro' => $e->getMessage(), 'linha' => $e->getLine()] : null;
+    responder_json(false, 'Falha ao criar pagamento.', $dados, 500);
 }

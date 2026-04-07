@@ -79,6 +79,36 @@ try {
         $l['bloqueada_pagamento'] = (bool)$l['bloqueada_pagamento'];
     }
 
+    // Agregar horas trabalhadas e declaradas ACUMULADAS por membro (todas as datas)
+    $userIds = array_unique(array_column($linhas, 'user_id'));
+
+    $mapaTrab = [];
+    $mapaDecl = [];
+    foreach ($userIds as $uid) {
+        // Total trabalhando (todas as datas)
+        $stT = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos), 0)
+            FROM registros_tempo
+            WHERE user_id = :uid AND situacao = 'trabalhando'
+        ");
+        $stT->execute([':uid' => $uid]);
+        $mapaTrab[$uid] = (int)$stT->fetchColumn();
+
+        // Total declarado (todas as subtarefas)
+        $stD = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos_gastos), 0)
+            FROM atividades_subtarefas
+            WHERE user_id = :uid
+        ");
+        $stD->execute([':uid' => $uid]);
+        $mapaDecl[$uid] = (int)$stD->fetchColumn();
+    }
+
+    foreach ($linhas as &$l) {
+        $l['segundos_trabalhados_total'] = $mapaTrab[$l['user_id']] ?? 0;
+        $l['segundos_declarados_total']  = $mapaDecl[$l['user_id']] ?? 0;
+    }
+
     responder_json(true, 'OK', $linhas, 200);
 } catch (Throwable $e) {
     responder_json(false, 'Falha ao listar tarefas declaradas', ['erro' => $e->getMessage()], 500);

@@ -581,7 +581,22 @@ header('Content-Type: text/html; charset=utf-8');
                   <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                  <p class="texto-fraco small mb-3" id="gtEditInfo"></p>
+                  <p class="texto-fraco small mb-2" id="gtEditInfo"></p>
+
+                  <div id="gtEditHorasInfo" class="d-none mb-3 p-2 rounded" style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)">
+                    <div class="d-flex justify-content-between small">
+                      <span class="texto-fraco">Total trabalhado:</span>
+                      <span class="fw-semibold text-success" id="gtHorasTrabalhado">—</span>
+                    </div>
+                    <div class="d-flex justify-content-between small">
+                      <span class="texto-fraco">Total declarado:</span>
+                      <span class="fw-semibold text-warning" id="gtHorasDeclarado">—</span>
+                    </div>
+                    <div class="d-flex justify-content-between small">
+                      <span class="texto-fraco">Disponível:</span>
+                      <span class="fw-semibold" id="gtHorasDisponivel" style="color:#60a5fa">—</span>
+                    </div>
+                  </div>
 
                   <div class="mb-3">
                     <label class="form-label texto-fraco small">Título da tarefa</label>

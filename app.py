@@ -1064,10 +1064,11 @@ class JanelaSubtarefas(tk.Toplevel):
     ) -> None:
         super().__init__(mestre)
         self.title("Tarefas do dia")
-        self.geometry("1220x720")
-        self.minsize(980, 620)
+        self.geometry("1220x800")
+        self.minsize(980, 700)
         self.transient(mestre)
         self.grab_set()
+        self.configure(bg="#111111")
 
         self._repositorio = repositorio
         self._usuario = usuario
@@ -1083,6 +1084,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._subtarefas: list[object] = []
         self._mapa_subtarefas: dict[int, object] = {}
         self._travado_ate_cache: object = None  # date | None — atualizado a cada reload
+        self._id_subtarefa_criada_nesta_janela: int | None = None  # evita duplicação ao reter erro
 
         self._var_resumo = tk.StringVar(value="")
         self._var_trava = tk.StringVar(value="Carregando...")
@@ -1151,7 +1153,7 @@ class JanelaSubtarefas(tk.Toplevel):
             topo,
             textvariable=self._var_trava,
             font=("Segoe UI", 9),
-            foreground="#8a5800",
+            foreground="#3ecf6e",
             wraplength=1160,
         ).pack(anchor="w", pady=(6, 0))
         ttk.Label(
@@ -1167,9 +1169,9 @@ class JanelaSubtarefas(tk.Toplevel):
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))
 
-        ttk.Button(barra_acoes, text="Declarar Tarefa", command=self._nova_subtarefa).pack(side="left")
+        ttk.Button(barra_acoes, text="Declarar Tarefa", style="Primario.TButton", command=self._nova_subtarefa).pack(side="left")
         ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa).pack(side="left", padx=(8, 0))
-        ttk.Button(barra_acoes, text="Excluir", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
+        ttk.Button(barra_acoes, text="Excluir", style="Perigo.TButton", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados).pack(side="right")
 
         tabela_frame = ttk.Frame(quadro)
@@ -1212,7 +1214,7 @@ class JanelaSubtarefas(tk.Toplevel):
         rodape = ttk.Frame(quadro)
         rodape.pack(fill="x", pady=(10, 0))
 
-        ttk.Label(rodape, textvariable=self._var_resumo, font=("Segoe UI", 10, "bold")).pack(side="left")
+        ttk.Label(rodape, textvariable=self._var_resumo, font=("Segoe UI", 10, "bold"), foreground="#3ecf6e").pack(side="left")
 
         botoes_finais = ttk.Frame(rodape)
         botoes_finais.pack(side="right")
@@ -1265,7 +1267,7 @@ class JanelaSubtarefas(tk.Toplevel):
             )
 
     def _recarregar_dados(self) -> None:
-        self._var_resumo.set("Atualizando...")
+        self._var_resumo.set("Carregando...")
 
         user_id = self._usuario_id()
         referencia_data = self._referencia_data
@@ -1343,6 +1345,7 @@ class JanelaSubtarefas(tk.Toplevel):
     def _nova_subtarefa(self) -> None:
         if not self._validar_nao_travado():
             return
+        self._var_resumo.set("Carregando...")
         self._abrir_formulario_subtarefa(None)
 
     def _editar_subtarefa(self) -> None:
@@ -1353,6 +1356,7 @@ class JanelaSubtarefas(tk.Toplevel):
         except Exception as erro:
             messagebox.showwarning("Atenção", str(erro), parent=self)
             return
+        self._var_resumo.set("Carregando...")
         self._abrir_formulario_subtarefa(id_subtarefa)
 
     def _excluir_subtarefa(self) -> None:
@@ -1367,6 +1371,7 @@ class JanelaSubtarefas(tk.Toplevel):
         if not messagebox.askyesno("Confirmar", "Excluir a subtarefa selecionada?", parent=self):
             return
 
+        self._var_resumo.set("Carregando...")
         user_id = self._usuario_id()
         self._executar_em_background(
             lambda: self._repositorio.excluir_subtarefa(user_id=user_id, id_subtarefa=id_subtarefa),
@@ -1378,11 +1383,11 @@ class JanelaSubtarefas(tk.Toplevel):
 
         janela = tk.Toplevel(self)
         janela.title("Declarar Tarefa")
-        janela.geometry("700x430")
+        janela.geometry("700x420")
         janela.resizable(False, False)
         janela.transient(self)
         janela.grab_set()
-        janela.configure(padx=14, pady=14)
+        janela.configure(bg="#111111")
 
         canal_inicial = (str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else self._titulo_atividade)
         var_titulo = tk.StringVar(value=(str(getattr(subtarefa, "titulo", "") or "") if subtarefa else ""))
@@ -1397,42 +1402,61 @@ class JanelaSubtarefas(tk.Toplevel):
             value=(formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)) if subtarefa_concluida else "00:00:00")
         )
 
-        ttk.Label(janela, text="Tarefa", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Entry(janela, textvariable=var_titulo, width=82).pack(fill="x", pady=(4, 12))
+        # ── paleta local ─────────────────────────────────────
+        _C = "#1a1a1a"   # card bg
+        _D = "#6a6a6a"   # rótulos dimm
+        _A = "#1b6ef3"   # accent azul
 
-        linha_superior = ttk.Frame(janela)
+        # barra de acento no topo
+        tk.Frame(janela, bg=_A, height=3).pack(fill="x")
+
+        # área principal
+        inner = tk.Frame(janela, bg=_C, padx=26, pady=18)
+        inner.pack(fill="both", expand=True)
+
+        titulo_janela = "Editar Tarefa" if subtarefa else "Nova Tarefa"
+        tk.Label(inner, text=titulo_janela, bg=_C, fg="#ffffff",
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 16))
+
+        # Tarefa
+        tk.Label(inner, text="TAREFA", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Entry(inner, textvariable=var_titulo, width=82).pack(fill="x", pady=(3, 12))
+
+        # Canal + Data (lado a lado)
+        linha_superior = tk.Frame(inner, bg=_C)
         linha_superior.pack(fill="x")
-        coluna_esquerda = ttk.Frame(linha_superior)
+        coluna_esquerda = tk.Frame(linha_superior, bg=_C)
         coluna_esquerda.pack(side="left", fill="x", expand=True)
-        coluna_direita = ttk.Frame(linha_superior)
+        coluna_direita = tk.Frame(linha_superior, bg=_C)
         coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
 
-        ttk.Label(coluna_esquerda, text="Canal", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+        tk.Label(coluna_esquerda, text="CANAL", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
         combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="readonly")
-        combo_canal.pack(fill="x", pady=(4, 10))
+        combo_canal.pack(fill="x", pady=(3, 10))
 
-        ttk.Label(coluna_direita, text="Data de referência", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Entry(coluna_direita, textvariable=var_referencia, width=18).pack(fill="x", pady=(4, 10))
+        tk.Label(coluna_direita, text="DATA DE REFERÊNCIA", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Entry(coluna_direita, textvariable=var_referencia, width=18).pack(fill="x", pady=(3, 10))
 
-        ttk.Label(janela, text="Observação", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        ttk.Entry(janela, textvariable=var_observacao, width=82).pack(fill="x", pady=(4, 10))
+        # Observação
+        tk.Label(inner, text="OBSERVAÇÃO", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Entry(inner, textvariable=var_observacao, width=82).pack(fill="x", pady=(3, 12))
 
         if subtarefa_concluida:
-            ttk.Label(
-                janela,
-                text="Esta tarefa já está concluída. Você pode ajustar título, canal, observação, data e tempo.",
-                foreground="#0a5c2a",
-            ).pack(anchor="w", pady=(4, 8))
-        else:
-            ttk.Label(
-                janela,
-                text="Preencha o Tempo gasto para salvar como Concluída. Deixe em branco para manter aberta.",
-                foreground="#5c3b00",
-            ).pack(anchor="w", pady=(4, 8))
+            tk.Label(
+                inner,
+                text="Tarefa concluída — ajustes em todos os campos são permitidos.",
+                bg=_C, fg="#3ecf6e", font=("Segoe UI", 9),
+            ).pack(anchor="w", pady=(0, 8))
 
-        ttk.Label(janela, text="Tempo gasto (HH:MM:SS)", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        entry_tempo = ttk.Entry(janela, textvariable=var_tempo, width=18)
-        entry_tempo.pack(anchor="w", pady=(4, 10))
+        # Tempo
+        tk.Label(inner, text="TEMPO GASTO  (HH:MM:SS)", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        entry_tempo = ttk.Entry(inner, textvariable=var_tempo, width=18)
+        entry_tempo.pack(anchor="w", pady=(3, 4))
 
         def _on_key_tempo(event: tk.Event) -> str:  # type: ignore[type-arg]
             if event.keysym == "BackSpace":
@@ -1451,8 +1475,10 @@ class JanelaSubtarefas(tk.Toplevel):
 
         entry_tempo.bind("<Key>", _on_key_tempo)
 
-        rodape = ttk.Frame(janela)
-        rodape.pack(fill="x", pady=(12, 0))
+        # separador + rodapé
+        tk.Frame(janela, bg="#282828", height=1).pack(fill="x")
+        rodape = tk.Frame(janela, bg="#1a1a1a", padx=26, pady=12)
+        rodape.pack(fill="x")
 
         var_texto_botao = tk.StringVar()
 
@@ -1472,16 +1498,25 @@ class JanelaSubtarefas(tk.Toplevel):
         btn_salvar.pack(side="right", padx=(0, 8))
 
         def salvar() -> None:
+            # Captura intenção ANTES de alterar o texto do botão
+            deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
+
+            # Desabilita imediatamente — antes de qualquer validação — para ignorar cliques em fila
+            btn_salvar.configure(state="disabled")
+            btn_cancelar.configure(state="disabled")
+            var_texto_botao.set("Salvando...")
+            janela.update_idletasks()
+
             try:
                 referencia_data = self._converter_texto_para_data(var_referencia.get())
                 tempo_texto = (var_tempo.get() or "").strip()
                 segundos_tempo = self._converter_texto_tempo_para_segundos(tempo_texto) if tempo_texto else 0
             except Exception as erro:
+                _atualizar_texto_botao()
+                btn_salvar.configure(state="normal")
+                btn_cancelar.configure(state="normal")
                 messagebox.showerror("Erro", str(erro), parent=janela)
                 return
-
-            btn_salvar.configure(state="disabled")
-            btn_cancelar.configure(state="disabled")
 
             user_id = self._usuario_id()
             id_atividade = self._id_atividade
@@ -1490,18 +1525,33 @@ class JanelaSubtarefas(tk.Toplevel):
             observacao = var_observacao.get()
             segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
-            deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
+
+            # Validação de nome duplicado
+            titulo_normalizado = titulo.strip().lower()
+            for sub_existente in self._subtarefas:
+                sub_id_check = int(getattr(sub_existente, "id_subtarefa", 0))
+                if id_sub and sub_id_check == id_sub:
+                    continue  # mesma tarefa sendo editada — não conta como duplicata
+                if str(getattr(sub_existente, "titulo", "") or "").strip().lower() == titulo_normalizado:
+                    _atualizar_texto_botao()
+                    btn_salvar.configure(state="normal")
+                    btn_cancelar.configure(state="normal")
+                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome.", parent=janela)
+                    return
 
             def _operacao() -> None:
                 if subtarefa is None:
-                    novo_id = self._repositorio.criar_subtarefa(
-                        user_id=user_id,
-                        referencia_data=referencia_data,
-                        id_atividade=id_atividade,
-                        titulo=titulo,
-                        canal_entrega=canal,
-                        observacao=observacao,
-                    )
+                    # Reutiliza ID já criado se houve falha na tentativa anterior
+                    if self._id_subtarefa_criada_nesta_janela is None:
+                        self._id_subtarefa_criada_nesta_janela = self._repositorio.criar_subtarefa(
+                            user_id=user_id,
+                            referencia_data=referencia_data,
+                            id_atividade=id_atividade,
+                            titulo=titulo,
+                            canal_entrega=canal,
+                            observacao=observacao,
+                        )
+                    novo_id = self._id_subtarefa_criada_nesta_janela
                     if deve_concluir:
                         self._repositorio.concluir_subtarefa(
                             user_id=user_id,
@@ -1544,6 +1594,7 @@ class JanelaSubtarefas(tk.Toplevel):
                         )
 
             def _ok(_: object) -> None:
+                self._id_subtarefa_criada_nesta_janela = None  # reset — libera ID para próxima declaração
                 try:
                     janela.destroy()
                 except Exception:
@@ -1551,6 +1602,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 self._recarregar_dados()
 
             def _falha(erro: Exception) -> None:
+                _atualizar_texto_botao()
                 btn_salvar.configure(state="normal")
                 btn_cancelar.configure(state="normal")
                 messagebox.showerror("Erro", str(erro), parent=janela)
@@ -1677,8 +1729,8 @@ class App(tk.Tk):
         super().__init__()
 
         self.title("Cronômetro (Leve)")
-        self.geometry("660x340")
         self.resizable(False, False)
+        self._aplicar_icone()
 
         self._banco = BancoDados()
         self._repositorio = RepositorioAtividades(self._banco)
@@ -1710,22 +1762,151 @@ class App(tk.Tk):
         self.after(INTERVALO_UI_MILISSEGUNDOS, self._tick_ui)
 
     def _aplicar_estilo(self) -> None:
+        _BG   = "#111111"
+        _BG2  = "#1a1a1a"
+        _BG3  = "#222222"
+        _BTN  = "#2a2a2a"
+        _BTN_H = "#363636"
+        _ACCENT   = "#1b6ef3"
+        _ACCENT_H = "#1457cc"
+        _DANGER   = "#c0392b"
+        _DANGER_H = "#a93226"
+        _TEXT = "#e0e0e0"
+        _DIM  = "#666666"
+        _BORDER = "#2e2e2e"
+
         try:
+            self.configure(bg=_BG)
             estilo = ttk.Style(self)
             try:
                 estilo.theme_use("clam")
             except Exception:
                 pass
 
-            estilo.configure("TLabel", font=("Segoe UI", 10))
-            estilo.configure("Titulo.TLabel", font=("Segoe UI", 16, "bold"))
-            estilo.configure("Subtitulo.TLabel", font=("Segoe UI", 10))
-            estilo.configure("Card.TFrame", padding=18)
-            estilo.configure("TButton", font=("Segoe UI", 10), padding=10)
-            estilo.configure("Primario.TButton", font=("Segoe UI", 10, "bold"), padding=12)
-            estilo.configure("Cab.TLabel", font=("Segoe UI", 10, "bold"))
+            # Frames
+            estilo.configure("TFrame", background=_BG)
+            estilo.configure("Card.TFrame", background=_BG2, padding=20, relief="flat")
+
+            # Labels
+            estilo.configure("TLabel",
+                background=_BG, foreground=_TEXT, font=("Segoe UI", 10))
+            estilo.configure("Titulo.TLabel",
+                background=_BG2, foreground="#ffffff", font=("Segoe UI", 16, "bold"))
+            estilo.configure("Subtitulo.TLabel",
+                background=_BG2, foreground=_DIM, font=("Segoe UI", 10))
+            estilo.configure("Cab.TLabel",
+                background=_BG, foreground=_TEXT, font=("Segoe UI", 10, "bold"))
+
+            # Buttons base
+            estilo.configure("TButton",
+                background=_BTN, foreground=_TEXT,
+                font=("Segoe UI", 10), padding=10,
+                borderwidth=0, relief="flat", focuscolor=_BTN,
+            )
+            estilo.map("TButton",
+                background=[("active", _BTN_H), ("pressed", "#404040"), ("disabled", _BG3)],
+                foreground=[("disabled", _DIM)],
+                relief=[("pressed", "flat"), ("active", "flat")],
+            )
+
+            # Primary button — azul (Pausar / Retomar / Salvar)
+            estilo.configure("Primario.TButton",
+                background=_ACCENT, foreground="#ffffff",
+                font=("Segoe UI", 10, "bold"), padding=12,
+                borderwidth=0, relief="flat", focuscolor=_ACCENT,
+            )
+            estilo.map("Primario.TButton",
+                background=[("active", _ACCENT_H), ("pressed", "#0f47a8"), ("disabled", "#1a3a70")],
+                foreground=[("disabled", "#7090bb")],
+                relief=[("pressed", "flat"), ("active", "flat")],
+            )
+
+            # Verde button — Iniciar
+            _GREEN   = "#1a9c4a"
+            _GREEN_H = "#157d3b"
+            estilo.configure("Verde.TButton",
+                background=_GREEN, foreground="#ffffff",
+                font=("Segoe UI", 10, "bold"), padding=12,
+                borderwidth=0, relief="flat", focuscolor=_GREEN,
+            )
+            estilo.map("Verde.TButton",
+                background=[("active", _GREEN_H), ("pressed", "#0f6030"), ("disabled", "#0e3d20")],
+                foreground=[("disabled", "#70aa80")],
+                relief=[("pressed", "flat"), ("active", "flat")],
+            )
+
+            # Danger button (Excluir)
+            estilo.configure("Perigo.TButton",
+                background=_DANGER, foreground="#ffffff",
+                font=("Segoe UI", 10), padding=10,
+                borderwidth=0, relief="flat", focuscolor=_DANGER,
+            )
+            estilo.map("Perigo.TButton",
+                background=[("active", _DANGER_H), ("pressed", "#922b21"), ("disabled", "#4a1010")],
+                foreground=[("disabled", "#aa6666")],
+                relief=[("pressed", "flat"), ("active", "flat")],
+            )
+
+            # Entry
+            estilo.configure("TEntry",
+                fieldbackground="#1a1a1a", foreground=_TEXT,
+                insertcolor=_TEXT, borderwidth=1,
+                bordercolor=_BORDER,
+            )
+
+            # Combobox
+            estilo.configure("TCombobox",
+                fieldbackground="#1a1a1a", foreground=_TEXT,
+                background=_BTN, selectbackground=_ACCENT,
+                arrowcolor=_TEXT,
+            )
+            estilo.map("TCombobox",
+                fieldbackground=[("readonly", "#1a1a1a")],
+                foreground=[("readonly", _TEXT)],
+                selectbackground=[("readonly", "#1a1a1a")],
+                selectforeground=[("readonly", _TEXT)],
+            )
+
+            # Scrollbar
+            estilo.configure("TScrollbar",
+                background=_BTN, troughcolor=_BG2,
+                arrowcolor=_DIM, borderwidth=0,
+            )
+
+            # Treeview
+            estilo.configure("Treeview",
+                background=_BG2, foreground=_TEXT,
+                fieldbackground=_BG2, rowheight=26, borderwidth=0,
+            )
+            estilo.configure("Treeview.Heading",
+                background=_BG3, foreground=_TEXT,
+                font=("Segoe UI", 10, "bold"), relief="flat", borderwidth=0,
+            )
+            estilo.map("Treeview",
+                background=[("selected", _ACCENT)],
+                foreground=[("selected", "#ffffff")],
+            )
+            estilo.map("Treeview.Heading",
+                background=[("active", _BTN_H)],
+                relief=[("active", "flat")],
+            )
+
         except Exception:
             pass
+
+    def _aplicar_icone(self) -> None:
+        """Carrega logo.png como ícone da janela (requer Pillow)."""
+        try:
+            from PIL import Image, ImageTk  # type: ignore
+            caminho = Path(__file__).parent / "logo.png"
+            if not caminho.exists():
+                return
+            img = Image.open(str(caminho)).convert("RGBA")
+            img = img.resize((32, 32), Image.LANCZOS)
+            self._icone_app = ImageTk.PhotoImage(img)  # guarda referência — GC não pode coletar
+            self.iconphoto(True, self._icone_app)
+        except Exception:
+            pass  # sem Pillow ou sem arquivo — ignora silenciosamente
 
     def _carregar_login_salvo(self) -> None:
         try:
@@ -1745,38 +1926,78 @@ class App(tk.Tk):
             pass
 
     def _montar_tela_login(self) -> None:
+        self.geometry("480x520")
         for widget in self.winfo_children():
             widget.destroy()
 
-        conteiner = ttk.Frame(self)
-        conteiner.pack(fill="both", expand=True)
+        _BG  = "#111111"
+        _C   = "#1a1a1a"   # card bg
+        _D   = "#606060"   # rótulos dim
+        _A   = "#1b6ef3"   # accent azul
 
-        card = ttk.Frame(conteiner, style="Card.TFrame", relief="ridge")
+        # fundo da janela
+        fundo = tk.Frame(self, bg=_BG)
+        fundo.pack(fill="both", expand=True)
+
+        # card centralizado
+        card = tk.Frame(fundo, bg=_C)
         card.place(relx=0.5, rely=0.5, anchor="center")
 
-        ttk.Label(card, text="Acesso", style="Titulo.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(card, text="Informe seu user_id e a chave.", style="Subtitulo.TLabel").grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(2, 14)
-        )
+        # barra de acento no topo do card
+        tk.Frame(card, bg=_A, height=3, width=360).pack(fill="x")
 
-        ttk.Label(card, text="User ID").grid(row=2, column=0, sticky="w")
-        entrada_user = ttk.Entry(card, textvariable=self._var_user, width=36)
-        entrada_user.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(4, 12))
+        # conteúdo interno com padding
+        inner = tk.Frame(card, bg=_C, padx=32, pady=24)
+        inner.pack(fill="both")
 
-        ttk.Label(card, text="Chave").grid(row=4, column=0, sticky="w")
-        entrada_chave = ttk.Entry(card, textvariable=self._var_chave, width=36, show="•")
-        entrada_chave.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(4, 14))
+        # cabeçalho
+        tk.Label(inner, text="Cronômetro", bg=_C, fg="#ffffff",
+                 font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        tk.Label(inner, text="Faça login para continuar", bg=_C, fg=_D,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 20))
 
-        ttk.Button(card, text="Entrar", style="Primario.TButton", command=self._logar).grid(
-            row=6, column=0, columnspan=2, sticky="ew"
-        )
+        # User ID
+        tk.Label(inner, text="USER ID", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        entrada_user = ttk.Entry(inner, textvariable=self._var_user, width=34)
+        entrada_user.pack(fill="x", pady=(3, 14))
 
-        ttk.Label(card, textvariable=self._var_status).grid(row=7, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        # Chave
+        tk.Label(inner, text="CHAVE", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        entrada_chave = ttk.Entry(inner, textvariable=self._var_chave, width=34, show="•")
+        entrada_chave.pack(fill="x", pady=(3, 18))
+
+        # Botão Entrar
+        ttk.Button(inner, text="Entrar", style="Primario.TButton",
+                   command=self._logar).pack(fill="x")
+
+        # Status — cor muda conforme conteúdo
+        lbl_status = tk.Label(inner, textvariable=self._var_status, bg=_C, fg=_D,
+                              font=("Segoe UI", 9))
+        lbl_status.pack(anchor="w", pady=(10, 0))
+
+        def _atualizar_cor_status(*_: object) -> None:
+            try:
+                if not lbl_status.winfo_exists():
+                    return
+            except Exception:
+                return
+            txt = self._var_status.get().lower()
+            if any(p in txt for p in ("inválido", "erro", "falha")):
+                lbl_status.configure(fg="#ff5555")
+            elif any(p in txt for p in ("ok", "verificando", "carregando", "baixando")):
+                lbl_status.configure(fg="#3ecf6e")
+            else:
+                lbl_status.configure(fg=_D)
+
+        self._var_status.trace_add("write", _atualizar_cor_status)
 
         entrada_user.focus_set()
         self.bind("<Return>", lambda _e: self._logar())
 
     def _montar_tela_principal(self) -> None:
+        self.geometry("660x340")
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -1797,16 +2018,17 @@ class App(tk.Tk):
         painel = ttk.Frame(quadro)
         painel.pack(fill="both", expand=True, pady=(14, 0))
 
-        ttk.Label(painel, textvariable=self._var_tempo, font=("Segoe UI", 44, "bold")).pack(anchor="center")
-        ttk.Label(painel, textvariable=self._var_status, font=("Segoe UI", 10, "bold")).pack(anchor="center", pady=(6, 0))
-        ttk.Label(painel, textvariable=self._var_erro, foreground="#b00020").pack(anchor="center", pady=(6, 0))
+        ttk.Label(painel, textvariable=self._var_tempo, font=("Segoe UI", 44, "bold"), foreground="#ffffff").pack(anchor="center")
+        ttk.Label(painel, textvariable=self._var_status, font=("Segoe UI", 10, "bold"), foreground="#aaaaaa").pack(anchor="center", pady=(6, 0))
+        ttk.Label(painel, textvariable=self._var_erro, foreground="#ff5555").pack(anchor="center", pady=(2, 0))
 
         self._var_texto_btn_principal = tk.StringVar(value="Iniciar")
 
         botoes = ttk.Frame(quadro)
-        botoes.pack(fill="x", pady=(14, 0))
+        botoes.pack(fill="x", pady=(16, 0))
 
-        ttk.Button(botoes, textvariable=self._var_texto_btn_principal, command=self._acao_principal).pack(side="left", expand=True, fill="x", padx=4)
+        self._btn_principal = ttk.Button(botoes, textvariable=self._var_texto_btn_principal, style="Verde.TButton", command=self._acao_principal)
+        self._btn_principal.pack(side="left", expand=True, fill="x", padx=4)
         ttk.Button(botoes, text="Tarefas", command=self._abrir_tarefas_do_dia).pack(side="left", expand=True, fill="x", padx=4)
         ttk.Button(botoes, text="Zerar Cronômetro", command=self._finalizar).pack(side="left", expand=True, fill="x", padx=4)
 
@@ -2034,7 +2256,7 @@ class App(tk.Tk):
         janela.geometry("230x95")
         janela.resizable(False, False)
         janela.attributes("-topmost", True)
-        janela.configure(padx=10, pady=10)
+        janela.configure(bg="#111111", padx=10, pady=10)
 
         ttk.Label(janela, textvariable=self._var_tempo_fixado, font=("Segoe UI", 26, "bold")).pack(anchor="center")
         ttk.Label(janela, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold")).pack(anchor="center", pady=(2, 0))
@@ -2070,6 +2292,9 @@ class App(tk.Tk):
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
             return
+
+        self._var_status.set("Carregando...")
+        self.update_idletasks()
 
         try:
             id_atividade, titulo_atividade = self._obter_contexto_atividade_ativa()
@@ -2128,28 +2353,54 @@ class App(tk.Tk):
         if hasattr(self, "_var_texto_btn_principal"):
             if not tem_sessao:
                 self._var_texto_btn_principal.set("Iniciar")
+                _estilo_btn = "Verde.TButton"
             elif estado.rodando:
                 self._var_texto_btn_principal.set("Pausar")
+                _estilo_btn = "Primario.TButton"
             else:
                 self._var_texto_btn_principal.set("Retomar")
+                _estilo_btn = "Primario.TButton"
+            try:
+                self._btn_principal.configure(style=_estilo_btn)
+            except (AttributeError, tk.TclError):
+                pass
 
         self._var_erro.set(f"Erro: {estado.ultimo_erro}" if estado.ultimo_erro else "")
 
         self.after(INTERVALO_UI_MILISSEGUNDOS, self._tick_ui)
 
     def _ao_fechar(self) -> None:
-        try:
-            self._monitor.pausar_e_preservar_sessao()
-        except Exception:
-            pass
+        # Bloqueia novo clique no X enquanto finaliza
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
 
-        try:
-            self._banco.fechar_conexao_da_thread()
-        except Exception:
-            pass
+        overlay = tk.Frame(self, bg="#111111")
+        overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        tk.Label(
+            overlay,
+            text="Saindo, aguarde...",
+            bg="#111111",
+            fg="#e0e0e0",
+            font=("Segoe UI", 14, "bold"),
+        ).place(relx=0.5, rely=0.5, anchor="center")
+        self.update_idletasks()
 
-        self._fechar_fixado()
-        self.destroy()
+        def _finalizar() -> None:
+            try:
+                self._monitor.pausar_e_preservar_sessao()
+            except Exception:
+                pass
+            try:
+                self._banco.fechar_conexao_da_thread()
+            except Exception:
+                pass
+
+            def _na_ui() -> None:
+                self._fechar_fixado()
+                self.destroy()
+
+            self.after(0, _na_ui)
+
+        threading.Thread(target=_finalizar, daemon=True).start()
 
 
 if __name__ == "__main__":

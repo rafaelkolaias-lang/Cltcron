@@ -283,6 +283,7 @@ function graficos_garantir_usuario(array &$usuarios, string $user_id, array $lin
             'apps_abertos_agora' => [],
             'apps_resumo' => [],
             'periodos_foco' => [],
+            'periodos_abertos' => [],
             'segundos_total_apps' => 0,
             'segundos_total_foco' => 0,
             'segundos_total_segundo_plano' => 0,
@@ -408,7 +409,21 @@ try {
         $apps_json = graficos_decodificar_apps_json($linha_status['apps_json'] ?? null);
         $em_foco = is_array($apps_json['em_foco'] ?? null) ? $apps_json['em_foco'] : [];
 
-        $usuarios[$user_id]['status_atual'] = graficos_normalizar_texto($linha_status['situacao'] ?? 'sem_status', 40) ?: 'sem_status';
+        // v4.9 — timeout de inatividade: se o último heartbeat tem >3 min, força "pausado"
+        $status_raw = graficos_normalizar_texto($linha_status['situacao'] ?? 'sem_status', 40) ?: 'sem_status';
+        $ultimo_em_str = (string)($linha_status['ultimo_em'] ?? '');
+        if ($ultimo_em_str !== '' && $status_raw !== 'pausado' && $status_raw !== 'sem_status') {
+            try {
+                $dt_ultimo = new DateTime($ultimo_em_str);
+                $segundos_desde_ultimo = time() - $dt_ultimo->getTimestamp();
+                if ($segundos_desde_ultimo > 180) {
+                    $status_raw = 'pausado';
+                }
+            } catch (Exception $e) {
+                // data inválida — mantém status original
+            }
+        }
+        $usuarios[$user_id]['status_atual'] = $status_raw;
         $usuarios[$user_id]['atividade_atual'] = graficos_normalizar_texto($linha_status['atividade'] ?? '', 255);
         $usuarios[$user_id]['status_desde_em'] = (string)($linha_status['inicio_em'] ?? '');
         $usuarios[$user_id]['status_ultimo_em'] = (string)($linha_status['ultimo_em'] ?? '');
@@ -530,6 +545,39 @@ try {
             'fim_em' => (string)($linha['fim_em'] ?? ''),
             'segundos_periodo' => max(0, (int)($linha['segundos_periodo'] ?? 0)),
             'aberto_agora' => (int)($linha['aberto_agora'] ?? 0) === 1,
+        ];
+    }
+
+    // ── Períodos de todos os apps abertos (foco + 2.º plano) ──────────────────
+    $sqlPeriodosAbertos = "
+        SELECT
+            ai.user_id,
+            ai.nome_app,
+            ai.inicio_em,
+            COALESCE(ai.fim_em, ai.ultima_atualizacao_em, NOW()) AS fim_em,
+            ai.segundos_em_foco,
+            ai.segundos_segundo_plano,
+            (ai.segundos_em_foco + ai.segundos_segundo_plano) AS segundos_total
+        FROM cronometro_apps_intervalos ai
+        INNER JOIN usuarios u ON u.user_id = ai.user_id
+        WHERE {$where_intervalos}
+        ORDER BY ai.user_id ASC, ai.inicio_em DESC
+        LIMIT 8000
+    ";
+    $cmdPeriodosAbertos = $conexao_banco->prepare($sqlPeriodosAbertos);
+    $cmdPeriodosAbertos->execute($parametros_intervalos);
+    foreach ($cmdPeriodosAbertos->fetchAll(PDO::FETCH_ASSOC) ?: [] as $linha) {
+        $user_id = (string)($linha['user_id'] ?? '');
+        if ($user_id === '' || !isset($usuarios[$user_id])) {
+            continue;
+        }
+        $usuarios[$user_id]['periodos_abertos'][] = [
+            'nome_app'            => (string)($linha['nome_app'] ?? '—'),
+            'inicio_em'           => (string)($linha['inicio_em'] ?? ''),
+            'fim_em'              => (string)($linha['fim_em'] ?? ''),
+            'segundos_em_foco'    => max(0, (int)($linha['segundos_em_foco'] ?? 0)),
+            'segundos_segundo_plano' => max(0, (int)($linha['segundos_segundo_plano'] ?? 0)),
+            'segundos_total'      => max(0, (int)($linha['segundos_total'] ?? 0)),
         ];
     }
 

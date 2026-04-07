@@ -1,19 +1,31 @@
 :root{
-  --cor-fundo: #0b1220;
-  --cor-card: rgba(255,255,255,.06);
+  --cor-fundo: #050811;
+  --cor-card: rgba(255,255,255,.055);
   --cor-borda: rgba(255,255,255,.10);
-  --cor-texto: rgba(255,255,255,.92);
-  --cor-texto-fraco: rgba(255,255,255,.65);
+  --cor-texto: rgba(255,255,255,.93);
+  --cor-texto-fraco: rgba(255,255,255,.58);
   --cor-linha: rgba(255,255,255,.07);
+
+  /* Gradiente RK Produções */
+  --rk-1: #ff1f5b;
+  --rk-2: #ff6b1f;
+  --rk-3: #ffd600;
+  --rk-4: #a800ff;
+  --rk-5: #1a1aff;
+  --rk-grad: linear-gradient(135deg, #ff1f5b, #ff6b1f, #ffd600, #a800ff);
+  --rk-glow: 0 0 20px rgba(255,31,91,.35), 0 0 40px rgba(168,0,255,.2);
 }
 
 /* base */
 *{ box-sizing: border-box; }
 
 body{
-  background: radial-gradient(1200px 600px at 15% 10%, rgba(62,146,255,.18), transparent 60%),
-              radial-gradient(900px 500px at 80% 35%, rgba(167,75,255,.14), transparent 55%),
-              var(--cor-fundo);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  background:
+    radial-gradient(900px 500px at 10% 5%,  rgba(255,31,91,.12),  transparent 60%),
+    radial-gradient(700px 400px at 85% 20%, rgba(168,0,255,.13),  transparent 55%),
+    radial-gradient(600px 350px at 50% 90%, rgba(255,107,31,.08), transparent 60%),
+    var(--cor-fundo);
   color: var(--cor-texto);
 }
 
@@ -22,11 +34,16 @@ body{
 .cartao-grafite{
   background: var(--cor-card);
   border: 1px solid var(--cor-borda);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 16px;
+  transition: border-color .2s, box-shadow .2s;
 
   /* ✅ importante: evita “vazamentos” visuais (botão/focus/progress/etc) */
   overflow: hidden;
+}
+.cartao-grafite:hover{
+  border-color: rgba(255,255,255,.18);
 }
 
 .sidebar{
@@ -330,8 +347,244 @@ body{
   margin: 20px 0;
 }
 
+/* Opções do <select> nos filtros do painel — fundo escuro para legibilidade */
+.filtros-compactos .form-select option,
+#filtroGraficosUsuarioDetalhe option {
+  background-color: #1a1f2e;
+  color: #e2e8f0;
+}
+
 input::placeholder,
 textarea::placeholder{
   color: rgba(255,255,255,.5) !important;
   opacity: 1;
+}
+
+/* Botão Recarregar fixo no canto superior direito */
+.btn-recarregar-fixo {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1050;
+  box-shadow: 0 2px 12px rgba(0,0,0,.35);
+  font-size: .85rem;
+  padding: .35rem .75rem;
+  opacity: .92;
+  transition: opacity .15s;
+}
+.btn-recarregar-fixo:hover {
+  opacity: 1;
+}
+
+/* ============================================================
+   Navbar Grafite
+   ============================================================ */
+.navbar-grafite {
+  background: rgba(11, 18, 32, 0.97);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.navbar-grafite .navbar-brand { color: #fff; }
+.navbar-grafite .nav-link {
+  color: rgba(255,255,255,.72);
+  border-radius: .375rem;
+  padding: .4rem .75rem;
+  transition: color .15s, background .15s;
+}
+.navbar-grafite .nav-link:hover {
+  color: #fff;
+  background: rgba(255,255,255,.08);
+}
+.navbar-grafite .nav-link.active {
+  color: #fff;
+  background: transparent;
+  position: relative;
+}
+.navbar-grafite .nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: .5rem;
+  right: .5rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rk-grad);
+}
+.navbar-grafite .navbar-toggler { color: rgba(255,255,255,.7); }
+
+/* ============================================================
+   Hover submenu (Usuários / Atividades)
+   ============================================================ */
+.nav-hover-submenu { position: relative; }
+.nav-hover-submenu .submenu-nav {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1080;
+  min-width: 190px;
+  list-style: none;
+  margin: 0;
+  /* ponte invisível: padding-top evita gap entre link e submenu */
+  padding: .4rem 0 .35rem;
+  background: rgba(18, 28, 48, 0.98);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: .5rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,.45);
+}
+.nav-hover-submenu:hover .submenu-nav { display: block; }
+.nav-hover-submenu .submenu-nav a {
+  display: block;
+  padding: .45rem 1rem;
+  color: rgba(255,255,255,.78);
+  font-size: .875rem;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.nav-hover-submenu .submenu-nav a:hover {
+  background: rgba(255,255,255,.08);
+  color: #fff;
+}
+
+/* ============================================================
+   Logo RK Produções Digitais — Navbar Brand
+   ============================================================ */
+.rk-logo-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 24px;
+  background: #ff0000;
+  border-radius: 5px;
+  flex-shrink: 0;
+}
+.rk-play {
+  color: #fff;
+  font-size: .7rem;
+  line-height: 1;
+  margin-left: 1px;
+}
+.rk-logo-texto {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+.rk-sigla {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -.5px;
+}
+.rk-producoes {
+  font-size: .5rem;
+  font-weight: 700;
+  color: rgba(255,255,255,.65);
+  letter-spacing: .08em;
+}
+
+/* ============================================================
+   Scrollbar fina RK
+   ============================================================ */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,.03); }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,.18);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,31,91,.55); }
+
+/* ============================================================
+   Transições suaves globais
+   ============================================================ */
+a, button, .btn, .nav-link, .badge, .cartao-grafite, input, select, textarea {
+  transition: background .18s ease, color .18s ease, border-color .18s ease,
+              box-shadow .18s ease, opacity .18s ease;
+}
+
+/* ============================================================
+   Botões com glow RK
+   ============================================================ */
+.btn-light:hover {
+  box-shadow: 0 0 14px rgba(255,31,91,.3);
+}
+.btn-outline-light:hover {
+  box-shadow: 0 0 14px rgba(168,0,255,.3);
+}
+
+/* ============================================================
+   Shimmer animado na Timeline da Equipe
+   ============================================================ */
+.chart-shimmer-wrapper {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+}
+.chart-shimmer-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255,255,255,.015) 40%,
+    rgba(255,255,255,.03) 50%,
+    rgba(255,255,255,.015) 60%,
+    transparent 100%
+  );
+  animation: shimmerPass 7s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes shimmerPass {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+/* ============================================================
+   Legenda lateral de Apps (Seção 23)
+   ============================================================ */
+.legenda-lateral-apps {
+  width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.item-legenda {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity .15s, background .15s;
+}
+.item-legenda.active {
+  opacity: 1;
+}
+.item-legenda:hover {
+  background: rgba(255,255,255,.06);
+  opacity: 1;
+}
+.item-legenda__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.item-legenda__label {
+  font-size: .78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgba(255,255,255,.85);
 }

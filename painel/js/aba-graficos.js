@@ -5,7 +5,6 @@
   const seletorAbaGraficos = "#abaGraficos";
   const seletorAreaAlertas = "#areaAlertas";
 
-  let intervaloAutoAtualizacao = null;
   let requisicaoEmAndamento = false;
   let metaCarregada = false;
 
@@ -14,14 +13,65 @@
   let chartBarras = null;
   let chartTimeline = null;
 
-  // Paleta de cores harmônica (análoga azul-violeta, sutil no dark theme)
+  // Paleta de cores RK Produções (gradiente pink → laranja → amarelo → roxo → azul)
   const PALETA = [
-    "#6366f1", "#8b5cf6", "#a78bfa", "#60a5fa", "#38bdf8",
-    "#34d399", "#4ade80", "#fbbf24", "#f97316", "#f43f5e",
-    "#e879f9", "#22d3ee", "#a3e635", "#fb923c", "#c084fc",
+    "#ff1f5b", "#ff6b1f", "#ffd600", "#a800ff", "#1a1aff",
+    "#ff4d8d", "#ff9944", "#ffe566", "#c84bff", "#5577ff",
+    "#ff3d7a", "#ffb833", "#b300e0", "#3355ee", "#ff8040",
   ];
 
+  // ─── Mapa de cores fixas por aplicativo ─────────────────────
+  const MAPA_CORES_APPS = {
+    "DaVinci Resolve":     "#ef4444",
+    "Adobe Premiere Pro":  "#8b5cf6",
+    "Adobe After Effects": "#cc44ff",
+    "Adobe Photoshop":     "#31a8ff",
+    "Google Chrome":       "#3b82f6",
+    "chrome.exe":          "#3b82f6",
+    "File Explorer":       "#64748b",
+    "WhatsApp":            "#25d366",
+    "CapCut":              "#10b981",
+    "Telegram":            "#0088cc",
+    "discord.exe":         "#5865f2",
+    "Slack.exe":           "#4a154b",
+    "VLC media player.exe":"#f97316",
+    "Microsoft Word.exe":  "#2b579a",
+  };
+
+  let CORES_CUSTOMIZADAS = JSON.parse(localStorage.getItem("rk_cores_apps") || "{}");
+
+  function _obterCorApp(nome) {
+    const n = String(nome || "—").trim();
+    if (CORES_CUSTOMIZADAS[n]) return CORES_CUSTOMIZADAS[n]; // 1º: customizada pelo usuário
+    if (MAPA_CORES_APPS[n])    return MAPA_CORES_APPS[n];    // 2º: mapa fixo
+    let hash = 0;                                             // 3º: hash determinístico
+    for (let i = 0; i < n.length; i++) hash = n.charCodeAt(i) + ((hash << 5) - hash);
+    return PALETA[Math.abs(hash) % PALETA.length];
+  }
+
   // ─── Utilidades ─────────────────────────────────────────────
+  /** Clareia uma cor hex misturando com branco (fator 0–1). */
+  function _clarearCor(hex, fator) {
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    const f = fator || 0.35;
+    const rc = Math.round(r + (255-r)*f).toString(16).padStart(2,"0");
+    const gc = Math.round(g + (255-g)*f).toString(16).padStart(2,"0");
+    const bc = Math.round(b + (255-b)*f).toString(16).padStart(2,"0");
+    return `#${rc}${gc}${bc}`;
+  }
+
+  /** Cria um LinearGradient horizontal com efeito de brilho central. */
+  function _gradienteBarra(corBase) {
+    return new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+      { offset: 0,    color: _clarearCor(corBase, 0.25) },
+      { offset: 0.45, color: _clarearCor(corBase, 0.55) },
+      { offset: 0.55, color: _clarearCor(corBase, 0.55) },
+      { offset: 1,    color: _clarearCor(corBase, 0.2)  },
+    ]);
+  }
+
   function escaparHtml(t) {
     return String(t ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
@@ -112,6 +162,45 @@
     return "Offline";
   }
 
+  // ─── Filtro interativo por App ────────────────────────────
+  function alternarFiltroApp(nome) {
+    const idx = FILTROS_APPS_ATIVOS.indexOf(nome);
+    if (idx === -1) FILTROS_APPS_ATIVOS.push(nome);
+    else FILTROS_APPS_ATIVOS.splice(idx, 1);
+    // Re-renderiza só os charts de apps sem re-fetch — a legenda fica completa
+    _reRenderizarFiltroApps();
+  }
+
+  function _reRenderizarFiltroApps() {
+    if (!_dadosPainelAtual) return;
+    const userId = (document.getElementById("filtroGraficosUsuarioDetalhe") || {}).value || "";
+    const usuarios = _dadosPainelAtual.usuarios || [];
+    if (!userId) {
+      renderizarGlobalApps(usuarios);
+      _renderizarTeamTimelineDoDia();
+    } else {
+      const u = usuarios.find(x => x.user_id === userId) || usuarios[0];
+      if (u) {
+        renderizarGlobalApps(usuarios);
+        _renderizarTeamTimelineDoDia();
+        renderizarTimelineAbertosDoDia();
+      }
+    }
+  }
+
+  function _renderizarLegendaLateral(appsItems, containerId) {
+    const area = document.getElementById(containerId);
+    if (!area) return;
+    area.innerHTML = appsItems.map(a => {
+      const nome = a.nome || a.nome_app || "—";
+      const ativo = FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(nome);
+      return `<div class="item-legenda ${ativo ? "active" : ""}" onclick="(function(){window._alternarFiltroApp('${nome.replace(/'/g, "\\'")}')})()">
+        <span class="item-legenda__dot" style="background:${_obterCorApp(nome)}"></span>
+        <span class="item-legenda__label">${escaparHtml(nome)}</span>
+      </div>`;
+    }).join("");
+  }
+
   // ─── Estrutura HTML ────────────────────────────────────────
   function garantirEstruturaSimplificada() {
     const aba = document.querySelector(seletorAbaGraficos);
@@ -120,42 +209,6 @@
 
     aba.innerHTML = `
       <div id="painelGraficosSimplificado" class="container-fluid px-0">
-
-        <!-- Filtros compactos -->
-        <div class="cartao-grafite p-3 secao-graficos">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <div>
-              <h5 class="mb-0 fw-bold">Monitoramento de Atividade</h5>
-              <div class="texto-fraco small mt-1">Controle em tempo real dos apps utilizados por cada editor</div>
-            </div>
-            <div class="texto-fraco small">
-              <span id="textoGraficosUltimaAtualizacao">—</span>
-            </div>
-          </div>
-
-          <div class="filtros-compactos">
-            <div>
-              <label>Início</label>
-              <input type="date" id="filtroGraficosDataInicio" class="form-control form-control-sm bg-transparent text-white border-secondary" style="width:150px">
-            </div>
-            <div>
-              <label>Fim</label>
-              <input type="date" id="filtroGraficosDataFim" class="form-control form-control-sm bg-transparent text-white border-secondary" style="width:150px">
-            </div>
-            <div>
-              <label>Usuários</label>
-              <select id="filtroGraficosUsuarios" class="form-select form-select-sm bg-transparent text-white border-secondary" multiple size="3" style="width:200px"></select>
-            </div>
-            <div>
-              <label>Apps</label>
-              <select id="filtroGraficosApps" class="form-select form-select-sm bg-transparent text-white border-secondary" multiple size="3" style="width:200px"></select>
-            </div>
-            <div class="d-flex gap-2 align-items-end">
-              <button type="button" id="botaoAplicarFiltrosGraficos" class="btn btn-sm btn-light botao-mini">Aplicar</button>
-              <button type="button" id="botaoLimparFiltrosGraficos" class="btn btn-sm btn-outline-light botao-mini">Limpar</button>
-            </div>
-          </div>
-        </div>
 
         <!-- Cards de resumo - status em tempo real -->
         <div class="row g-3 secao-graficos">
@@ -200,14 +253,14 @@
         <!-- Tabela de usuários com status -->
         <div class="cartao-grafite p-3 secao-graficos">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="mb-0 fw-bold">Visão Geral dos Editores</h6>
+            <h6 class="mb-0 fw-bold">Visão Geral da Equipe</h6>
             <div class="texto-fraco small" id="textoTotalUsuarios"></div>
           </div>
           <div class="table-responsive tabela-limite" style="max-height:400px">
             <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
               <thead>
                 <tr class="texto-fraco small">
-                  <th>Editor</th>
+                  <th>Membro</th>
                   <th>Status</th>
                   <th>Atividade</th>
                   <th>App em foco</th>
@@ -225,12 +278,36 @@
 
         <!-- Detalhe do usuário selecionado -->
         <div class="cartao-grafite p-3 secao-graficos">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <h6 class="mb-0 fw-bold">Detalhe do Editor</h6>
-            <select id="filtroGraficosUsuarioDetalhe" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:260px"></select>
+          <!-- Cabeçalho com título + filtros integrados -->
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+            <div>
+              <h5 class="mb-0 fw-bold">Monitoramento de Atividade</h5>
+              <div class="texto-fraco small mt-1">Controle em tempo real dos apps utilizados por cada membro da equipe</div>
+            </div>
+            <div class="texto-fraco small pt-1"><span id="textoGraficosUltimaAtualizacao">—</span></div>
           </div>
+          <div class="filtros-compactos mb-3">
+            <div>
+              <label>Início</label>
+              <input type="date" id="filtroGraficosDataInicio" class="form-control form-control-sm bg-transparent text-white border-secondary" style="width:145px">
+            </div>
+            <div>
+              <label>Fim</label>
+              <input type="date" id="filtroGraficosDataFim" class="form-control form-control-sm bg-transparent text-white border-secondary" style="width:145px">
+            </div>
+            <div>
+              <label>Membro</label>
+              <select id="filtroGraficosUsuarioDetalhe" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:220px"></select>
+            </div>
+            <div class="d-flex gap-2 align-items-end">
+              <button type="button" id="botaoAplicarFiltrosGraficos" class="btn btn-sm btn-light botao-mini">Aplicar</button>
+              <button type="button" id="botaoLimparFiltrosGraficos" class="btn btn-sm btn-outline-light botao-mini">Limpar</button>
+              <button type="button" id="botaoAbrirModalCores" class="btn btn-sm btn-outline-warning botao-mini" title="Personalizar cores dos aplicativos">🎨 Cores</button>
+            </div>
+          </div>
+          <hr class="separador-sutil" style="margin-top:0">
           <div id="areaUsuarioSelecionadoGraficos">
-            <div class="texto-fraco">Selecione um editor para ver os detalhes.</div>
+            <div class="texto-fraco">Selecione um membro para ver os detalhes.</div>
           </div>
         </div>
 
@@ -239,14 +316,14 @@
           <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
             <div>
               <h6 class="mb-0 fw-bold">Tempo Declarado</h6>
-              <div class="texto-fraco small mt-1">Apenas o tempo que o editor declarou como trabalhado</div>
+              <div class="texto-fraco small mt-1">Apenas o tempo que o membro declarou como trabalhado</div>
             </div>
             <span class="badge badge-suave">declarado</span>
           </div>
           <div class="row g-3 mb-3" id="cardsDeclarado">
             <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Total declarado</div><div class="card-metrica__valor texto-mono" id="declTotalHoras">—</div></div></div>
             <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Valor estimado</div><div class="card-metrica__valor text-success" id="declTotalValor">—</div></div></div>
-            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Editores</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
+            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Membros</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
             <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Período</div><div class="card-metrica__valor" style="font-size:1rem" id="declPeriodo">—</div></div></div>
           </div>
           <div id="areaDeclaradoPorUsuario"><div class="texto-fraco small">Carregando…</div></div>
@@ -267,16 +344,15 @@
 
   function obterFiltros() {
     garantirDatasPadrao();
-    const vals = (id) => {
-      const el = document.getElementById(id);
-      return el ? Array.from(el.selectedOptions).map(o => o.value).filter(Boolean) : [];
-    };
+    const hoje = obterDataHojeIso();
+    const userId = (document.getElementById("filtroGraficosUsuarioDetalhe") || {}).value || "";
     return {
-      data_inicio: (document.getElementById("filtroGraficosDataInicio") || {}).value || "",
-      data_fim: (document.getElementById("filtroGraficosDataFim") || {}).value || "",
-      usuarios: vals("filtroGraficosUsuarios"),
-      apps: vals("filtroGraficosApps"),
-      usuario_detalhe: (document.getElementById("filtroGraficosUsuarioDetalhe") || {}).value || "",
+      // v5.0: sempre usa os inputs (que defaultam a 7 dias) — nunca força "só hoje"
+      data_inicio: (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje,
+      data_fim:    (document.getElementById("filtroGraficosDataFim")    || {}).value || hoje,
+      usuarios: userId ? [userId] : [], // seletor de membro é o filtro principal
+      apps: [], // filtro de apps é client-side, nunca mandado para a API
+      usuario_detalhe: userId,
     };
   }
 
@@ -301,14 +377,9 @@
       texto: `${u.nome_exibicao || u.user_id || "—"}`
     })).filter(u => u.user_id);
 
-    preencherSelect("filtroGraficosUsuarios", usuarios, "user_id", "texto");
-
-    const apps = (dados.apps || []).map(a => ({ nome: a, texto: a }));
-    preencherSelect("filtroGraficosApps", apps, "nome", "texto");
-
     const sel = document.getElementById("filtroGraficosUsuarioDetalhe");
     if (sel) {
-      sel.innerHTML = `<option value="">— Todos os editores (visão geral) —</option>`;
+      sel.innerHTML = `<option value="">— Todos (visão geral da equipe) —</option>`;
       usuarios.forEach(u => {
         const opt = document.createElement("option");
         opt.value = u.user_id; opt.textContent = u.texto;
@@ -332,12 +403,12 @@
     setTexto("textoResumoTempoPausado", hhmmss(r.segundos_pausado_total || 0));
   }
 
-  // ─── Tabela de editores ───────────────────────────────────
+  // ─── Tabela da equipe ─────────────────────────────────────
   function montarTabelaUsuarios(dados) {
     const tbody = document.getElementById("tbodyResumoUsuariosGraficos");
     if (!tbody) return;
     const usuarios = dados.usuarios || [];
-    setTexto("textoTotalUsuarios", `${usuarios.length} editor${usuarios.length !== 1 ? "es" : ""}`);
+    setTexto("textoTotalUsuarios", `${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""}`);
 
     if (!usuarios.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Sem dados para este período.</td></tr>`;
@@ -386,13 +457,32 @@
     const chart = criarOuObterChart("chartDonutApps", 300);
     if (!chart) return;
 
-    const apps = (usuario.apps_resumo || []).slice(0, 12);
-    if (!apps.length) { chart.clear(); return; }
+    // Usa periodos_foco filtrado pelo dia atual da timeline — garante que
+    // as horas do "Top Apps" sejam exatamente a soma do que aparece na timeline
+    const diaSelecionado = _timelineDias[_timelineIdxDia] || null;
+    const mapa = {};
+    (usuario.periodos_foco || [])
+      .filter(p => !diaSelecionado || _extrairDiaIso(p.inicio_em) === diaSelecionado)
+      .forEach(p => {
+        const nome = p.nome_app || "—";
+        mapa[nome] = (mapa[nome] || 0) + (p.segundos_periodo || 0);
+      });
+    const todosApps = Object.entries(mapa)
+      .map(([nome, seg]) => ({ nome_app: nome, segundos_em_foco: seg }))
+      .sort((a, b) => b.segundos_em_foco - a.segundos_em_foco)
+      .slice(0, 12);
 
-    const dados = apps.map((a, i) => ({
+    if (!todosApps.length) { chart.clear(); return; }
+
+    // Filtra apenas o dado do gráfico; a legenda sempre exibe todos
+    const appsGrafico = FILTROS_APPS_ATIVOS.length > 0
+      ? todosApps.filter(a => FILTROS_APPS_ATIVOS.includes(a.nome_app || "—"))
+      : todosApps;
+
+    const dados = appsGrafico.map((a) => ({
       name: a.nome_app || "—",
       value: a.segundos_em_foco || 0,
-      itemStyle: { color: PALETA[i % PALETA.length] },
+      itemStyle: { color: _obterCorApp(a.nome_app) },
     }));
 
     chart.setOption({
@@ -403,19 +493,11 @@
         textStyle: { color: "#e2e8f0", fontSize: 13 },
         formatter: (p) => `<strong>${escaparHtml(p.name)}</strong><br/>Foco: ${hhmm(p.value)}<br/>${p.percent?.toFixed(1)}%`,
       },
-      legend: {
-        type: "scroll",
-        orient: "vertical",
-        right: 10,
-        top: 20,
-        bottom: 20,
-        textStyle: { color: "rgba(255,255,255,.7)", fontSize: 12 },
-        pageTextStyle: { color: "rgba(255,255,255,.5)" },
-      },
+      legend: { show: false },
       series: [{
         type: "pie",
         radius: ["48%", "74%"],
-        center: ["35%", "50%"],
+        center: ["50%", "50%"],
         avoidLabelOverlap: true,
         padAngle: 2,
         itemStyle: { borderRadius: 6, borderColor: "rgba(11,18,32,.8)", borderWidth: 2 },
@@ -427,6 +509,12 @@
         data: dados,
       }],
     }, true);
+
+    chart.off("click");
+    chart.on("click", (params) => { if (params.name) alternarFiltroApp(params.name); });
+
+    // Legenda usa todosApps (todos os apps, não só os filtrados)
+    _renderizarLegendaLateral(todosApps.map(a => ({ nome: a.nome_app || "—" })), "legendaDonutApps");
   }
 
   function renderizarBarrasApps(usuario) {
@@ -469,6 +557,13 @@
     }, true);
   }
 
+  // Último payload completo da API — usado pelo modal de cores
+  let _dadosPainelAtual = null;
+
+  // Estado do filtro manual (seção 23)
+  let foiAplicadoManualmente = false;
+  let FILTROS_APPS_ATIVOS = [];
+
   // Estado da navegação dia a dia na timeline (detalhe individual)
   let _timelineDias = [];
   let _timelineIdxDia = 0;
@@ -478,6 +573,11 @@
   let _teamTimelineDias = [];
   let _teamTimelineIdxDia = 0;
   let _teamTimelineUsuarios = null;
+
+  // Estado da timeline geral (todos os apps abertos — foco + 2.º plano)
+  let _timelineAbertosDias = [];
+  let _timelineAbertosIdxDia = 0;
+  let _timelineAbertosUsuario = null;
 
   function _extrairDiaIso(datetimeStr) {
     const m = String(datetimeStr || "").match(/^(\d{4}-\d{2}-\d{2})/);
@@ -511,7 +611,8 @@
     if (!diaSelecionado) { chart.clear(); return; }
 
     const periodos = (_timelineUsuarioAtual.periodos_foco || [])
-      .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado);
+      .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado)
+      .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
 
     if (!periodos.length) {
       chart.clear();
@@ -520,12 +621,8 @@
     }
 
     const appsUnicos = [...new Set(periodos.map(p => p.nome_app || "—"))];
-    const corPorApp = {};
-    appsUnicos.forEach((app, i) => { corPorApp[app] = PALETA[i % PALETA.length]; });
-
-    // Limites fixos do dia: 00:00 → 23:59
-    const diaInicio = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFim = new Date(diaSelecionado + "T23:59:59").getTime();
+    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
     const dados = periodos
       .filter(p => p.inicio_em)
@@ -536,12 +633,17 @@
         return {
           name: app,
           value: [app, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0],
-          itemStyle: { color: corPorApp[app] },
+          itemStyle: { color: _obterCorApp(app) },
         };
       })
       .filter(d => !isNaN(d.value[1]));
 
     if (!dados.length) { chart.clear(); return; }
+
+    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
+    const paddingMs = 30 * 60 * 1000;
+    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
+    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
 
     const alturaChart = Math.max(120, Math.min(350, appsUnicos.length * 36 + 60));
     const el = document.getElementById("chartTimelineApps");
@@ -563,8 +665,8 @@
       grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
       xAxis: {
         type: "time",
-        min: diaInicio,
-        max: diaFim,
+        min: xMin, max: xMax,
+        minInterval: 15 * 60 * 1000, maxInterval: 2 * 3600 * 1000,
         axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
         splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
       },
@@ -575,7 +677,7 @@
           const catIdx = api.value(0);
           const inicio = api.coord([api.value(1), catIdx]);
           const fim = api.coord([api.value(2), catIdx]);
-          const bandH = api.size([0, 1])[1] * 0.6;
+          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18); // v4.8: máx 18px
           return {
             type: "rect",
             shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
@@ -608,6 +710,109 @@
   }
 
   // ─── Visão Global (todos os usuários) ─────────────────────
+
+  // ─── Timeline Geral (todos os apps abertos: foco + 2.º plano) ─────────────
+
+  function _atualizarLabelTimelineAbertos() {
+    const label = document.getElementById("timelineAbertosLabel");
+    if (!label || !_timelineAbertosDias.length) return;
+    label.textContent = _formatarDiaBr(_timelineAbertosDias[_timelineAbertosIdxDia]);
+    const btnAnt  = document.getElementById("btnTimelineAbertosDiaAnterior");
+    const btnProx = document.getElementById("btnTimelineAbertosDiaProximo");
+    if (btnAnt)  btnAnt.disabled  = _timelineAbertosIdxDia >= _timelineAbertosDias.length - 1;
+    if (btnProx) btnProx.disabled = _timelineAbertosIdxDia <= 0;
+  }
+
+  function renderizarTimelineAbertosDoDia() {
+    const chart = criarOuObterChart("chartTimelineAbertos", 200);
+    if (!chart || !_timelineAbertosUsuario) return;
+
+    // v4.6: usa o controle unificado de dias (mesmo _teamTimelineDias/_teamTimelineIdxDia)
+    const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
+    if (!diaSelecionado) { chart.clear(); return; }
+
+    const periodos = (_timelineAbertosUsuario.periodos_abertos || [])
+      .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado && p.inicio_em)
+      .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
+
+    if (!periodos.length) {
+      chart.clear();
+      chart.setOption({ title: { text: "Sem atividade neste dia", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
+      return;
+    }
+
+    const appsUnicos = [...new Set(periodos.map(p => p.nome_app || "—"))];
+    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
+
+    const dados = periodos.map(p => {
+      const app    = p.nome_app || "—";
+      const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
+      const fim    = new Date(String(p.fim_em).replace(" ", "T"));
+      return {
+        name: app,
+        value: [app, inicio.getTime(), isNaN(fim.getTime()) ? Date.now() : fim.getTime(), p.segundos_total || 0],
+        itemStyle: { color: _obterCorApp(app) },
+      };
+    }).filter(d => !isNaN(d.value[1]));
+
+    if (!dados.length) { chart.clear(); return; }
+
+    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
+    const paddingMs = 30 * 60 * 1000;
+    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
+    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
+
+    const alturaChart = Math.max(120, Math.min(400, appsUnicos.length * 36 + 60));
+    const el = document.getElementById("chartTimelineAbertos");
+    if (el) el.style.height = alturaChart + "px";
+    chart.resize();
+
+    chart.setOption({
+      tooltip: {
+        backgroundColor: "rgba(15,20,35,.92)",
+        borderColor: "rgba(255,255,255,.1)",
+        textStyle: { color: "#e2e8f0", fontSize: 12 },
+        formatter: (p) => {
+          const v = p.value;
+          const ini = new Date(v[1]).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const f   = new Date(v[2]).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          return `<strong>${escaparHtml(v[0])}</strong><br/>${ini} → ${f}<br/>Total aberto: ${hhmm(v[3])}`;
+        },
+      },
+      grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
+      xAxis: {
+        type: "time", min: xMin, max: xMax,
+        minInterval: 15 * 60 * 1000, maxInterval: 2 * 3600 * 1000,
+        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
+        splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
+      },
+      yAxis: { type: "category", data: appsUnicos, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 100, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
+      series: [{
+        type: "custom",
+        renderItem: (params, api) => {
+          const catIdx = api.value(0);
+          const inicio = api.coord([api.value(1), catIdx]);
+          const fim    = api.coord([api.value(2), catIdx]);
+          const bandH  = Math.min(api.size([0, 1])[1] * 0.6, 18); // v4.8: máx 18px
+          return {
+            type: "rect",
+            shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
+            style: { ...api.style(), fill: api.visual("color") },
+            styleEmphasis: { ...api.style(), opacity: 1 },
+          };
+        },
+        encode: { x: [1, 2], y: 0 },
+        data: dados,
+      }],
+    }, true);
+  }
+
+  function renderizarTimelineAbertos(usuario) {
+    // v4.6: dias geridos pelo controle unificado (_teamTimelineDias/_teamTimelineIdxDia)
+    _timelineAbertosUsuario = usuario;
+    renderizarTimelineAbertosDoDia();
+  }
 
   function renderizarComparativoUsuarios(usuarios) {
     const chart = criarOuObterChart("chartGlobalComparativo", 260);
@@ -653,25 +858,34 @@
     const chart = criarOuObterChart("chartGlobalApps", 300);
     if (!chart) return;
 
+    // Usa periodos_foco filtrado pelo dia atual da team timeline — mesma fonte da timeline
+    const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia] || null;
     const mapaApps = {};
     usuarios.forEach(u => {
-      (u.apps_resumo || []).forEach(a => {
-        const nome = a.nome_app || "—";
-        mapaApps[nome] = (mapaApps[nome] || 0) + (a.segundos_em_foco || 0);
-      });
+      (u.periodos_foco || [])
+        .filter(p => !diaSelecionado || _extrairDiaIso(p.inicio_em) === diaSelecionado)
+        .forEach(p => {
+          const nome = p.nome_app || "—";
+          mapaApps[nome] = (mapaApps[nome] || 0) + (p.segundos_periodo || 0);
+        });
     });
 
-    const apps = Object.entries(mapaApps)
+    const todosApps = Object.entries(mapaApps)
       .map(([nome, seg]) => ({ nome, seg }))
       .sort((a, b) => b.seg - a.seg)
       .slice(0, 12);
 
-    if (!apps.length) { chart.clear(); return; }
+    if (!todosApps.length) { chart.clear(); return; }
 
-    const dados = apps.map((a, i) => ({
+    // Filtra apenas o dado do gráfico; a legenda sempre exibe todos
+    const appsGrafico = FILTROS_APPS_ATIVOS.length > 0
+      ? todosApps.filter(a => FILTROS_APPS_ATIVOS.includes(a.nome))
+      : todosApps;
+
+    const dados = appsGrafico.map((a) => ({
       name: a.nome,
       value: a.seg,
-      itemStyle: { color: PALETA[i % PALETA.length] },
+      itemStyle: { color: _obterCorApp(a.nome) },
     }));
 
     chart.setOption({
@@ -682,13 +896,9 @@
         textStyle: { color: "#e2e8f0", fontSize: 13 },
         formatter: (p) => `<strong>${escaparHtml(p.name)}</strong><br/>Foco total: ${hhmm(p.value)}<br/>${p.percent?.toFixed(1)}%`,
       },
-      legend: {
-        type: "scroll", orient: "vertical", right: 10, top: 20, bottom: 20,
-        textStyle: { color: "rgba(255,255,255,.7)", fontSize: 12 },
-        pageTextStyle: { color: "rgba(255,255,255,.5)" },
-      },
+      legend: { show: false },
       series: [{
-        type: "pie", radius: ["48%", "74%"], center: ["35%", "50%"],
+        type: "pie", radius: ["48%", "74%"], center: ["50%", "50%"],
         avoidLabelOverlap: true, padAngle: 2,
         itemStyle: { borderRadius: 6, borderColor: "rgba(11,18,32,.8)", borderWidth: 2 },
         label: { show: false },
@@ -699,14 +909,27 @@
         data: dados,
       }],
     }, true);
+
+    chart.off("click");
+    chart.on("click", (params) => { if (params.name) alternarFiltroApp(params.name); });
+
+    // Legenda usa todosApps (todos os apps, não só os filtrados)
+    _renderizarLegendaLateral(todosApps.map(a => ({ nome: a.nome })), "legendaGlobalApps");
   }
 
   function _atualizarLabelTeamTimeline() {
     const label = document.getElementById("teamTimelineDiaLabel");
-    if (!label || !_teamTimelineDias.length) return;
-    label.textContent = _formatarDiaBr(_teamTimelineDias[_teamTimelineIdxDia]);
     const btnAnt = document.getElementById("btnTeamTimelineDiaAnterior");
     const btnProx = document.getElementById("btnTeamTimelineDiaProximo");
+    if (!label) return;
+    // v4.9: trata array vazio — desabilita ambos os botões explicitamente
+    if (!_teamTimelineDias.length) {
+      label.textContent = "—";
+      if (btnAnt) btnAnt.disabled = true;
+      if (btnProx) btnProx.disabled = true;
+      return;
+    }
+    label.textContent = _formatarDiaBr(_teamTimelineDias[_teamTimelineIdxDia]);
     if (btnAnt) btnAnt.disabled = _teamTimelineIdxDia >= _teamTimelineDias.length - 1;
     if (btnProx) btnProx.disabled = _teamTimelineIdxDia <= 0;
   }
@@ -718,18 +941,19 @@
     const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
     if (!diaSelecionado) { chart.clear(); return; }
 
-    const diaInicio = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFim = new Date(diaSelecionado + "T23:59:59").getTime();
+    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
     const userNomes = [];
     const dados = [];
 
-    _teamTimelineUsuarios.forEach((u, uIdx) => {
+    _teamTimelineUsuarios.forEach((u) => {
       const nome = u.nome_exibicao || u.user_id || "—";
       if (!userNomes.includes(nome)) userNomes.push(nome);
 
       (u.periodos_foco || [])
         .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado && p.inicio_em)
+        .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"))
         .forEach(p => {
           const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
           const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
@@ -737,7 +961,7 @@
             dados.push({
               name: p.nome_app || "—",
               value: [nome, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0, p.nome_app || "—"],
-              itemStyle: { color: PALETA[uIdx % PALETA.length] },
+              itemStyle: { color: _obterCorApp(p.nome_app) },
             });
           }
         });
@@ -748,6 +972,11 @@
       chart.setOption({ title: { text: "Sem atividade neste dia", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
       return;
     }
+
+    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
+    const paddingMs = 30 * 60 * 1000;
+    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
+    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
 
     const alturaChart = Math.max(120, Math.min(400, userNomes.length * 48 + 60));
     const el = document.getElementById("chartGlobalTimeline");
@@ -768,7 +997,8 @@
       },
       grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
       xAxis: {
-        type: "time", min: diaInicio, max: diaFim,
+        type: "time", min: xMin, max: xMax,
+        minInterval: 15 * 60 * 1000, maxInterval: 2 * 3600 * 1000,
         axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
         splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
       },
@@ -779,7 +1009,7 @@
           const catIdx = api.value(0);
           const inicio = api.coord([api.value(1), catIdx]);
           const fim = api.coord([api.value(2), catIdx]);
-          const bandH = api.size([0, 1])[1] * 0.6;
+          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18); // v4.8: máx 18px
           return {
             type: "rect",
             shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
@@ -803,37 +1033,88 @@
       return;
     }
 
+    const tituloSecao = usuarios.length === 1 ? `Visão Geral: ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Visão Geral da Equipe";
+    const tituloApps  = usuarios.length === 1 ? `Top apps de ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Top apps da equipe (foco agregado)";
+    const tituloTL    = usuarios.length === 1 ? `Timeline de ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Timeline da equipe";
+
+    const individual = usuarios.length === 1;
+
     area.innerHTML = `
       <div class="perfil-usuario-header mb-3">
         <div class="flex-grow-1">
-          <h5 class="mb-1 fw-bold">Visão Geral da Equipe</h5>
-          <div class="texto-fraco small">${usuarios.length} editor${usuarios.length !== 1 ? "es" : ""} no período</div>
+          <h5 class="mb-1 fw-bold">${escaparHtml(tituloSecao)}</h5>
+          <div class="texto-fraco small">${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""} no período</div>
         </div>
       </div>
 
       <hr class="separador-sutil">
 
+      ${individual ? `
+      <!-- Visão individual: donut foco + barras foco vs 2.º plano lado a lado -->
+      <div class="row g-3 mb-4">
+        <div class="col-12 col-xl-5">
+          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloApps)}</div>
+          <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
+            <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:180px;height:300px"></div>
+            <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
+          </div>
+        </div>
+        <div class="col-12 col-xl-7">
+          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Todos os programas — foco vs 2.º plano</div>
+          <div id="chartBarrasApps" class="grafico-container" style="height:300px"></div>
+        </div>
+      </div>
+      ` : `
+      <!-- Visão equipe: barra comparativa + donut -->
       <div class="mb-4">
-        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Tempo por editor</div>
+        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Tempo por membro</div>
         <div id="chartGlobalComparativo" class="grafico-container" style="height:${Math.max(160, usuarios.length * 40 + 60)}px"></div>
       </div>
-
       <div class="mb-4">
-        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Top apps da equipe (foco agregado)</div>
-        <div id="chartGlobalApps" class="grafico-container" style="height:300px"></div>
+        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloApps)}</div>
+        <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
+          <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:200px;height:300px"></div>
+          <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
+        </div>
       </div>
+      `}
 
+      ${individual ? `
+      <!-- Individual: controle único de data + duas timelines -->
       <div class="mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">Timeline da equipe</div>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">Timelines de atividade</div>
           <div class="d-flex align-items-center gap-2">
             <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
             <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
             <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
           </div>
         </div>
-        <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
+        <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>
+        <div class="chart-shimmer-wrapper mb-3">
+          <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
+        </div>
+        <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Todos os apps abertos (foco + 2.º plano)</div>
+        <div class="chart-shimmer-wrapper">
+          <div id="chartTimelineAbertos" class="grafico-container" style="height:200px"></div>
+        </div>
       </div>
+      ` : `
+      <!-- Equipe: timeline única -->
+      <div class="mb-3">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloTL)}</div>
+          <div class="d-flex align-items-center gap-2">
+            <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
+            <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
+            <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
+          </div>
+        </div>
+        <div class="chart-shimmer-wrapper">
+          <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
+        </div>
+      </div>
+      `}
     `;
 
     _teamTimelineUsuarios = usuarios;
@@ -843,18 +1124,31 @@
         const dia = _extrairDiaIso(p.inicio_em);
         if (dia) diasSet.add(dia);
       });
+      // v4.6: quando individual, inclui também dias de periodos_abertos no controle unificado
+      if (individual) {
+        (u.periodos_abertos || []).forEach(p => {
+          const dia = _extrairDiaIso(p.inicio_em);
+          if (dia) diasSet.add(dia);
+        });
+      }
     });
     _teamTimelineDias = [...diasSet].sort().reverse();
     _teamTimelineIdxDia = 0;
 
     setTimeout(() => {
-      renderizarComparativoUsuarios(usuarios);
-      renderizarGlobalApps(usuarios);
+      if (individual) {
+        renderizarGlobalApps(usuarios);
+        renderizarBarrasApps(usuarios[0]);
+        renderizarTimelineAbertos(usuarios[0]);
+      } else {
+        renderizarComparativoUsuarios(usuarios);
+        renderizarGlobalApps(usuarios);
+      }
       _atualizarLabelTeamTimeline();
       _renderizarTeamTimelineDoDia();
 
       window.addEventListener("resize", () => {
-        ["chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline"].forEach(id => {
+        ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps", "chartGlobalTimeline"].forEach(id => {
           echarts.getInstanceByDom(document.getElementById(id))?.resize();
         });
       }, { once: true });
@@ -862,111 +1156,49 @@
   }
 
   // ─── Detalhe do usuário selecionado ───────────────────────
+  // Sempre delega para montarVisaoGeralTodosUsuarios, que lida com
+  // 1 membro (títulos dinâmicos) ou N membros (visão de equipe).
+  // A API já filtra por usuário quando userId está definido.
   function montarDetalheUsuario(dados, userId) {
     const area = document.getElementById("areaUsuarioSelecionadoGraficos");
     if (!area) return;
 
     const usuarios = dados.usuarios || [];
-
-    // Sem usuário específico → visão global da equipe
-    if (!userId) {
-      montarVisaoGeralTodosUsuarios(dados);
-      return;
-    }
-
-    let u = usuarios.find(x => x.user_id === userId);
-    if (!u && usuarios.length) {
-      u = usuarios[0];
-      const sel = document.getElementById("filtroGraficosUsuarioDetalhe");
-      if (sel) sel.value = u.user_id || "";
-    }
-
-    if (!u) {
+    if (!usuarios.length) {
       area.innerHTML = `<div class="texto-fraco">Sem dados para o período selecionado.</div>`;
       return;
     }
 
-    const status = u.status_atual || "sem_status";
-    const appsAbertos = u.apps_abertos_agora || [];
+    // Mesma função para equipe e individual — títulos se adaptam automaticamente
+    montarVisaoGeralTodosUsuarios(dados);
 
-    area.innerHTML = `
-      <!-- Header do perfil -->
-      <div class="perfil-usuario-header">
-        <div class="perfil-avatar">${iniciais(u.nome_exibicao || u.user_id)}</div>
-        <div class="flex-grow-1">
-          <div class="d-flex flex-wrap align-items-center gap-2">
-            <h5 class="mb-0 fw-bold">${escaparHtml(u.nome_exibicao || u.user_id || "—")}</h5>
-            <span class="indicador-status ${classeStatus(status)}">${textoStatus(status)}</span>
+    // Quando é um membro individual, adiciona tabela detalhada de apps ao final
+    if (userId && usuarios[0]) {
+      setTimeout(() => {
+        const a = document.getElementById("areaUsuarioSelecionadoGraficos");
+        if (!a) return;
+        const u = usuarios[0];
+        // Status em tempo real — header de perfil compacto
+        const status = u.status_atual || "sem_status";
+        const appsAbertos = u.apps_abertos_agora || [];
+        const headerHtml = `
+          <div class="perfil-usuario-header mt-3">
+            <div class="perfil-avatar">${iniciais(u.nome_exibicao || u.user_id)}</div>
+            <div class="flex-grow-1">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold">${escaparHtml(u.user_id || "")}</span>
+                <span class="indicador-status ${classeStatus(status)}">${textoStatus(status)}</span>
+              </div>
+              <div class="texto-fraco small">${escaparHtml(String(u.atividade_atual || "").trim() || "Sem atividade")}</div>
+            </div>
+            ${appsAbertos.length ? `<div class="d-flex flex-wrap gap-2">${appsAbertos.map(ap => `<span class="pill-app"><span class="pill-app__dot"></span>${escaparHtml(ap.nome_app || "—")}</span>`).join("")}</div>` : ""}
           </div>
-          <div class="texto-fraco small mt-1">${escaparHtml(u.user_id || "")} · ${escaparHtml(String(u.atividade_atual || "").trim() || "Sem atividade")}</div>
-        </div>
-        <div class="d-flex gap-3 text-end d-none d-md-flex">
-          <div><div class="texto-fraco small">Trabalhado</div><div class="fw-bold texto-mono text-success">${hhmmss(u.segundos_trabalhando_total || 0)}</div></div>
-          <div><div class="texto-fraco small">Ocioso</div><div class="fw-bold texto-mono text-warning">${hhmmss(u.segundos_ocioso_total || 0)}</div></div>
-          <div><div class="texto-fraco small">Pausado</div><div class="fw-bold texto-mono">${hhmmss(u.segundos_pausado_total || 0)}</div></div>
-          <div><div class="texto-fraco small">Foco em apps</div><div class="fw-bold texto-mono">${hhmmss(u.segundos_total_foco || 0)}</div></div>
-        </div>
-      </div>
-
-      <!-- Apps abertos agora -->
-      ${appsAbertos.length ? `
-        <div class="mb-3">
-          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Apps abertos agora</div>
-          <div class="d-flex flex-wrap gap-2">
-            ${appsAbertos.map(a => `<span class="pill-app"><span class="pill-app__dot"></span>${escaparHtml(a.nome_app || "—")}<span class="texto-fraco small ms-1">${dataHoraCurta(a.inicio_em)}</span></span>`).join("")}
-          </div>
-        </div>
-      ` : ""}
-
-      <hr class="separador-sutil">
-
-      <!-- Gráficos lado a lado -->
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-xl-5">
-          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Distribuição por app (foco)</div>
-          <div id="chartDonutApps" class="grafico-container" style="height:300px"></div>
-        </div>
-        <div class="col-12 col-xl-7">
-          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Ranking de apps — foco vs 2.º plano</div>
-          <div id="chartBarrasApps" class="grafico-container" style="height:300px"></div>
-        </div>
-      </div>
-
-      <!-- Timeline dia a dia -->
-      <div class="mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">Timeline de uso</div>
-          <div class="d-flex align-items-center gap-2">
-            <button id="btnTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
-            <span id="timelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
-            <button id="btnTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
-          </div>
-        </div>
-        <div id="chartTimelineApps" class="grafico-container" style="height:${Math.max(120, Math.min(350, (new Set((u.periodos_foco||[]).map(p=>p.nome_app))).size * 36 + 60))}px"></div>
-      </div>
-
-      <hr class="separador-sutil">
-
-      <!-- Tabela detalhada de apps -->
-      <div>
-        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Resumo detalhado por app</div>
-        ${montarTabelaApps(u.apps_resumo || [])}
-      </div>
-    `;
-
-    // Renderizar gráficos após o DOM estar pronto
-    setTimeout(() => {
-      renderizarDonutApps(u);
-      renderizarBarrasApps(u);
-      renderizarTimelineApps(u);
-
-      // Responsividade
-      window.addEventListener("resize", () => {
-        echarts.getInstanceByDom(document.getElementById("chartDonutApps"))?.resize();
-        echarts.getInstanceByDom(document.getElementById("chartBarrasApps"))?.resize();
-        echarts.getInstanceByDom(document.getElementById("chartTimelineApps"))?.resize();
-      }, { once: true });
-    }, 50);
+          <hr class="separador-sutil">
+          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Resumo detalhado por app</div>
+          ${montarTabelaApps(u.apps_resumo || [])}`;
+        a.insertAdjacentHTML("beforeend", headerHtml);
+      }, 120); // após montarVisaoGeralTodosUsuarios já ter rodado o setTimeout de 50ms
+    }
   }
 
   function montarTabelaApps(apps) {
@@ -978,7 +1210,7 @@
           <th>App</th><th class="text-end">Foco</th><th class="text-end">2.º plano</th><th class="text-end">Total</th><th>Primeiro uso</th><th>Último uso</th>
         </tr></thead>
         <tbody>${apps.map((a,i) => `<tr>
-          <td><div class="d-flex align-items-center gap-2"><span style="width:10px;height:10px;border-radius:3px;background:${PALETA[i%PALETA.length]};flex-shrink:0"></span><span class="fw-semibold">${escaparHtml(a.nome_app || "—")}</span></div></td>
+          <td><div class="d-flex align-items-center gap-2"><span style="width:10px;height:10px;border-radius:3px;background:${_obterCorApp(a.nome_app)};flex-shrink:0"></span><span class="fw-semibold">${escaparHtml(a.nome_app || "—")}</span></div></td>
           <td class="text-end texto-mono">${hhmmss(a.segundos_em_foco || 0)}</td>
           <td class="text-end texto-mono texto-fraco">${hhmmss(a.segundos_segundo_plano || 0)}</td>
           <td class="text-end texto-mono">${hhmmss(a.segundos_total_aberto || 0)}</td>
@@ -1099,6 +1331,7 @@
         carregarTempoDeclarado(filtros),
       ]);
 
+      _dadosPainelAtual = dadosPainel;
       setTexto("textoGraficosUltimaAtualizacao", dataHoraCurta(dadosPainel.atualizado_em));
       montarResumo(dadosPainel);
       montarTabelaUsuarios(dadosPainel);
@@ -1115,12 +1348,10 @@
     const ini = document.getElementById("filtroGraficosDataInicio");
     if (fim) fim.value = obterDataHojeIso();
     if (ini) ini.value = subtrairDiasIso(obterDataHojeIso(), 6);
-    ["filtroGraficosUsuarios", "filtroGraficosApps"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) Array.from(el.options).forEach(o => { o.selected = false; });
-    });
     const det = document.getElementById("filtroGraficosUsuarioDetalhe");
     if (det) det.value = "";
+    foiAplicadoManualmente = false;
+    FILTROS_APPS_ATIVOS = [];
   }
 
   function configurarGatilhos() {
@@ -1131,8 +1362,9 @@
     });
 
     document.addEventListener("click", (ev) => {
-      if (ev.target?.id === "botaoAplicarFiltrosGraficos") atualizarGraficos();
+      if (ev.target?.id === "botaoAplicarFiltrosGraficos") { foiAplicadoManualmente = true; atualizarGraficos(); }
       if (ev.target?.id === "botaoLimparFiltrosGraficos") { limparFiltros(); atualizarGraficos(); }
+      if (ev.target?.id === "botaoAbrirModalCores") _abrirModalCores();
     });
 
     document.addEventListener("change", (ev) => {
@@ -1146,6 +1378,8 @@
           _timelineIdxDia++;
           _atualizarLabelDia();
           renderizarTimelineDoDia();
+          // donut sincroniza com o dia selecionado
+          if (_timelineUsuarioAtual) renderizarDonutApps(_timelineUsuarioAtual);
         }
       }
       if (ev.target?.id === "btnTimelineDiaProximo") {
@@ -1153,6 +1387,7 @@
           _timelineIdxDia--;
           _atualizarLabelDia();
           renderizarTimelineDoDia();
+          if (_timelineUsuarioAtual) renderizarDonutApps(_timelineUsuarioAtual);
         }
       }
       if (ev.target?.id === "btnTeamTimelineDiaAnterior") {
@@ -1160,6 +1395,9 @@
           _teamTimelineIdxDia++;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
+          if (_teamTimelineUsuarios) renderizarGlobalApps(_teamTimelineUsuarios);
+          // v4.6: controle unificado — atualiza abertos junto
+          if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }
       }
       if (ev.target?.id === "btnTeamTimelineDiaProximo") {
@@ -1167,29 +1405,103 @@
           _teamTimelineIdxDia--;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
+          if (_teamTimelineUsuarios) renderizarGlobalApps(_teamTimelineUsuarios);
+          // v4.6: controle unificado — atualiza abertos junto
+          if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }
       }
     });
   }
 
-  function iniciarAutoAtualizacao() {
-    pararAutoAtualizacao();
-    intervaloAutoAtualizacao = setInterval(() => { if (abaGraficosEstaVisivel()) atualizarGraficos(); }, 30000);
-  }
+  // ─── Modal de Cores ────────────────────────────────────────
+  function _abrirModalCores() {
+    // Coleta todos os apps únicos do último payload
+    const appsSet = new Set();
+    const usuarios = _dadosPainelAtual?.usuarios || [];
+    usuarios.forEach(u => {
+      (u.apps_resumo || []).forEach(a => { if (a.nome_app) appsSet.add(a.nome_app); });
+      (u.periodos_foco || []).forEach(p => { if (p.nome_app) appsSet.add(p.nome_app); });
+    });
+    const apps = [...appsSet].sort();
 
-  function pararAutoAtualizacao() {
-    if (intervaloAutoAtualizacao) { clearInterval(intervaloAutoAtualizacao); intervaloAutoAtualizacao = null; }
+    const linhas = apps.map(app => {
+      const cor = _obterCorApp(app);
+      return `
+        <div class="d-flex align-items-center gap-3 py-2" style="border-bottom:1px solid rgba(255,255,255,.06)">
+          <input type="color" value="${cor}" data-app="${escaparHtml(app)}"
+            class="rk-color-picker flex-shrink-0"
+            style="width:36px;height:28px;border:none;background:none;cursor:pointer;border-radius:4px;overflow:hidden">
+          <span class="small" style="flex:1">${escaparHtml(app)}</span>
+          <button type="button" class="btn btn-sm btn-link text-danger p-0 rk-reset-cor" data-app="${escaparHtml(app)}" title="Restaurar padrão" style="font-size:.75rem">Resetar</button>
+        </div>`;
+    }).join("");
+
+    // Inject / reutilizar modal
+    let modal = document.getElementById("modalRkCoresApps");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.className = "modal fade";
+      modal.id = "modalRkCoresApps";
+      modal.setAttribute("tabindex", "-1");
+      modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content bg-dark text-white border-secondary">
+            <div class="modal-header border-secondary">
+              <h5 class="modal-title">🎨 Cores dos Aplicativos</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="modalRkCoresCorpo" style="max-height:420px;overflow-y:auto"></div>
+            <div class="modal-footer border-secondary">
+              <button type="button" class="btn btn-outline-danger btn-sm" id="btnRkResetarTudo">Resetar Tudo</button>
+              <button type="button" class="btn btn-light btn-sm" id="btnRkSalvarCores">Salvar</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+    document.getElementById("modalRkCoresCorpo").innerHTML =
+      apps.length ? linhas : '<div class="texto-fraco text-center py-3">Carregue os gráficos primeiro.</div>';
+
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    modal.querySelector("#btnRkSalvarCores")?.addEventListener("click", () => {
+      modal.querySelectorAll(".rk-color-picker").forEach(inp => {
+        CORES_CUSTOMIZADAS[inp.dataset.app] = inp.value;
+      });
+      localStorage.setItem("rk_cores_apps", JSON.stringify(CORES_CUSTOMIZADAS));
+      bsModal.hide();
+      atualizarGraficos();
+    }, { once: true });
+
+    modal.querySelector("#btnRkResetarTudo")?.addEventListener("click", () => {
+      CORES_CUSTOMIZADAS = {};
+      localStorage.removeItem("rk_cores_apps");
+      bsModal.hide();
+      atualizarGraficos();
+    }, { once: true });
+
+    modal.querySelectorAll(".rk-reset-cor").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const app = btn.dataset.app;
+        const picker = modal.querySelector(`.rk-color-picker[data-app="${app}"]`);
+        if (picker) picker.value = MAPA_CORES_APPS[app] || "#888888";
+      });
+    });
   }
 
   function resizarGraficos() {
     ["chartDonutApps", "chartBarrasApps", "chartTimelineApps",
-     "chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline"].forEach((id) => {
+     "chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline", "chartTimelineAbertos"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) echarts.getInstanceByDom(el)?.resize();
     });
   }
 
   // ─── API pública ──────────────────────────────────────────
+  window._alternarFiltroApp = alternarFiltroApp;
+
   window.PainelAbaGraficos = {
     iniciarGraficos: () => {},
     renderizarAbaGraficos: atualizarGraficos,
@@ -1201,12 +1513,6 @@
     garantirEstruturaSimplificada();
     garantirDatasPadrao();
     configurarGatilhos();
-    iniciarAutoAtualizacao();
     if (abaGraficosEstaVisivel()) atualizarGraficos();
-
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) pararAutoAtualizacao();
-      else if (abaGraficosEstaVisivel()) iniciarAutoAtualizacao();
-    });
   });
 })();

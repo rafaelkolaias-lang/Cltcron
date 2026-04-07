@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Fundo branco/transparente -->
+  <!-- Ícone play vermelho (estilo YouTube) -->
+  <rect x="2" y="14" width="38" height="28" rx="7" ry="7" fill="#ff0000"/>
+  <!-- Triângulo play branco -->
+  <polygon points="15,21 15,35 30,28" fill="white"/>
+  <!-- Texto RK -->
+  <text x="43" y="38" font-family="Arial Black, sans-serif" font-weight="900" font-size="26" fill="#111111" letter-spacing="-1">RK</text>
+</svg>

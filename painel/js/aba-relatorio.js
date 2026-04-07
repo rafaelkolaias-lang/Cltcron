@@ -302,7 +302,7 @@
             <thead>
               <tr class="texto-fraco">
                 <th style="min-width:110px;">Data</th>
-                <th style="min-width:180px;">Editor</th>
+                <th style="min-width:180px;">Membro</th>
                 <th class="text-center" style="min-width:90px;">Tempo</th>
                 <th class="text-center" style="min-width:70px;">Declarações</th>
                 ${temValor ? '<th class="text-end" style="min-width:100px;">Valor (R$)</th>' : ""}
@@ -324,7 +324,7 @@
                 <td colspan="${temValor ? 5 : 4}" class="py-2">
                   <span class="badge badge-suave me-1">${esc(ds)}</span>
                   <span class="fw-semibold">${esc(dataIsoBr(data))}</span>
-                  <span class="texto-fraco ms-2">${grupo.length} editor${grupo.length !== 1 ? "es" : ""} · ${esc(subtotalH)} total${temValor ? " · " + rs(subtotalVal) : ""}</span>
+                  <span class="texto-fraco ms-2">${grupo.length} membro${grupo.length !== 1 ? "s" : ""} · ${esc(subtotalH)} total${temValor ? " · " + rs(subtotalVal) : ""}</span>
                 </td>
               </tr>
       `;

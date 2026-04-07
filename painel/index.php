@@ -7,98 +7,68 @@ header('Content-Type: text/html; charset=utf-8');
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Painel ADM · Cronômetro</title>
+  <title>Painel ADM · RK Produções Digitais</title>
 
+  <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="./css/painel.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 
 <body>
+  <nav class="navbar navbar-expand-lg navbar-grafite sticky-top" aria-label="Navegação principal">
+    <div class="container-fluid px-3">
+      <a class="navbar-brand d-flex align-items-center gap-2 text-decoration-none me-3" href="#">
+        <span class="rk-logo-icon" aria-hidden="true">
+          <span class="rk-play">&#9654;</span>
+        </span>
+        <span class="rk-logo-texto">
+          <span class="rk-sigla">RK</span><span class="rk-producoes">PRODUÇÕES</span>
+        </span>
+        <span class="badge badge-suave fw-normal small ms-1">ADM</span>
+      </a>
+
+      <button class="navbar-toggler border-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#navbarConteudo" aria-controls="navbarConteudo" aria-expanded="false" aria-label="Abrir menu">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarConteudo">
+        <ul class="navbar-nav me-auto gap-1" id="menuAbas">
+          <li class="nav-item">
+            <a class="nav-link active" href="#" data-aba="abaDashboard">Dashboard</a>
+          </li>
+          <li class="nav-item nav-hover-submenu">
+            <a class="nav-link" href="#" data-aba="abaUsuarios">Usuários</a>
+            <ul class="submenu-nav">
+              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</a></li>
+            </ul>
+          </li>
+          <li class="nav-item nav-hover-submenu">
+            <a class="nav-link" href="#" data-aba="abaAtividades">Atividades</a>
+            <ul class="submenu-nav">
+              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Nova Atividade</a></li>
+            </ul>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-aba="abaGraficos">Gráficos</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
+          </li>
+        </ul>
+
+        <div class="d-flex align-items-center gap-2 ms-2">
+          <span class="texto-fraco small d-none d-xl-block" id="textoSubtitulo">Dashboard · visão geral</span>
+          <button class="btn btn-sm btn-outline-light" type="button" id="botaoRecarregarAba" title="Recarregar aba atual">&#x21BB; Recarregar</button>
+          <a href="/baixar_app.php" class="btn btn-sm btn-light">Baixar App</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+
   <div class="container-fluid">
-    <div class="row g-0">
-
-      <aside class="col-12 col-lg-3 col-xl-2 sidebar p-3" aria-label="Menu lateral">
-        <header class="d-flex align-items-center gap-2 mb-3">
-          <div class="cartao-grafite d-grid place-items-center sidebar__icone">
-            <span class="fw-bold">ADM</span>
-          </div>
-          <div>
-            <div class="fw-bold">Painel Cronômetro</div>
-            <div class="texto-fraco small">Dados do banco</div>
-          </div>
-        </header>
-
-        <section class="cartao-grafite p-3 mb-3" aria-label="Status do ambiente">
-          <div class="d-flex justify-content-between align-items-start gap-2">
-            <div>
-              <div class="texto-fraco small">Ambiente</div>
-              <div class="small text-truncate" id="textoAmbiente" title="Local">Local</div>
-            </div>
-            <span class="badge badge-suave">v1</span>
-          </div>
-
-          <hr class="border-light opacity-10 my-3">
-
-          <div class="d-flex gap-2">
-            <button id="botaoAtualizarTudo" class="btn btn-sm btn-light flex-fill" type="button">Atualizar</button>
-            <button id="botaoAutoAtualizacao" class="btn btn-sm btn-outline-light flex-fill" type="button" data-ativo="0">Auto: off</button>
-          </div>
-
-          <div class="texto-fraco small mt-2">
-            Este painel carrega usuários e pagamentos do banco.
-          </div>
-        </section>
-
-        <section class="cartao-grafite p-3 mb-3" aria-label="Download do aplicativo">
-          <div class="d-flex justify-content-between align-items-start gap-2">
-            <div>
-              <div class="texto-fraco small">Aplicativo</div>
-              <div class="small">Cronômetro do funcionário</div>
-            </div>
-            <span class="badge badge-suave">.exe</span>
-          </div>
-
-          <hr class="border-light opacity-10 my-3">
-
-          <div class="d-grid gap-2">
-            <a href="/baixar_app.php" class="btn btn-sm btn-light">
-              Baixar aplicativo
-            </a>
-          </div>
-
-          <div class="texto-fraco small mt-2">
-            Baixe o executável e envie para o funcionário instalar no computador.
-          </div>
-        </section>
-
-        <nav aria-label="Abas do painel">
-          <ul class="nav nav-pills flex-column gap-1" id="menuAbas">
-            <li class="nav-item"><a class="nav-link active" href="#" data-aba="abaDashboard">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" href="#" data-aba="abaUsuarios">Usuários</a></li>
-            <li class="nav-item"><a class="nav-link" href="#" data-aba="abaAtividades">Atividades</a></li>
-            <li class="nav-item"><a class="nav-link" href="#" data-aba="abaGraficos">Gráficos</a></li>
-            <li class="nav-item"><a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a></li>
-          </ul>
-        </nav>
-
-        <footer class="texto-fraco small mt-3">
-          Próximo passo: ligar cronômetro real por usuário (API/app).
-        </footer>
-      </aside>
-
-      <div class="col-12 col-lg-9 col-xl-10 p-3 p-md-4">
-
-        <header class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3" aria-label="Topo do painel">
-          <div>
-            <h1 class="h4 mb-1">Painel Administrativo</h1>
-            <div id="textoSubtitulo" class="texto-fraco">Dashboard · visão geral</div>
-          </div>
-
-          <div class="d-flex gap-2">
-            <button class="btn btn-light" type="button" id="botaoRecarregarAba">Recarregar aba</button>
-          </div>
-        </header>
+    <div class="p-3 p-md-4">
 
         <section id="areaAlertas" aria-label="Mensagens do sistema"></section>
 
@@ -869,7 +839,7 @@ header('Content-Type: text/html; charset=utf-8');
                   <span class="badge badge-suave">declarações</span>
                 </div>
                 <div class="texto-fraco small">
-                  Soma apenas o tempo que o editor declarou — sem ocioso, sem pausa.
+                  Soma apenas o tempo que o membro declarou — sem ocioso, sem pausa.
                 </div>
               </div>
 
@@ -904,9 +874,9 @@ header('Content-Type: text/html; charset=utf-8');
               </div>
               <div class="col-12 col-md-4">
                 <article class="cartao-grafite p-3 h-100">
-                  <div class="texto-fraco small">Total horas declaradas (todos editores)</div>
+                  <div class="texto-fraco small">Total horas declaradas (equipe)</div>
                   <div class="display-6 fw-bold" id="relatorioTotalHoras">—</div>
-                  <div class="texto-fraco small mt-1"><span id="relatorioTotalEditores">—</span> editor(es) com declarações</div>
+                  <div class="texto-fraco small mt-1"><span id="relatorioTotalEditores">—</span> membro(s) com declarações</div>
                 </article>
               </div>
               <div class="col-12 col-md-4">
@@ -931,7 +901,6 @@ header('Content-Type: text/html; charset=utf-8');
           © Painel ADM · versão banco
         </footer>
 
-      </div>
     </div>
   </div>
 

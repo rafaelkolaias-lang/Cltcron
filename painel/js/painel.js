@@ -335,43 +335,6 @@
       rerenderizarAbaAtual();
     });
 
-    let timerAuto = null;
-    const botaoAuto = document.getElementById("botaoAutoAtualizacao");
-
-    function _pararTimerAuto() {
-      if (timerAuto) { clearInterval(timerAuto); timerAuto = null; }
-    }
-    function _iniciarTimerAuto() {
-      _pararTimerAuto();
-      timerAuto = setInterval(() => { rerenderizarAbaAtual(); }, 30000);
-    }
-
-    if (botaoAuto) botaoAuto.addEventListener("click", () => {
-      const ativo = botaoAuto.getAttribute("data-ativo") === "1";
-
-      if (ativo) {
-        botaoAuto.setAttribute("data-ativo", "0");
-        botaoAuto.textContent = "Auto: off";
-        _pararTimerAuto();
-        mostrarAlerta("info", "Auto atualização", "Desligada.");
-        return;
-      }
-
-      botaoAuto.setAttribute("data-ativo", "1");
-      botaoAuto.textContent = "Auto: on";
-      _iniciarTimerAuto();
-      mostrarAlerta("info", "Auto atualização", "Ligada (30s).");
-    });
-
-    // Pausar auto-atualização quando a aba do navegador fica oculta
-    document.addEventListener("visibilitychange", () => {
-      if (!botaoAuto || botaoAuto.getAttribute("data-ativo") !== "1") return;
-      if (document.hidden) {
-        _pararTimerAuto();
-      } else {
-        _iniciarTimerAuto();
-      }
-    });
   }
 
   // ==========================================================

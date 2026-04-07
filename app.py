@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import ctypes
 import json
+import os
 import platform
 import socket
+import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
+import urllib.request
 import uuid
 from ctypes import wintypes
 from dataclasses import dataclass
@@ -24,6 +28,7 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # CONFIGURAÇÕES
 # =========================
 VERSAO_APLICACAO = "v2.2"
+URL_ATUALIZACAO = "http://76.13.112.108/cronometro/CronometroLeve.exe"
 
 INTERVALO_LOOP_SEGUNDOS = 0.20
 INTERVALO_UI_MILISSEGUNDOS = 80
@@ -1819,6 +1824,66 @@ class App(tk.Tk):
                 except Exception as erro:
                     self._var_status.set(f"Falha ao restaurar sessão: {erro}")
 
+    def _verificar_atualizacao(self) -> None:
+        """Verifica se há uma versão mais nova do executável no servidor.
+        Se o tamanho remoto diferir do local, baixa e substitui automaticamente."""
+        try:
+            # Tamanho do executável atual
+            caminho_atual = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+            tamanho_local = caminho_atual.stat().st_size
+
+            # Tamanho remoto via HEAD (sem baixar o arquivo)
+            req = urllib.request.Request(URL_ATUALIZACAO, method="HEAD")
+            req.add_header("User-Agent", "CronometroLeve-Updater/1.0")
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                tamanho_remoto = int(resp.headers.get("Content-Length", 0))
+
+            if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
+                return  # sem atualização
+
+            # Confirma com o usuário
+            resposta = messagebox.askyesno(
+                "Atualização disponível",
+                "Uma nova versão do CronometroLeve está disponível.\n\n"
+                "Deseja baixar e instalar agora?\n"
+                "(O aplicativo será reiniciado automaticamente.)",
+            )
+            if not resposta:
+                return
+
+            self._var_status.set("Baixando atualização…")
+            self.update_idletasks()
+
+            # Diretório do exe atual
+            pasta = caminho_atual.parent
+            novo_exe = pasta / "CronometroLeve_novo.exe"
+            backup_exe = pasta / "CronometroLeve.exe.bak"
+
+            # Download
+            urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+
+            # Substituição: atual → .bak, novo → atual
+            if backup_exe.exists():
+                backup_exe.unlink()
+            if caminho_atual.exists():
+                os.rename(str(caminho_atual), str(backup_exe))
+            try:
+                os.rename(str(novo_exe), str(caminho_atual))
+            except Exception:
+                # Rollback: restaura o executável original
+                if backup_exe.exists() and not caminho_atual.exists():
+                    os.rename(str(backup_exe), str(caminho_atual))
+                self._var_status.set("Falha ao aplicar atualização.")
+                return
+
+            # Reinicia com o novo executável
+            subprocess.Popen([str(caminho_atual)])
+            sys.exit(0)
+
+        except Exception:
+            self._var_status.set("Não foi possível verificar atualizações.")
+            pass
+
     def _logar(self) -> None:
         user_id = (self._var_user.get() or "").strip()
         chave = (self._var_chave.get() or "").strip()
@@ -1841,6 +1906,7 @@ class App(tk.Tk):
         self._salvar_login(user_id, chave)
         self._var_status.set("Login OK.")
         self.unbind("<Return>")
+        self._verificar_atualizacao()
         self._montar_tela_principal()
 
     def _sair(self) -> None:

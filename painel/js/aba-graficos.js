@@ -603,6 +603,29 @@
     if (btnProx) btnProx.disabled = _timelineIdxDia <= 0;
   }
 
+  // Clipa sobreposições: dentro de cada lane (value[0]), ordena por início e corta
+  // cada período onde o seguinte começa — sem sobreposição, sem redundância.
+  function _cliparSobreposicoes(dados) {
+    const porLane = {};
+    dados.forEach(d => {
+      const lane = d.value[0];
+      (porLane[lane] = porLane[lane] || []).push(d);
+    });
+    const resultado = [];
+    Object.values(porLane).forEach(grupo => {
+      grupo.sort((a, b) => a.value[1] - b.value[1]);
+      for (let i = 0; i < grupo.length; i++) {
+        const d = grupo[i];
+        const ini = d.value[1];
+        const fim = (i + 1 < grupo.length && grupo[i + 1].value[1] < d.value[2])
+          ? grupo[i + 1].value[1]
+          : d.value[2];
+        if (fim > ini) resultado.push({ ...d, value: [d.value[0], ini, fim, ...d.value.slice(3)] });
+      }
+    });
+    return resultado;
+  }
+
   function renderizarTimelineDoDia() {
     const chart = criarOuObterChart("chartTimelineApps", 200);
     if (!chart || !_timelineUsuarioAtual) return;
@@ -624,19 +647,21 @@
     const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
     const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
-    const dados = periodos
-      .filter(p => p.inicio_em)
-      .map(p => {
-        const app = p.nome_app || "—";
-        const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
-        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
-        return {
-          name: app,
-          value: [app, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0],
-          itemStyle: { color: _obterCorApp(app) },
-        };
-      })
-      .filter(d => !isNaN(d.value[1]));
+    const dados = _cliparSobreposicoes(
+      periodos
+        .filter(p => p.inicio_em)
+        .map(p => {
+          const app = p.nome_app || "—";
+          const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
+          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
+          return {
+            name: app,
+            value: [app, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0],
+            itemStyle: { color: _obterCorApp(app) },
+          };
+        })
+        .filter(d => !isNaN(d.value[1]))
+    );
 
     if (!dados.length) { chart.clear(); return; }
 
@@ -745,16 +770,18 @@
     const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
     const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
-    const dados = periodos.map(p => {
-      const app    = p.nome_app || "—";
-      const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
-      const fim    = new Date(String(p.fim_em).replace(" ", "T"));
-      return {
-        name: app,
-        value: [app, inicio.getTime(), isNaN(fim.getTime()) ? Date.now() : fim.getTime(), p.segundos_total || 0],
-        itemStyle: { color: _obterCorApp(app) },
-      };
-    }).filter(d => !isNaN(d.value[1]));
+    const dados = _cliparSobreposicoes(
+      periodos.map(p => {
+        const app    = p.nome_app || "—";
+        const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
+        const fim    = new Date(String(p.fim_em).replace(" ", "T"));
+        return {
+          name: app,
+          value: [app, inicio.getTime(), isNaN(fim.getTime()) ? Date.now() : fim.getTime(), p.segundos_total || 0],
+          itemStyle: { color: _obterCorApp(app) },
+        };
+      }).filter(d => !isNaN(d.value[1]))
+    );
 
     if (!dados.length) { chart.clear(); return; }
 
@@ -973,10 +1000,12 @@
       return;
     }
 
+    const dadosClipados = _cliparSobreposicoes(dados);
+
     // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
     const paddingMs = 30 * 60 * 1000;
-    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
-    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
+    const xMin = Math.max(diaInicioMs, Math.min(...dadosClipados.map(d => d.value[1])) - paddingMs);
+    const xMax = Math.min(diaFimMs,    Math.max(...dadosClipados.map(d => d.value[2])) + paddingMs);
 
     const alturaChart = Math.max(120, Math.min(400, userNomes.length * 48 + 60));
     const el = document.getElementById("chartGlobalTimeline");
@@ -1018,7 +1047,7 @@
           };
         },
         encode: { x: [1, 2], y: 0 },
-        data: dados,
+        data: dadosClipados,
       }],
     }, true);
   }

@@ -1969,7 +1969,7 @@ class App(tk.Tk):
         entrada_chave.pack(fill="x", pady=(3, 18))
 
         # Botão Entrar
-        ttk.Button(inner, text="Entrar", style="Primario.TButton",
+        ttk.Button(inner, text="Entrar", style="Verde.TButton",
                    command=self._logar).pack(fill="x")
 
         # Status — cor muda conforme conteúdo
@@ -2068,30 +2068,37 @@ class App(tk.Tk):
                 pass  # falha silenciosa — atualização é opcional
 
         def _mostrar_overlay() -> None:
-            # Bloqueia fechar/minimizar
             self.protocol("WM_DELETE_WINDOW", lambda: None)
             self.resizable(False, False)
-            try:
-                self.attributes("-toolwindow", True)  # remove botões da barra no Windows
-            except Exception:
-                pass
+            self.geometry("320x320")
 
-            overlay = tk.Frame(self, bg="#111111")
+            _BG = "#111111"
+            _C = "#1a1a1a"
+            _A = "#1b6ef3"
+
+            overlay = tk.Frame(self, bg=_BG)
             overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+            card = tk.Frame(overlay, bg=_C)
+            card.place(relx=0.5, rely=0.5, anchor="center")
+
+            tk.Frame(card, bg=_A, height=3, width=260).pack(fill="x")
+
+            inner = tk.Frame(card, bg=_C, padx=32, pady=32)
+            inner.pack(fill="both")
+
             tk.Label(
-                overlay,
-                text="Atualizando…",
-                bg="#111111",
-                fg="#e0e0e0",
-                font=("Segoe UI", 14, "bold"),
-            ).place(relx=0.5, rely=0.45, anchor="center")
+                inner, text="⟳", bg=_C, fg=_A,
+                font=("Segoe UI", 28),
+            ).pack(pady=(0, 12))
             tk.Label(
-                overlay,
-                text="Aguarde, o programa será reiniciado automaticamente.",
-                bg="#111111",
-                fg="#666666",
-                font=("Segoe UI", 9),
-            ).place(relx=0.5, rely=0.55, anchor="center")
+                inner, text="Atualizando…", bg=_C, fg="#ffffff",
+                font=("Segoe UI", 13, "bold"),
+            ).pack()
+            tk.Label(
+                inner, text="O programa será reiniciado\nautomaticamente em instantes.",
+                bg=_C, fg="#666666", font=("Segoe UI", 9), justify="center",
+            ).pack(pady=(8, 0))
 
         def _baixar(caminho_atual: Path) -> None:
             pasta = caminho_atual.parent
@@ -2110,7 +2117,7 @@ class App(tk.Tk):
                         os.rename(str(backup_exe), str(caminho_atual))
                     return
                 subprocess.Popen([str(caminho_atual)])
-                sys.exit(0)
+                self.after(0, lambda: os._exit(0))
             except Exception:
                 pass
 

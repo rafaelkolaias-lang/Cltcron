@@ -11,7 +11,14 @@ if (esta_logado()) {
 
 $erro = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Verifica bloqueio antes de processar o formulário
+$segundos_bloqueio = painel_segundos_bloqueado();
+if ($segundos_bloqueio > 0) {
+    $minutos = (int)ceil($segundos_bloqueio / 60);
+    $erro = "Muitas tentativas incorretas. Tente novamente em {$minutos} minuto(s).";
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $segundos_bloqueio <= 0) {
     $usuario = trim((string)($_POST['usuario'] ?? ''));
     $senha   = (string)($_POST['senha'] ?? '');
     $lembrar = isset($_POST['lembrar']);
@@ -19,7 +26,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($usuario === '' || $senha === '') {
         $erro = 'Preencha usuário e senha.';
     } elseif (!fazer_login($usuario, $senha, $lembrar)) {
-        $erro = 'Usuário ou senha inválidos.';
+        // Recalcula bloqueio (pode ter sido ativado pelo fazer_login)
+        $seg = painel_segundos_bloqueado();
+        if ($seg > 0) {
+            $min = (int)ceil($seg / 60);
+            $erro = "Muitas tentativas incorretas. Tente novamente em {$min} minuto(s).";
+        } else {
+            $erro = 'Usuário ou senha inválidos.';
+        }
     } else {
         header('Location: ./index.php');
         exit;
@@ -186,7 +200,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           <span><label for="lembrar" style="display:inline;text-transform:none;letter-spacing:0;font-size:13px;color:#94a3b8;cursor:pointer;">Permanecer logado por <?= PAINEL_LEMBRAR_DIAS ?> dias</label></span>
         </div>
 
-        <button type="submit" class="btn-entrar">Entrar</button>
+        <button type="submit" class="btn-entrar"<?= painel_segundos_bloqueado() > 0 ? ' disabled style="opacity:.5;cursor:not-allowed"' : '' ?>>Entrar</button>
       </form>
 
     </div>

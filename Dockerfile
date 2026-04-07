@@ -12,6 +12,12 @@ RUN mkdir -p /var/www/html/downloads \
 
 RUN sed -i 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 
+# Suprimir warning AH00558 (ServerName)
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
+# Diretório de sessões PHP com permissão correta (para uso com volume persistente)
+RUN mkdir -p /var/lib/php/sessions && chown www-data:www-data /var/lib/php/sessions
+
 RUN { \
   echo "ServerTokens Prod"; \
   echo "ServerSignature Off"; \

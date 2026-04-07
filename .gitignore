@@ -22,8 +22,9 @@ Desktop.ini
 *.log
 painel/logs/*.log
 
-# Tokens de sessão persistente (gerados em runtime)
+# Tokens e tentativas de login (gerados em runtime)
 painel/commands/_comum/.tokens.json
+painel/commands/_comum/.tentativas.json
 
 # Ambiente virtual
 venv/

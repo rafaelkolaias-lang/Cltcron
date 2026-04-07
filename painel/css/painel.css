@@ -538,6 +538,8 @@ a, button, .btn, .nav-link, .badge, .cartao-grafite, input, select, textarea {
   animation: shimmerPass 7s linear infinite;
   pointer-events: none;
   z-index: 0;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 @keyframes shimmerPass {
   0%   { transform: translateX(-120%); }

@@ -13,6 +13,9 @@ define('PAINEL_SENHA_HASH', '$2y$10$m8da/8bKiagSpuNAgi.Xyu4ca0uQWrUTr0iFyaUA2Icn
 define('PAINEL_LEMBRAR_DIAS', 30);
 define('PAINEL_TOKENS_FILE', __DIR__ . '/.tokens.json');
 define('PAINEL_COOKIE_LEMBRAR', 'painel_lembrar');
+define('PAINEL_TENTATIVAS_FILE', __DIR__ . '/.tentativas.json');
+define('PAINEL_MAX_TENTATIVAS', 2);
+define('PAINEL_BLOQUEIO_SEGUNDOS', 300); // 5 minutos
 
 function _painel_iniciar_sessao(): void
 {
@@ -69,12 +72,24 @@ function verificar_sessao_painel(): void
 
 function fazer_login(string $usuario, string $senha, bool $lembrar): bool
 {
-    if ($usuario !== PAINEL_USUARIO) {
+    // Verifica bloqueio ativo
+    if (painel_segundos_bloqueado() > 0) {
         return false;
     }
-    if (!password_verify($senha, PAINEL_SENHA_HASH)) {
+
+    if ($usuario !== PAINEL_USUARIO || !password_verify($senha, PAINEL_SENHA_HASH)) {
+        $d = _painel_ler_tentativas();
+        $d['tentativas']++;
+        if ($d['tentativas'] >= PAINEL_MAX_TENTATIVAS) {
+            $d['bloqueado_ate'] = time() + PAINEL_BLOQUEIO_SEGUNDOS;
+            $d['tentativas'] = 0;
+        }
+        _painel_salvar_tentativas($d);
         return false;
     }
+
+    // Login correto: zera tentativas
+    _painel_salvar_tentativas(['tentativas' => 0, 'bloqueado_ate' => 0]);
 
     _painel_iniciar_sessao();
     session_regenerate_id(true);
@@ -115,6 +130,27 @@ function fazer_logout(): void
     if (session_status() === PHP_SESSION_ACTIVE) {
         session_destroy();
     }
+}
+
+function _painel_ler_tentativas(): array
+{
+    if (!file_exists(PAINEL_TENTATIVAS_FILE)) {
+        return ['tentativas' => 0, 'bloqueado_ate' => 0];
+    }
+    $json = json_decode((string)file_get_contents(PAINEL_TENTATIVAS_FILE), true);
+    return is_array($json) ? $json : ['tentativas' => 0, 'bloqueado_ate' => 0];
+}
+
+function _painel_salvar_tentativas(array $dados): void
+{
+    file_put_contents(PAINEL_TENTATIVAS_FILE, json_encode($dados));
+}
+
+function painel_segundos_bloqueado(): int
+{
+    $d = _painel_ler_tentativas();
+    $restante = (int)($d['bloqueado_ate'] ?? 0) - time();
+    return $restante > 0 ? $restante : 0;
 }
 
 function _painel_ler_tokens(): array

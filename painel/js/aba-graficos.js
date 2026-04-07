@@ -39,14 +39,26 @@
   };
 
   let CORES_CUSTOMIZADAS = JSON.parse(localStorage.getItem("rk_cores_apps") || "{}");
+  let _cacheCorApps = {};  // Cache de cores calculadas — evita recalcular em loops
 
   function _obterCorApp(nome) {
     const n = String(nome || "—").trim();
-    if (CORES_CUSTOMIZADAS[n]) return CORES_CUSTOMIZADAS[n]; // 1º: customizada pelo usuário
-    if (MAPA_CORES_APPS[n])    return MAPA_CORES_APPS[n];    // 2º: mapa fixo
-    let hash = 0;                                             // 3º: hash determinístico
-    for (let i = 0; i < n.length; i++) hash = n.charCodeAt(i) + ((hash << 5) - hash);
-    return PALETA[Math.abs(hash) % PALETA.length];
+    if (_cacheCorApps[n]) return _cacheCorApps[n];
+    let cor;
+    if (CORES_CUSTOMIZADAS[n])    cor = CORES_CUSTOMIZADAS[n]; // 1º: customizada pelo usuário
+    else if (MAPA_CORES_APPS[n])  cor = MAPA_CORES_APPS[n];    // 2º: mapa fixo
+    else {                                                      // 3º: hash determinístico
+      let hash = 0;
+      for (let i = 0; i < n.length; i++) hash = n.charCodeAt(i) + ((hash << 5) - hash);
+      cor = PALETA[Math.abs(hash) % PALETA.length];
+    }
+    _cacheCorApps[n] = cor;
+    return cor;
+  }
+
+  function _invalidarCacheCores() {
+    CORES_CUSTOMIZADAS = JSON.parse(localStorage.getItem("rk_cores_apps") || "{}");
+    _cacheCorApps = {};
   }
 
   // ─── Utilidades ─────────────────────────────────────────────
@@ -194,11 +206,16 @@
     area.innerHTML = appsItems.map(a => {
       const nome = a.nome || a.nome_app || "—";
       const ativo = FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(nome);
-      return `<div class="item-legenda ${ativo ? "active" : ""}" onclick="(function(){window._alternarFiltroApp('${nome.replace(/'/g, "\\'")}')})()">
+      return `<div class="item-legenda ${ativo ? "active" : ""}" data-app="${escaparHtml(nome)}">
         <span class="item-legenda__dot" style="background:${_obterCorApp(nome)}"></span>
         <span class="item-legenda__label">${escaparHtml(nome)}</span>
       </div>`;
     }).join("");
+    // Event delegation: um listener no container em vez de onclick em cada item
+    area.onclick = (e) => {
+      const item = e.target.closest(".item-legenda");
+      if (item && item.dataset.app) alternarFiltroApp(item.dataset.app);
+    };
   }
 
   // ─── Estrutura HTML ────────────────────────────────────────
@@ -573,6 +590,9 @@
   let _teamTimelineDias = [];
   let _teamTimelineIdxDia = 0;
   let _teamTimelineUsuarios = null;
+
+  // Controle de modo — evita rebuild de HTML a cada filtro
+  let _htmlModoAtual = null; // "individual" | "equipe" | null
 
   // Estado da timeline geral (todos os apps abertos — foco + 2.º plano)
   let _timelineAbertosDias = [];
@@ -1052,13 +1072,22 @@
     }, true);
   }
 
+  function _disposeCharts() {
+    ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps", "chartGlobalTimeline", "chartTimelineAbertos"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { const inst = echarts.getInstanceByDom(el); if (inst) inst.dispose(); }
+    });
+  }
+
   function montarVisaoGeralTodosUsuarios(dados) {
     const area = document.getElementById("areaUsuarioSelecionadoGraficos");
     if (!area) return;
 
     const usuarios = dados.usuarios || [];
     if (!usuarios.length) {
+      _disposeCharts();
       area.innerHTML = `<div class="texto-fraco">Sem dados para o período selecionado.</div>`;
+      _htmlModoAtual = null;
       return;
     }
 
@@ -1067,12 +1096,17 @@
     const tituloTL    = usuarios.length === 1 ? `Timeline de ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Timeline da equipe";
 
     const individual = usuarios.length === 1;
+    const modo = individual ? "individual" : "equipe";
 
-    area.innerHTML = `
+    // Só reconstrói HTML se o modo mudou (individual ↔ equipe) — preserva instâncias ECharts
+    if (_htmlModoAtual !== modo) {
+      _disposeCharts();
+
+      area.innerHTML = `
       <div class="perfil-usuario-header mb-3">
         <div class="flex-grow-1">
-          <h5 class="mb-1 fw-bold">${escaparHtml(tituloSecao)}</h5>
-          <div class="texto-fraco small">${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""} no período</div>
+          <h5 class="mb-1 fw-bold" id="_tituloSecao"></h5>
+          <div class="texto-fraco small" id="_subtituloSecao"></div>
         </div>
       </div>
 
@@ -1082,7 +1116,7 @@
       <!-- Visão individual: donut foco + barras foco vs 2.º plano lado a lado -->
       <div class="row g-3 mb-4">
         <div class="col-12 col-xl-5">
-          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloApps)}</div>
+          <div class="texto-fraco small fw-semibold mb-2" id="_tituloApps" style="text-transform:uppercase;letter-spacing:.3px"></div>
           <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
             <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:180px;height:300px"></div>
             <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
@@ -1100,7 +1134,7 @@
         <div id="chartGlobalComparativo" class="grafico-container" style="height:${Math.max(160, usuarios.length * 40 + 60)}px"></div>
       </div>
       <div class="mb-4">
-        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloApps)}</div>
+        <div class="texto-fraco small fw-semibold mb-2" id="_tituloApps" style="text-transform:uppercase;letter-spacing:.3px"></div>
         <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
           <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:200px;height:300px"></div>
           <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
@@ -1108,43 +1142,40 @@
       </div>
       `}
 
-      ${individual ? `
-      <!-- Individual: controle único de data + duas timelines -->
+      <!-- Timeline: controle de data + chart(s) -->
       <div class="mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">Timelines de atividade</div>
+        <div class="d-flex align-items-center justify-content-between mb-${individual ? "3" : "2"}">
+          <div class="texto-fraco small fw-semibold" id="_tituloTimeline" style="text-transform:uppercase;letter-spacing:.3px"></div>
           <div class="d-flex align-items-center gap-2">
             <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
             <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
             <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
           </div>
         </div>
-        <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>
-        <div class="chart-shimmer-wrapper mb-3">
+        ${individual ? `<div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>` : ""}
+        <div class="chart-shimmer-wrapper ${individual ? "mb-3" : ""}">
           <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
         </div>
+        ${individual ? `
         <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Todos os apps abertos (foco + 2.º plano)</div>
         <div class="chart-shimmer-wrapper">
           <div id="chartTimelineAbertos" class="grafico-container" style="height:200px"></div>
         </div>
+        ` : ""}
       </div>
-      ` : `
-      <!-- Equipe: timeline única -->
-      <div class="mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <div class="texto-fraco small fw-semibold" style="text-transform:uppercase;letter-spacing:.3px">${escaparHtml(tituloTL)}</div>
-          <div class="d-flex align-items-center gap-2">
-            <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
-            <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
-            <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
-          </div>
-        </div>
-        <div class="chart-shimmer-wrapper">
-          <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
-        </div>
-      </div>
-      `}
-    `;
+      `;
+      _htmlModoAtual = modo;
+    }
+
+    // Atualizar textos dinâmicos sem rebuild
+    const elTitulo = document.getElementById("_tituloSecao");
+    const elSub = document.getElementById("_subtituloSecao");
+    const elApps = document.getElementById("_tituloApps");
+    const elTL = document.getElementById("_tituloTimeline");
+    if (elTitulo) elTitulo.textContent = tituloSecao;
+    if (elSub) elSub.textContent = `${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""} no período`;
+    if (elApps) elApps.textContent = tituloApps;
+    if (elTL) elTL.textContent = individual ? "Timelines de atividade" : tituloTL;
 
     _teamTimelineUsuarios = usuarios;
     const diasSet = new Set();
@@ -1153,7 +1184,6 @@
         const dia = _extrairDiaIso(p.inicio_em);
         if (dia) diasSet.add(dia);
       });
-      // v4.6: quando individual, inclui também dias de periodos_abertos no controle unificado
       if (individual) {
         (u.periodos_abertos || []).forEach(p => {
           const dia = _extrairDiaIso(p.inicio_em);
@@ -1176,11 +1206,8 @@
       _atualizarLabelTeamTimeline();
       _renderizarTeamTimelineDoDia();
 
-      window.addEventListener("resize", () => {
-        ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps", "chartGlobalTimeline"].forEach(id => {
-          echarts.getInstanceByDom(document.getElementById(id))?.resize();
-        });
-      }, { once: true });
+      // Remover shimmer após render
+      document.querySelectorAll(".chart-shimmer-wrapper").forEach(el => el.classList.remove("chart-shimmer-wrapper"));
     }, 50);
   }
 
@@ -1500,12 +1527,14 @@
         CORES_CUSTOMIZADAS[inp.dataset.app] = inp.value;
       });
       localStorage.setItem("rk_cores_apps", JSON.stringify(CORES_CUSTOMIZADAS));
+      _cacheCorApps = {};  // invalidar cache
       bsModal.hide();
       atualizarGraficos();
     }, { once: true });
 
     modal.querySelector("#btnRkResetarTudo")?.addEventListener("click", () => {
       CORES_CUSTOMIZADAS = {};
+      _cacheCorApps = {};  // invalidar cache
       localStorage.removeItem("rk_cores_apps");
       bsModal.hide();
       atualizarGraficos();
@@ -1542,6 +1571,16 @@
     garantirEstruturaSimplificada();
     garantirDatasPadrao();
     configurarGatilhos();
+
+    // Resize listener único — redimensiona todos os charts ECharts de uma vez
+    window.addEventListener("resize", () => {
+      ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps",
+       "chartGlobalTimeline", "chartTimelineAbertos", "chartTimelineApps"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) echarts.getInstanceByDom(el)?.resize();
+      });
+    });
+
     if (abaGraficosEstaVisivel()) atualizarGraficos();
   });
 })();

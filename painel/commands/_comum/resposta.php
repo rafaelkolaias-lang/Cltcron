@@ -7,10 +7,7 @@ declare(strict_types=1);
  * O que este arquivo faz:
  * - Responde JSON padronizado { ok, mensagem, dados }
  * - Ativa logs de erro do PHP em arquivo (sem quebrar JSON com HTML)
- * - Possibilita "debug" por:
- *    - ENV: APP_DEBUG=1
- *    - Querystring: ?debug=1
- *    - Header: X-Debug: 1
+ * - Possibilita "debug" apenas por ENV: APP_DEBUG=1
  *
  * Obs:
  * - Não exibimos erros como HTML (display_errors=0) para não corromper JSON.
@@ -26,18 +23,9 @@ if (!headers_sent()) {
 // ==========================================================
 function debug_ativo(): bool
 {
-    // 1) Querystring
-    if (isset($_GET['debug']) && (string)$_GET['debug'] === '1') return true;
-
-    // 2) Header X-Debug: 1
-    $hdr = $_SERVER['HTTP_X_DEBUG'] ?? '';
-    if ((string)$hdr === '1') return true;
-
-    // 3) ENV
+    // Apenas variável de ambiente — querystring e header removidos por segurança
     $env = getenv('APP_DEBUG');
-    if ($env !== false && (string)$env === '1') return true;
-
-    return false;
+    return ($env !== false && (string)$env === '1');
 }
 
 function caminho_log_php(): string

@@ -211,7 +211,7 @@
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaAtividades", "abaGraficos", "abaRelatorio"];
+    const abas = ["abaDashboard", "abaUsuarios", "abaAtividades", "abaGerenciarTarefas", "abaGraficos", "abaRelatorio"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -226,6 +226,7 @@
       abaDashboard: "Dashboard · visão geral",
       abaUsuarios: "Usuários · gestão e pagamentos",
       abaAtividades: "Atividades · atribuições",
+      abaGerenciarTarefas: "Gerenciar Tarefas · declarações",
       abaGraficos: "Gráficos · apps e uso",
       abaRelatorio: "Relatório · tempo trabalhado declarado",
     }[idAba] || "";
@@ -241,6 +242,11 @@
 
     if (idAba === "abaAtividades") {
       window.PainelAbaAtividades?.renderizarAbaAtividades?.();
+      return;
+    }
+
+    if (idAba === "abaGerenciarTarefas") {
+      window.recarregarAbaGerenciarTarefas?.();
       return;
     }
 
@@ -265,6 +271,9 @@
     const abaAtividades = document.getElementById("abaAtividades");
     if (abaAtividades && !abaAtividades.classList.contains("d-none")) return "abaAtividades";
 
+    const abaGerenciarTarefas = document.getElementById("abaGerenciarTarefas");
+    if (abaGerenciarTarefas && !abaGerenciarTarefas.classList.contains("d-none")) return "abaGerenciarTarefas";
+
     const abaUsuarios = document.getElementById("abaUsuarios");
     if (abaUsuarios && !abaUsuarios.classList.contains("d-none")) return "abaUsuarios";
 
@@ -284,6 +293,11 @@
       if (aba === "abaAtividades") {
         await window.PainelAbaAtividades?.recarregarAtividadesNoEstado?.();
         window.PainelAbaAtividades?.renderizarAbaAtividades?.();
+        return;
+      }
+
+      if (aba === "abaGerenciarTarefas") {
+        await window.recarregarAbaGerenciarTarefas?.();
         return;
       }
 

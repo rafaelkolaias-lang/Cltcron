@@ -9,7 +9,7 @@ declare(strict_types=1);
  */
 
 define('PAINEL_USUARIO', 'admin');
-define('PAINEL_SENHA_HASH', '$2y$10$yS2PsiiaUFiURmt1n3twduoB04QYcd/rtBR0dMqGpg2EzqrDgh2E2');
+define('PAINEL_SENHA_HASH', '$2y$10$m8da/8bKiagSpuNAgi.Xyu4ca0uQWrUTr0iFyaUA2IcnP.4HhNMSW');
 define('PAINEL_LEMBRAR_DIAS', 30);
 define('PAINEL_TOKENS_FILE', __DIR__ . '/.tokens.json');
 define('PAINEL_COOKIE_LEMBRAR', 'painel_lembrar');

@@ -21,15 +21,9 @@ Desktop.ini
 *.log
 painel/logs/
 
-# Downloads (binários compilados)
-painel/downloads/*.exe
-
 # Ambiente virtual
 venv/
 .env
-
-# Executável compilado
-CronometroLeve.exe
 
 # Agentes internos e documentação de execução
 agents/

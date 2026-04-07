@@ -28,7 +28,7 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # CONFIGURAÇÕES
 # =========================
 VERSAO_APLICACAO = "v2.2"
-URL_ATUALIZACAO = "http://76.13.112.108/cronometro/CronometroLeve.exe"
+URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/main/painel/downloads/CronometroLeve.exe"
 
 INTERVALO_LOOP_SEGUNDOS = 0.20
 INTERVALO_UI_MILISSEGUNDOS = 80
@@ -1728,7 +1728,7 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
 
-        self.title("Cronômetro (Leve) ✓")
+        self.title("Cronômetro (Leve)")
         self.resizable(False, False)
         self._aplicar_icone()
 
@@ -2062,11 +2062,36 @@ class App(tk.Tk):
                 if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
                     return  # sem atualização
 
-                # Atualiza silenciosamente sem perguntar
-                self.after(0, lambda: self._var_status.set("Atualizando…"))
+                self.after(0, lambda: _mostrar_overlay())
                 _baixar(caminho_atual)
             except Exception:
                 pass  # falha silenciosa — atualização é opcional
+
+        def _mostrar_overlay() -> None:
+            # Bloqueia fechar/minimizar
+            self.protocol("WM_DELETE_WINDOW", lambda: None)
+            self.resizable(False, False)
+            try:
+                self.attributes("-toolwindow", True)  # remove botões da barra no Windows
+            except Exception:
+                pass
+
+            overlay = tk.Frame(self, bg="#111111")
+            overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+            tk.Label(
+                overlay,
+                text="Atualizando…",
+                bg="#111111",
+                fg="#e0e0e0",
+                font=("Segoe UI", 14, "bold"),
+            ).place(relx=0.5, rely=0.45, anchor="center")
+            tk.Label(
+                overlay,
+                text="Aguarde, o programa será reiniciado automaticamente.",
+                bg="#111111",
+                fg="#666666",
+                font=("Segoe UI", 9),
+            ).place(relx=0.5, rely=0.55, anchor="center")
 
         def _baixar(caminho_atual: Path) -> None:
             pasta = caminho_atual.parent
@@ -2083,12 +2108,11 @@ class App(tk.Tk):
                 except Exception:
                     if backup_exe.exists() and not caminho_atual.exists():
                         os.rename(str(backup_exe), str(caminho_atual))
-                    self.after(0, lambda: self._var_status.set("Falha ao aplicar atualização."))
                     return
                 subprocess.Popen([str(caminho_atual)])
                 sys.exit(0)
             except Exception:
-                self.after(0, lambda: self._var_status.set("Erro ao baixar atualização."))
+                pass
 
         threading.Thread(target=_em_thread, daemon=True).start()
 

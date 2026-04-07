@@ -1728,7 +1728,7 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
 
-        self.title("Cronômetro (Leve)")
+        self.title("Cronômetro (Leve) ✓")
         self.resizable(False, False)
         self._aplicar_icone()
 

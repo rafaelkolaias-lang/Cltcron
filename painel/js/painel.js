@@ -131,22 +131,6 @@
     return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   }
 
-  let _dashboardDelegacaoVinculada = false;
-  function vincularAcoesDashboard() {
-    if (_dashboardDelegacaoVinculada) return;
-    _dashboardDelegacaoVinculada = true;
-    const tbody = document.getElementById("tbodyResumoUsuarios");
-    if (!tbody) return;
-    tbody.addEventListener("click", (ev) => {
-      const btn = ev.target.closest("button[data-acao-dashboard][data-uid]");
-      if (!btn) return;
-      const identificador_usuario = btn.getAttribute("data-uid") || "";
-      if (window.PainelAbaUsuarios?.abrirModalGestaoUsuario) {
-        window.PainelAbaUsuarios.abrirModalGestaoUsuario(identificador_usuario);
-      }
-    });
-  }
-
   function renderizarDashboard() {
     const elUltima = document.getElementById("textoUltimaAtualizacao");
     if (elUltima) elUltima.textContent = agoraTexto();
@@ -158,60 +142,13 @@
     const elNumeroAtivos = document.getElementById("numeroUsuariosAtivos");
     if (elNumeroUsuarios) elNumeroUsuarios.textContent = String(total);
     if (elNumeroAtivos) elNumeroAtivos.textContent = String(ativos);
-
-    const entradaBusca = document.getElementById("entradaBuscaGeral");
-    const busca = String(entradaBusca?.value || "").trim().toLowerCase();
-
-    const lista = estado.usuariosDashboard
-      .slice(0)
-      .filter((u) => {
-        if (!busca) return true;
-        const hay = [u.user_id, u.nome_exibicao, u.nivel].join(" ").toLowerCase();
-        return hay.includes(busca);
-      })
-      .sort((a, b) => String(a.user_id).localeCompare(String(b.user_id), "pt-BR", { sensitivity: "base" }));
-
-    const tbody = document.getElementById("tbodyResumoUsuarios");
-    if (!tbody) return;
-
-    if (!lista.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Nenhum usuário encontrado.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = lista.map((u) => {
-      const identificador_usuario = escapeHtml(u.user_id);
-      const nomeLinha = u.nome_exibicao && u.nome_exibicao !== u.user_id
-        ? `<div class="texto-fraco small">${escapeHtml(u.nome_exibicao)}</div>`
-        : "";
-
-      return `
-        <tr>
-          <td>
-            <div class="fw-semibold">${identificador_usuario}</div>
-            ${nomeLinha}
-          </td>
-          <td class="text-center">${badgeStatusConta(u.status_conta)}</td>
-          <td class="text-center">${badgeNivel(u.nivel)}</td>
-          <td class="text-center"><span class="fw-semibold">${escapeHtml(formatarDinheiroBr(u.valor_hora))}</span></td>
-          <td class="text-center"><span class="texto-mono">${escapeHtml(dataHoraCurta(u.atualizado_em))}</span></td>
-          <td class="text-end">
-            <button class="btn btn-sm btn-outline-light" type="button" data-acao-dashboard="gestao" data-uid="${identificador_usuario}">
-              Gestão
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join("");
-
-    vincularAcoesDashboard(); // event delegation — registra apenas 1 vez
   }
 
   // ==========================================================
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaAtividades", "abaGerenciarTarefas", "abaGraficos", "abaRelatorio"];
+    const abas = ["abaDashboard", "abaUsuarios", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -223,11 +160,10 @@
     });
 
     const subt = {
-      abaDashboard: "Dashboard · visão geral",
+      abaDashboard: "Dashboard · visão geral e gráficos",
       abaUsuarios: "Usuários · gestão e pagamentos",
       abaAtividades: "Atividades · atribuições",
       abaGerenciarTarefas: "Gerenciar Tarefas · declarações",
-      abaGraficos: "Gráficos · apps e uso",
       abaRelatorio: "Relatório · tempo trabalhado declarado",
     }[idAba] || "";
 
@@ -250,24 +186,18 @@
       return;
     }
 
-    if (idAba === "abaGraficos") {
-      window.PainelAbaGraficos?.renderizarAbaGraficos?.();
-      setTimeout(() => window.PainelAbaGraficos?.resizarGraficos?.(), 50);
-      return;
-    }
-
     if (idAba === "abaRelatorio") {
       window.PainelAbaRelatorio?.renderizarAbaRelatorio?.();
       return;
     }
 
+    // Dashboard — renderiza tabela + carrega gráficos
     renderizarDashboard();
+    window.PainelAbaGraficos?.renderizarAbaGraficos?.();
+    setTimeout(() => window.PainelAbaGraficos?.resizarGraficos?.(), 50);
   }
 
   function obterAbaVisivel() {
-    const abaGraficos = document.getElementById("abaGraficos");
-    if (abaGraficos && !abaGraficos.classList.contains("d-none")) return "abaGraficos";
-
     const abaAtividades = document.getElementById("abaAtividades");
     if (abaAtividades && !abaAtividades.classList.contains("d-none")) return "abaAtividades";
 
@@ -276,6 +206,9 @@
 
     const abaUsuarios = document.getElementById("abaUsuarios");
     if (abaUsuarios && !abaUsuarios.classList.contains("d-none")) return "abaUsuarios";
+
+    const abaRelatorio = document.getElementById("abaRelatorio");
+    if (abaRelatorio && !abaRelatorio.classList.contains("d-none")) return "abaRelatorio";
 
     return "abaDashboard";
   }
@@ -301,14 +234,10 @@
         return;
       }
 
-      if (aba === "abaGraficos") {
-        await window.PainelAbaGraficos?.recarregarGraficosNoEstado?.();
-        window.PainelAbaGraficos?.renderizarAbaGraficos?.();
-        return;
-      }
-
+      // Dashboard — recarrega tabela + gráficos
       await carregarUsuariosParaDashboard();
       renderizarDashboard();
+      window.PainelAbaGraficos?.renderizarAbaGraficos?.();
     } catch (e) {
       mostrarAlerta("erro", "Falha ao atualizar", String(e && e.message ? e.message : e));
     }
@@ -323,19 +252,6 @@
         e.preventDefault();
         trocarAba(a.getAttribute("data-aba"));
       });
-    });
-
-    const entradaBusca = document.getElementById("entradaBuscaGeral");
-    let _debounceTimerBusca = null;
-    if (entradaBusca) entradaBusca.addEventListener("input", () => {
-      clearTimeout(_debounceTimerBusca);
-      _debounceTimerBusca = setTimeout(renderizarDashboard, 300);
-    });
-
-    const botaoLimpar = document.getElementById("botaoLimparBusca");
-    if (botaoLimpar) botaoLimpar.addEventListener("click", () => {
-      if (entradaBusca) entradaBusca.value = "";
-      renderizarDashboard();
     });
 
     const botaoAtualizar = document.getElementById("botaoAtualizarTudo");

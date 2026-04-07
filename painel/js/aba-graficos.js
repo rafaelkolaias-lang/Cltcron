@@ -2,7 +2,7 @@
   "use strict";
 
   const urlApiGraficos = "./commands/graficos/graficos.php";
-  const seletorAbaGraficos = "#abaGraficos";
+  const seletorAbaGraficos = "#areaGraficos";
   const seletorAreaAlertas = "#areaAlertas";
 
   let requisicaoEmAndamento = false;
@@ -137,8 +137,9 @@
   }
 
   function abaGraficosEstaVisivel() {
-    const aba = document.querySelector(seletorAbaGraficos);
-    return !!aba && !aba.classList.contains("d-none");
+    // Gráficos agora vivem dentro do #abaDashboard
+    const dash = document.getElementById("abaDashboard");
+    return !!dash && !dash.classList.contains("d-none");
   }
 
   async function requisitarJson(url, corpo) {
@@ -281,9 +282,12 @@
                   <th>Status</th>
                   <th>Atividade</th>
                   <th>App em foco</th>
+                  <th class="text-center">Conta</th>
+                  <th class="text-end">R$/hora</th>
                   <th class="text-end">Trabalhado</th>
                   <th class="text-end">Ocioso</th>
                   <th class="text-end">Apps</th>
+                  <th class="text-end">Ações</th>
                 </tr>
               </thead>
               <tbody id="tbodyResumoUsuariosGraficos">
@@ -428,7 +432,7 @@
     setTexto("textoTotalUsuarios", `${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""}`);
 
     if (!usuarios.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Sem dados para este período.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="texto-fraco">Sem dados para este período.</td></tr>`;
       return;
     }
 
@@ -452,11 +456,20 @@
         <td><span class="indicador-status ${classeStatus(status)}">${textoStatus(status)}</span></td>
         <td class="texto-fraco" style="font-size:.85rem;max-width:180px" title="${ativ}"><div class="text-truncate">${ativ}</div></td>
         <td style="font-size:.85rem">${app !== "—" ? `<span class="pill-app"><span class="pill-app__dot"></span>${app}</span>` : '<span class="texto-fraco">—</span>'}</td>
+        <td class="text-center"><span class="badge ${(u.status_conta||"").toLowerCase() === "ativa" ? "text-bg-success" : "text-bg-secondary"}">${escaparHtml((u.status_conta||"—").charAt(0).toUpperCase() + (u.status_conta||"").slice(1))}</span></td>
+        <td class="text-end fw-semibold" style="font-size:.85rem">R$ ${Number(u.valor_hora || 0).toFixed(2).replace(".",",")}</td>
         <td class="text-end texto-mono text-success" style="font-size:.85rem">${hhmmss(u.segundos_trabalhando_total || 0)}</td>
         <td class="text-end texto-mono text-warning" style="font-size:.85rem">${hhmmss(u.segundos_ocioso_total || 0)}</td>
         <td class="text-end">${Number(u.quantidade_apps_usados || 0)}</td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-light" type="button" data-gestao-uid="${uid}">Gestão</button></td>
       </tr>`;
     }).join("");
+
+    // Event delegation para botão Gestão
+    tbody.onclick = (e) => {
+      const btn = e.target.closest("button[data-gestao-uid]");
+      if (btn) window.PainelAbaUsuarios?.abrirModalGestaoUsuario?.(btn.dataset.gestaoUid);
+    };
   }
 
   // ─── Gráficos ECharts ─────────────────────────────────────

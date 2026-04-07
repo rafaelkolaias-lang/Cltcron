@@ -251,7 +251,8 @@ function graficos_obter_usuarios_base(PDO $conexao_banco, array $usuarios_filtro
             u.user_id,
             u.nome_exibicao,
             u.status_conta,
-            u.nivel
+            u.nivel,
+            u.valor_hora
         FROM usuarios u
         WHERE {$where}
         ORDER BY u.nome_exibicao ASC, u.user_id ASC
@@ -275,6 +276,7 @@ function graficos_garantir_usuario(array &$usuarios, string $user_id, array $lin
             'nome_exibicao' => graficos_montar_nome_usuario($linha),
             'status_conta' => graficos_normalizar_texto($linha['status_conta'] ?? '', 30),
             'nivel' => graficos_normalizar_texto($linha['nivel'] ?? '', 30),
+            'valor_hora' => (float)($linha['valor_hora'] ?? 0),
             'status_atual' => 'sem_status',
             'atividade_atual' => '',
             'status_desde_em' => '',

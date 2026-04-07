@@ -465,6 +465,51 @@
     }
   }
 
+  function formatarHm(segundos) {
+    const s = Math.max(0, Math.round(Number(segundos) || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `${h}h ${String(m).padStart(2, "0")}m`;
+  }
+
+  async function carregarResumoHorasPagamento(uid, valorHora) {
+    const elTrab = document.getElementById("gestaoResumoTrabalhado");
+    const elDecl = document.getElementById("gestaoResumoDeclarado");
+    const elNaoDecl = document.getElementById("gestaoResumoNaoDeclarado");
+    const elAPagar = document.getElementById("gestaoResumoAPagar");
+
+    try {
+      // Buscar subtarefas não pagas do membro
+      const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
+      const subs = (rSub.dados || []).filter(s => !s.bloqueada_pagamento);
+
+      // Totais acumulados vêm no primeiro item (se houver)
+      const trabTotal = subs.length > 0 ? (subs[0].segundos_trabalhados_total || 0) : 0;
+      const declTotal = subs.length > 0 ? (subs[0].segundos_declarados_total || 0) : 0;
+
+      // Horas não pagas: só subtarefas com bloqueada_pagamento=0
+      const declNaoPago = subs.reduce((acc, s) => acc + (s.segundos_gastos || 0), 0);
+
+      // Trabalhado não pago = total trabalhado - total declarado já pago
+      // Total declarado pago = declTotal - declNaoPago
+      const declPago = declTotal - declNaoPago;
+      const trabNaoPago = Math.max(0, trabTotal - declPago);
+
+      const naoDeclarado = Math.max(0, trabNaoPago - declNaoPago);
+      const aPagar = declNaoPago * (valorHora / 3600);
+
+      if (elTrab) elTrab.textContent = formatarHm(trabNaoPago);
+      if (elDecl) elDecl.textContent = formatarHm(declNaoPago);
+      if (elNaoDecl) elNaoDecl.textContent = formatarHm(naoDeclarado);
+      if (elAPagar) elAPagar.textContent = formatarDinheiroBr(aPagar);
+    } catch (_) {
+      if (elTrab) elTrab.textContent = "—";
+      if (elDecl) elDecl.textContent = "—";
+      if (elNaoDecl) elNaoDecl.textContent = "—";
+      if (elAPagar) elAPagar.textContent = "—";
+    }
+  }
+
   async function abrirModalGestaoUsuario(uid) {
     const u = buscarUsuarioGestao(uid);
     if (!u) return;
@@ -504,7 +549,10 @@
     alternarModoEdicao(false);
     preencherCamposEdicao(u);
 
-    await carregarPagamentosNoModal(uid);
+    await Promise.all([
+      carregarPagamentosNoModal(uid),
+      carregarResumoHorasPagamento(uid, u.valor_hora),
+    ]);
 
     const modalEl = document.getElementById("modalGestaoUsuario");
     if (modalEl && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
@@ -627,7 +675,10 @@
       });
 
       prepararCamposPagamentoPadrao();
-      await carregarPagamentosNoModal(u.user_id);
+      await Promise.all([
+        carregarPagamentosNoModal(u.user_id),
+        carregarResumoHorasPagamento(u.user_id, u.valor_hora),
+      ]);
 
       nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento registrado", `${u.user_id}: ${formatarDinheiroBr(valor)}`);
     } catch (e) {

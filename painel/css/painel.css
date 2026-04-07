@@ -347,9 +347,9 @@ body{
   margin: 20px 0;
 }
 
-/* Opções do <select> nos filtros do painel — fundo escuro para legibilidade */
-.filtros-compactos .form-select option,
-#filtroGraficosUsuarioDetalhe option {
+/* Opções do <select> — fundo escuro para legibilidade em todo o painel */
+.form-select option,
+select option {
   background-color: #1a1f2e;
   color: #e2e8f0;
 }

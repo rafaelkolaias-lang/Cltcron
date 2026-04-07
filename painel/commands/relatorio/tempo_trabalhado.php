@@ -68,6 +68,8 @@ try {
     }
 
     $usuarios_filtro = relatorio_normalizar_lista($entrada['usuarios'] ?? null);
+    // Filtro por membro único (vem do select do frontend)
+    $membro_filtro = trim((string)($entrada['user_id'] ?? ''));
 
     $pdo = obter_conexao_pdo();
 
@@ -81,7 +83,10 @@ try {
     ];
     $where_dec = "d.referencia_data BETWEEN :data_inicio AND :data_fim";
 
-    if (!empty($usuarios_filtro)) {
+    if ($membro_filtro !== '') {
+        $where_dec .= " AND d.user_id = :membro";
+        $params_dec[':membro'] = $membro_filtro;
+    } elseif (!empty($usuarios_filtro)) {
         $in = relatorio_montar_in('ud', $usuarios_filtro, $params_dec);
         $where_dec .= " AND d.user_id IN {$in}";
     }
@@ -106,10 +111,69 @@ try {
     $linhas_raw = $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     // -------------------------------------------------------
-    // 2. Montar linhas e totais por usuário
+    // 2. Horas TRABALHADAS por usuário × dia (registros_tempo)
+    // -------------------------------------------------------
+    $params_trab = [':data_inicio' => $data_inicio, ':data_fim' => $data_fim];
+    $where_trab = "rt.referencia_data BETWEEN :data_inicio AND :data_fim AND rt.situacao = 'trabalhando'";
+
+    if ($membro_filtro !== '') {
+        $where_trab .= " AND rt.user_id = :membro";
+        $params_trab[':membro'] = $membro_filtro;
+    } elseif (!empty($usuarios_filtro)) {
+        $in = relatorio_montar_in('ut', $usuarios_filtro, $params_trab);
+        $where_trab .= " AND rt.user_id IN {$in}";
+    }
+
+    $sql_trab = "
+        SELECT rt.user_id, rt.referencia_data, SUM(rt.segundos) AS segundos_trabalhados
+        FROM registros_tempo rt
+        WHERE {$where_trab}
+        GROUP BY rt.user_id, rt.referencia_data
+    ";
+    $cmd2 = $pdo->prepare($sql_trab);
+    $cmd2->execute($params_trab);
+    $trab_raw = $cmd2->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    // Mapa user_id|data => segundos_trabalhados
+    $mapa_trab = [];
+    $trab_por_usuario = [];
+    foreach ($trab_raw as $t) {
+        $chave = $t['user_id'] . '|' . $t['referencia_data'];
+        $mapa_trab[$chave] = (int)$t['segundos_trabalhados'];
+        $trab_por_usuario[$t['user_id']] = ($trab_por_usuario[$t['user_id']] ?? 0) + (int)$t['segundos_trabalhados'];
+    }
+
+    // -------------------------------------------------------
+    // 3. Status de pagamento por usuário × dia
+    // -------------------------------------------------------
+    $params_pag = [':data_inicio' => $data_inicio, ':data_fim' => $data_fim];
+    $where_pag = "s.referencia_data BETWEEN :data_inicio AND :data_fim";
+
+    if ($membro_filtro !== '') {
+        $where_pag .= " AND s.user_id = :membro";
+        $params_pag[':membro'] = $membro_filtro;
+    }
+
+    $sql_pag = "
+        SELECT s.user_id, s.referencia_data, MAX(s.bloqueada_pagamento) AS pago
+        FROM atividades_subtarefas s
+        WHERE {$where_pag} AND s.referencia_data IS NOT NULL
+        GROUP BY s.user_id, s.referencia_data
+    ";
+    $cmd3 = $pdo->prepare($sql_pag);
+    $cmd3->execute($params_pag);
+    $pag_raw = $cmd3->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $mapa_pago = [];
+    foreach ($pag_raw as $p) {
+        $mapa_pago[$p['user_id'] . '|' . $p['referencia_data']] = (int)$p['pago'];
+    }
+
+    // -------------------------------------------------------
+    // 4. Montar linhas e totais por usuário
     // -------------------------------------------------------
     $linhas        = [];
-    $por_usuario   = [];   // user_id => [nome, valor_hora, segundos_total, valor_estimado]
+    $por_usuario   = [];
 
     foreach ($linhas_raw as $linha) {
         $uid   = (string)($linha['user_id']       ?? '');
@@ -119,44 +183,57 @@ try {
         $qtd   = (int)($linha['total_declaracoes']   ?? 0);
         $data  = (string)($linha['referencia_data']  ?? '');
 
+        $chave = $uid . '|' . $data;
+        $segs_trab = $mapa_trab[$chave] ?? 0;
+        $pago = ($mapa_pago[$chave] ?? 0) === 1;
+
         $horas_float = $segs / 3600.0;
         $valor_est   = round($horas_float * $vh, 2);
 
+        // Divergência: declarado > trabalhado+10% (margem de 10%)
+        $divergente = $segs_trab > 0 && $segs > ($segs_trab * 1.1);
+
         $linhas[] = [
-            'user_id'             => $uid,
-            'nome_exibicao'       => $nome,
-            'valor_hora'          => $vh,
-            'referencia_data'     => $data,
-            'segundos_declarados' => $segs,
-            'horas_formatado'     => relatorio_formatar_horas($segs),
-            'total_declaracoes'   => $qtd,
-            'valor_estimado'      => $valor_est,
+            'user_id'               => $uid,
+            'nome_exibicao'         => $nome,
+            'valor_hora'            => $vh,
+            'referencia_data'       => $data,
+            'segundos_declarados'   => $segs,
+            'segundos_trabalhados'  => $segs_trab,
+            'horas_formatado'       => relatorio_formatar_horas($segs),
+            'trabalhado_formatado'  => relatorio_formatar_horas($segs_trab),
+            'total_declaracoes'     => $qtd,
+            'valor_estimado'        => $valor_est,
+            'pago'                  => $pago,
+            'divergente'            => $divergente,
         ];
 
         if (!isset($por_usuario[$uid])) {
             $por_usuario[$uid] = [
-                'user_id'        => $uid,
-                'nome_exibicao'  => $nome,
-                'valor_hora'     => $vh,
-                'segundos_total' => 0,
-                'valor_estimado' => 0.0,
-                'dias_trabalhados' => 0,
+                'user_id'              => $uid,
+                'nome_exibicao'        => $nome,
+                'valor_hora'           => $vh,
+                'segundos_total'       => 0,
+                'segundos_trab_total'  => 0,
+                'valor_estimado'       => 0.0,
+                'dias_trabalhados'     => 0,
             ];
         }
-        $por_usuario[$uid]['segundos_total']   += $segs;
-        $por_usuario[$uid]['valor_estimado']   += $valor_est;
-        $por_usuario[$uid]['dias_trabalhados'] += 1;
+        $por_usuario[$uid]['segundos_total']      += $segs;
+        $por_usuario[$uid]['segundos_trab_total']  += $segs_trab;
+        $por_usuario[$uid]['valor_estimado']       += $valor_est;
+        $por_usuario[$uid]['dias_trabalhados']     += 1;
     }
 
     // formatar totais por usuário
     $totais_por_usuario = [];
     foreach ($por_usuario as $u) {
-        $u['horas_formatado']  = relatorio_formatar_horas($u['segundos_total']);
-        $u['valor_estimado']   = round($u['valor_estimado'], 2);
-        $totais_por_usuario[]  = $u;
+        $u['horas_formatado']      = relatorio_formatar_horas($u['segundos_total']);
+        $u['trabalhado_formatado'] = relatorio_formatar_horas($u['segundos_trab_total']);
+        $u['valor_estimado']       = round($u['valor_estimado'], 2);
+        $totais_por_usuario[]      = $u;
     }
 
-    // ordenar totais: mais horas primeiro
     usort($totais_por_usuario, static fn(array $a, array $b): int => $b['segundos_total'] <=> $a['segundos_total']);
 
     $total_geral_segundos = array_sum(array_column($totais_por_usuario, 'segundos_total'));

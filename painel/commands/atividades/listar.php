@@ -10,6 +10,7 @@ require_once __DIR__ . '/../conexao/conexao.php';
 try {
     $pdo = obter_conexao_pdo();
 
+    // Compatível com MariaDB 10.4+ (sem JSON_ARRAYAGG)
     $st = $pdo->prepare("
         SELECT
             a.id_atividade,
@@ -20,17 +21,10 @@ try {
             a.status,
             a.criado_em,
             a.atualizado_em,
-            COALESCE(
-              JSON_ARRAYAGG(
-                JSON_OBJECT(
-                  'id_usuario', u.id_usuario,
-                  'user_id', u.user_id,
-                  'nome_exibicao', u.nome_exibicao,
-                  'status_conta', u.status_conta
-                )
-              ),
-              JSON_ARRAY()
-            ) AS usuarios
+            GROUP_CONCAT(
+              CONCAT(u.id_usuario, '||', u.user_id, '||', u.nome_exibicao, '||', u.status_conta)
+              SEPARATOR ';;'
+            ) AS usuarios_raw
         FROM atividades a
         LEFT JOIN atividades_usuarios au ON au.id_atividade = a.id_atividade
         LEFT JOIN usuarios u ON u.id_usuario = au.id_usuario
@@ -42,18 +36,22 @@ try {
     $linhas = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     foreach ($linhas as &$linha) {
-        $usuarios = json_decode((string)($linha['usuarios'] ?? '[]'), true);
-        if (!is_array($usuarios)) $usuarios = [];
+        $raw = (string)($linha['usuarios_raw'] ?? '');
+        unset($linha['usuarios_raw']);
 
-        // remove itens "nulos" (quando não tem join)
         $usuarios_filtrados = [];
-        foreach ($usuarios as $u) {
-            if (!is_array($u)) continue;
-            $id_usuario = (int)($u['id_usuario'] ?? 0);
-            if ($id_usuario <= 0) continue;
-            $usuarios_filtrados[] = $u;
+        if ($raw !== '') {
+            foreach (explode(';;', $raw) as $item) {
+                $parts = explode('||', $item);
+                if (count($parts) < 4 || (int)$parts[0] <= 0) continue;
+                $usuarios_filtrados[] = [
+                    'id_usuario'    => (int)$parts[0],
+                    'user_id'       => $parts[1],
+                    'nome_exibicao' => $parts[2],
+                    'status_conta'  => $parts[3],
+                ];
+            }
         }
-
         $linha['usuarios'] = $usuarios_filtrados;
     }
 

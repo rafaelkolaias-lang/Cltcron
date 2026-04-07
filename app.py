@@ -1825,23 +1825,27 @@ class App(tk.Tk):
                     self._var_status.set(f"Falha ao restaurar sessão: {erro}")
 
     def _verificar_atualizacao(self) -> None:
-        """Verifica se há uma versão mais nova do executável no servidor.
-        Se o tamanho remoto diferir do local, baixa e substitui automaticamente."""
-        try:
-            # Tamanho do executável atual
-            caminho_atual = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
-            tamanho_local = caminho_atual.stat().st_size
+        """Verifica atualização em background — não bloqueia a UI."""
 
-            # Tamanho remoto via HEAD (sem baixar o arquivo)
-            req = urllib.request.Request(URL_ATUALIZACAO, method="HEAD")
-            req.add_header("User-Agent", "CronometroLeve-Updater/1.0")
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                tamanho_remoto = int(resp.headers.get("Content-Length", 0))
+        def _em_thread() -> None:
+            try:
+                caminho_atual = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+                tamanho_local = caminho_atual.stat().st_size
 
-            if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
-                return  # sem atualização
+                req = urllib.request.Request(URL_ATUALIZACAO, method="HEAD")
+                req.add_header("User-Agent", "CronometroLeve-Updater/1.0")
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    tamanho_remoto = int(resp.headers.get("Content-Length", 0))
 
-            # Confirma com o usuário
+                if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
+                    return  # sem atualização
+
+                # Pergunta ao usuário na thread da UI
+                self.after(0, lambda: _confirmar(caminho_atual))
+            except Exception:
+                pass  # falha silenciosa — atualização é opcional
+
+        def _confirmar(caminho_atual: Path) -> None:
             resposta = messagebox.askyesno(
                 "Atualização disponível",
                 "Uma nova versão do CronometroLeve está disponível.\n\n"
@@ -1850,39 +1854,32 @@ class App(tk.Tk):
             )
             if not resposta:
                 return
-
             self._var_status.set("Baixando atualização…")
-            self.update_idletasks()
+            threading.Thread(target=_baixar, args=(caminho_atual,), daemon=True).start()
 
-            # Diretório do exe atual
+        def _baixar(caminho_atual: Path) -> None:
             pasta = caminho_atual.parent
             novo_exe = pasta / "CronometroLeve_novo.exe"
             backup_exe = pasta / "CronometroLeve.exe.bak"
-
-            # Download
-            urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
-
-            # Substituição: atual → .bak, novo → atual
-            if backup_exe.exists():
-                backup_exe.unlink()
-            if caminho_atual.exists():
-                os.rename(str(caminho_atual), str(backup_exe))
             try:
-                os.rename(str(novo_exe), str(caminho_atual))
+                urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+                if backup_exe.exists():
+                    backup_exe.unlink()
+                if caminho_atual.exists():
+                    os.rename(str(caminho_atual), str(backup_exe))
+                try:
+                    os.rename(str(novo_exe), str(caminho_atual))
+                except Exception:
+                    if backup_exe.exists() and not caminho_atual.exists():
+                        os.rename(str(backup_exe), str(caminho_atual))
+                    self.after(0, lambda: self._var_status.set("Falha ao aplicar atualização."))
+                    return
+                subprocess.Popen([str(caminho_atual)])
+                sys.exit(0)
             except Exception:
-                # Rollback: restaura o executável original
-                if backup_exe.exists() and not caminho_atual.exists():
-                    os.rename(str(backup_exe), str(caminho_atual))
-                self._var_status.set("Falha ao aplicar atualização.")
-                return
+                self.after(0, lambda: self._var_status.set("Erro ao baixar atualização."))
 
-            # Reinicia com o novo executável
-            subprocess.Popen([str(caminho_atual)])
-            sys.exit(0)
-
-        except Exception:
-            self._var_status.set("Não foi possível verificar atualizações.")
-            pass
+        threading.Thread(target=_em_thread, daemon=True).start()
 
     def _logar(self) -> None:
         user_id = (self._var_user.get() or "").strip()
@@ -1892,22 +1889,31 @@ class App(tk.Tk):
             self._var_status.set("Informe user_id e chave.")
             return
 
-        try:
-            usuario = self._repositorio.autenticar_usuario(user_id, chave)
-        except Exception as erro:
-            self._var_status.set(f"Erro no banco: {erro}")
-            return
+        self._var_status.set("Verificando…")
+        self.update_idletasks()
 
-        if not usuario:
-            self._var_status.set("Login inválido.")
-            return
+        def _em_thread() -> None:
+            try:
+                usuario = self._repositorio.autenticar_usuario(user_id, chave)
+            except Exception as erro:
+                self.after(0, lambda: self._var_status.set(f"Erro no banco: {erro}"))
+                return
 
-        self._usuario = usuario
-        self._salvar_login(user_id, chave)
-        self._var_status.set("Login OK.")
-        self.unbind("<Return>")
-        self._verificar_atualizacao()
-        self._montar_tela_principal()
+            if not usuario:
+                self.after(0, lambda: self._var_status.set("Login inválido."))
+                return
+
+            def _na_ui() -> None:
+                self._usuario = usuario
+                self._salvar_login(user_id, chave)
+                self._var_status.set("Login OK.")
+                self.unbind("<Return>")
+                self._verificar_atualizacao()
+                self._montar_tela_principal()
+
+            self.after(0, _na_ui)
+
+        threading.Thread(target=_em_thread, daemon=True).start()
 
     def _sair(self) -> None:
         try:

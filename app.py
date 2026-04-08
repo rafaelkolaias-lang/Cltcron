@@ -29,14 +29,30 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # =========================
 VERSAO_APLICACAO = "v2.3"
 
-NOTAS_ATUALIZACAO = """
-v2.3 — Novidades:
-- Tarefas de todas as datas na lista (nao filtra mais por dia)
-- Pagamentos aparecem na lista de tarefas
-- Limite de 30h nao declaradas (aviso a partir de 20h)
-- Trava por hora: tarefas apos pagamento ficam livres
-- Correcoes de travamento e estabilidade
-"""
+HISTORICO_VERSOES = [
+    {
+        "versao": "v2.3",
+        "data": "08/04/2026",
+        "notas": [
+            "Tarefas de todas as datas na lista (não filtra mais por dia)",
+            "Pagamentos aparecem na lista de tarefas",
+            "Limite de 30h não declaradas (aviso a partir de 20h)",
+            "Trava por hora: tarefas após pagamento ficam livres",
+            "Correções de travamento e estabilidade",
+        ],
+    },
+    {
+        "versao": "v2.2",
+        "data": "08/04/2026",
+        "notas": [
+            "Versão exibida no título da janela",
+            "Resiliência offline (fila de heartbeats)",
+            "Notificações Windows ao perder/restaurar conexão",
+            "Auto-login com credenciais salvas",
+            "Fix deadlock no monitor (banco fora do lock)",
+        ],
+    },
+]
 URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/main/painel/downloads/CronometroLeve.exe"
 
 INTERVALO_LOOP_SEGUNDOS = 0.20
@@ -2282,11 +2298,49 @@ class App(tk.Tk):
                              bg=_BG, fg="#555555", font=("Segoe UI", 8),
                              cursor="hand2")
         btn_notas.place(relx=0.5, rely=1.0, anchor="s", y=-8)
-        btn_notas.bind("<Button-1>", lambda _: messagebox.showinfo(
-            f"Novidades {VERSAO_APLICACAO}", NOTAS_ATUALIZACAO.strip()))
+        btn_notas.bind("<Button-1>", lambda _: self._abrir_changelog())
 
         entrada_user.focus_set()
         self.bind("<Return>", lambda _e: self._logar())
+
+    def _abrir_changelog(self) -> None:
+        janela = tk.Toplevel(self)
+        janela.title(f"Novidades — Cronômetro {VERSAO_APLICACAO}")
+        janela.geometry("420x400")
+        janela.resizable(False, True)
+        janela.transient(self)
+        janela.grab_set()
+        janela.configure(bg="#111111")
+
+        # Área scrollável
+        canvas = tk.Canvas(janela, bg="#111111", highlightthickness=0)
+        scrollbar = ttk.Scrollbar(janela, orient="vertical", command=canvas.yview)
+        frame = tk.Frame(canvas, bg="#111111")
+
+        frame.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=frame, anchor="nw", width=400)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=10)
+        scrollbar.pack(side="right", fill="y")
+
+        for entrada in HISTORICO_VERSOES:
+            # Cabeçalho da versão
+            tk.Label(frame, text=f"{entrada['versao']}  —  {entrada['data']}",
+                     bg="#111111", fg="#3ecf6e", font=("Segoe UI", 11, "bold"),
+                     anchor="w").pack(fill="x", pady=(12, 4))
+
+            # Itens
+            for nota in entrada["notas"]:
+                tk.Label(frame, text=f"  •  {nota}", bg="#111111", fg="#bbbbbb",
+                         font=("Segoe UI", 9), anchor="w", wraplength=370,
+                         justify="left").pack(fill="x", pady=1)
+
+            # Separador
+            tk.Frame(frame, bg="#333333", height=1).pack(fill="x", pady=(10, 0))
+
+        # Botão fechar
+        ttk.Button(janela, text="Fechar", command=janela.destroy).pack(pady=(8, 10))
 
     def _montar_tela_principal(self) -> None:
         self.geometry("660x340")

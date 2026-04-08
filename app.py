@@ -43,6 +43,7 @@ INTERVALO_SCAN_APPS_SEGUNDOS = 15.0
 
 ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"
+ARQUIVO_FILA_OFFLINE = Path.home() / ".cronometro_leve_fila_offline.json"
 
 TOLERANCIA_VALIDACAO_SEGUNDOS = 1
 
@@ -207,6 +208,7 @@ class MonitorDeUso:
 
         self._ultimo_heartbeat_mono: float = 0.0
         self._ultimo_sync_status_mono: float = 0.0
+        self._ultimo_flush_fila_mono: float = 0.0
         self._ultimo_marco_mono: float = 0.0
         self._ultimo_erro: str = ""
 
@@ -315,6 +317,7 @@ class MonitorDeUso:
         idle_segundos: int,
         id_sessao: int | None = None,
         user_id: str | None = None,
+        ocorrido_em: datetime | None = None,
     ) -> None:
         _id = id_sessao if id_sessao is not None else self._id_sessao
         _uid = user_id if user_id is not None else self._user_id
@@ -327,8 +330,81 @@ class MonitorDeUso:
                 (id_sessao, user_id, tipo_evento, situacao, ocorrido_em, idle_segundos)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            [_id, _uid, tipo_evento, situacao, datetime.now(), int(idle_segundos)],
+            [_id, _uid, tipo_evento, situacao, ocorrido_em or datetime.now(), int(idle_segundos)],
         )
+
+    # --- Fila offline ---
+
+    def _carregar_fila_offline(self) -> list[dict]:
+        try:
+            if ARQUIVO_FILA_OFFLINE.exists():
+                return json.loads(ARQUIVO_FILA_OFFLINE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        return []
+
+    def _salvar_fila_offline(self, fila: list[dict]) -> None:
+        try:
+            ARQUIVO_FILA_OFFLINE.write_text(
+                json.dumps(fila, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def _adicionar_a_fila_offline(
+        self,
+        tipo_evento: str,
+        situacao: str,
+        idle_segundos: int,
+        ocorrido_em: datetime | None = None,
+    ) -> None:
+        fila = self._carregar_fila_offline()
+        fila.append({
+            "tipo_evento": tipo_evento,
+            "situacao": situacao,
+            "idle_segundos": idle_segundos,
+            "id_sessao": self._id_sessao,
+            "user_id": self._user_id,
+            "ocorrido_em": (ocorrido_em or datetime.now()).isoformat(),
+        })
+        self._salvar_fila_offline(fila)
+
+    def _tentar_flush_fila_offline(self) -> None:
+        """Re-envia eventos pendentes da fila offline. Para ao primeiro erro."""
+        fila = self._carregar_fila_offline()
+        if not fila:
+            return
+        enviados = 0
+        for item in fila:
+            try:
+                ocorrido = datetime.fromisoformat(item["ocorrido_em"])
+                self._banco.executar(
+                    """
+                    INSERT INTO cronometro_eventos_status
+                        (id_sessao, user_id, tipo_evento, situacao, ocorrido_em, idle_segundos)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        item["id_sessao"],
+                        item["user_id"],
+                        item["tipo_evento"],
+                        item["situacao"],
+                        ocorrido,
+                        int(item["idle_segundos"]),
+                    ],
+                )
+                enviados += 1
+            except Exception:
+                break
+        if enviados > 0:
+            self._salvar_fila_offline(fila[enviados:])
+            pendentes = len(fila) - enviados
+            msg = (
+                f"Fila offline: {enviados} eventos re-enviados"
+                + (f", {pendentes} ainda pendentes" if pendentes else " (fila limpa)")
+            )
+            self._registrar_erro_locked(msg)
 
     def _abrir_foco(self, nome_app: str, titulo: str) -> None:
         if self._id_sessao is None:
@@ -1007,19 +1083,21 @@ class MonitorDeUso:
                                 try:
                                     self._inserir_evento("ocioso_inicio", "ocioso", idle)
                                 except Exception:
-                                    pass
+                                    self._adicionar_a_fila_offline("ocioso_inicio", "ocioso", idle)
                             elif situacao_anterior == "ocioso" and nova_situacao == "trabalhando":
                                 try:
                                     self._inserir_evento("ocioso_fim", "trabalhando", idle)
                                 except Exception:
-                                    pass
+                                    self._adicionar_a_fila_offline("ocioso_fim", "trabalhando", idle)
 
                         if (mono_agora - self._ultimo_heartbeat_mono) >= INTERVALO_HEARTBEAT_SEGUNDOS:
                             self._ultimo_heartbeat_mono = mono_agora
+                            self._tentar_flush_fila_offline()
                             try:
                                 self._inserir_evento("heartbeat", self._situacao_calculada, idle)
                             except Exception as e:
                                 self._registrar_erro_locked(f"Falha heartbeat: {e}")
+                                self._adicionar_a_fila_offline("heartbeat", self._situacao_calculada, idle)
 
                         if (mono_agora - self._ultimo_sync_status_mono) >= INTERVALO_STATUS_BANCO_SEGUNDOS:
                             self._ultimo_sync_status_mono = mono_agora

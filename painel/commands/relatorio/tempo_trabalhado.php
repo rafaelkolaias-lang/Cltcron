@@ -114,7 +114,15 @@ try {
     // 2. Horas TRABALHADAS por usuário × dia (registros_tempo)
     // -------------------------------------------------------
     $params_trab = [':data_inicio' => $data_inicio, ':data_fim' => $data_fim];
-    $where_trab = "rt.referencia_data BETWEEN :data_inicio AND :data_fim AND rt.situacao = 'trabalhando'";
+    // Tenta filtrar horas já pagas; fallback se coluna id_pagamento não existe
+    $tem_col_pagamento = true;
+    try {
+        $pdo->query("SELECT id_pagamento FROM registros_tempo LIMIT 0");
+    } catch (Throwable $_) {
+        $tem_col_pagamento = false;
+    }
+    $filtro_pago = $tem_col_pagamento ? " AND rt.id_pagamento IS NULL" : "";
+    $where_trab = "rt.referencia_data BETWEEN :data_inicio AND :data_fim AND rt.situacao = 'trabalhando'" . $filtro_pago;
 
     if ($membro_filtro !== '') {
         $where_trab .= " AND rt.user_id = :membro";

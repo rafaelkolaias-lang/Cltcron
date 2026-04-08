@@ -17,9 +17,17 @@ try {
 
     $pdo = obter_conexao_pdo();
 
+    // Tenta filtrar horas já pagas; fallback se coluna id_pagamento não existe
+    try {
+        $pdo->query("SELECT id_pagamento FROM registros_tempo LIMIT 0");
+        $filtro_pago = " AND id_pagamento IS NULL";
+    } catch (Throwable $_) {
+        $filtro_pago = "";
+    }
+
     $sql = "SELECT situacao, SUM(segundos) AS total_segundos
             FROM registros_tempo
-            WHERE user_id = :user_id AND referencia_mes = :mes
+            WHERE user_id = :user_id AND referencia_mes = :mes{$filtro_pago}
             GROUP BY situacao";
 
     $stm = $pdo->prepare($sql);

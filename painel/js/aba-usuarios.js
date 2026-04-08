@@ -445,20 +445,23 @@
         return;
       }
 
-      tbody.innerHTML = ordenada.map((p) => {
+      tbody.innerHTML = ordenada.map((p, idx) => {
         const dataPagamento = dataIsoParaBrSeguro(String(p.data_pagamento || ""));
         const observacao = String(p.observacao || "").trim() || "—";
         const idPag = Number(p.id_pagamento || 0);
+        const editavel = idx < 2; // Apenas os 2 mais recentes
+
+        const botoes = editavel
+          ? `<button class="btn btn-sm btn-outline-light me-1" onclick="window.__editarPagamento(${idPag})" title="Editar">✏️</button>
+             <button class="btn btn-sm btn-outline-danger" onclick="window.__excluirPagamento(${idPag})" title="Excluir">🗑️</button>`
+          : `<span class="texto-fraco small">🔒</span>`;
 
         return `
           <tr>
             <td>${escapeHtmlSeguro(dataPagamento)}</td>
             <td class="text-end fw-semibold">${escapeHtmlSeguro(formatarDinheiroBr(p.valor))}</td>
             <td>${escapeHtmlSeguro(observacao)}</td>
-            <td class="text-end" style="white-space:nowrap;">
-              <button class="btn btn-sm btn-outline-light me-1" onclick="window.__editarPagamento(${idPag})" title="Editar">✏️</button>
-              <button class="btn btn-sm btn-outline-danger" onclick="window.__excluirPagamento(${idPag})" title="Excluir">🗑️</button>
-            </td>
+            <td class="text-end" style="white-space:nowrap;">${botoes}</td>
           </tr>
         `;
       }).join("");

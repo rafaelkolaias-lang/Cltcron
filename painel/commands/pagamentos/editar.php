@@ -56,6 +56,21 @@ try {
         responder_json(false, 'Pagamento não encontrado.', ['id_pagamento' => $id_pagamento], 404);
     }
 
+    // Verificar se está entre os 2 últimos pagamentos do usuário
+    $stUltimos = $pdo->prepare("
+        SELECT id_pagamento
+        FROM Pagamentos
+        WHERE id_usuario = :id_usuario
+        ORDER BY data_pagamento DESC, id_pagamento DESC
+        LIMIT 2
+    ");
+    $stUltimos->execute([':id_usuario' => $existente['id_usuario']]);
+    $ultimos = array_map('intval', array_column($stUltimos->fetchAll(PDO::FETCH_ASSOC), 'id_pagamento'));
+
+    if (!in_array($id_pagamento, $ultimos, true)) {
+        responder_json(false, 'Apenas os 2 últimos pagamentos podem ser editados.', ['id_pagamento' => $id_pagamento], 403);
+    }
+
     // Campos editáveis
     $campos = [];
     $params = [];

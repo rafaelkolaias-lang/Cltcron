@@ -925,15 +925,17 @@ class RepositorioDeclaracoesDia:
             dt_pagamento = self.obter_datetime_ultimo_pagamento(user_id)
             subtarefa_info = self._obter_subtarefa(user_id, int(id_subtarefa))
             criada_em = subtarefa_info.get("criada_em") if subtarefa_info else None
-            marcar = True
+            marcar = False  # Não marcar por padrão — só se tiver certeza
             if dt_pagamento and criada_em:
                 if isinstance(criada_em, str):
                     try:
                         criada_em = datetime.fromisoformat(criada_em)
                     except (ValueError, TypeError):
                         criada_em = None
-                if isinstance(criada_em, datetime) and criada_em > dt_pagamento:
-                    marcar = False  # Subtarefa criada após o pagamento — não travar
+                if isinstance(criada_em, datetime):
+                    marcar = criada_em <= dt_pagamento  # Só marca se criada ANTES do pagamento
+            elif dt_pagamento and not criada_em:
+                marcar = False  # Sem data de criação — não pode confirmar, não trava
             if marcar:
                 self._banco.executar(
                     """

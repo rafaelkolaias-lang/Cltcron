@@ -119,6 +119,13 @@ try {
 
     $id_usuario = (int)$linhaU['id_usuario'];
 
+    // Garantir coluna id_pagamento em registros_tempo (ANTES da transação — ALTER TABLE causa commit implícito)
+    try {
+        $pdo->exec("ALTER TABLE registros_tempo ADD COLUMN id_pagamento INT NULL DEFAULT NULL");
+    } catch (Throwable $ignore) {
+        // Coluna já existe — ok
+    }
+
     $st = $pdo->prepare("
         INSERT INTO Pagamentos (
             id_usuario,
@@ -199,8 +206,7 @@ try {
         }
     }
 
-    // Limpar registros_tempo anteriores à última declaração do usuário
-    // Buscar o horário da última subtarefa concluída (declarada)
+    // Marcar registros_tempo anteriores à última declaração como pagos
     $stUltDecl = $pdo->prepare("
         SELECT MAX(concluida_em) AS ultima_declaracao
         FROM atividades_subtarefas
@@ -212,24 +218,26 @@ try {
     $linhaDecl = $stUltDecl->fetch(PDO::FETCH_ASSOC);
     $ultimaDeclaracao = $linhaDecl['ultima_declaracao'] ?? null;
 
-    $horasRemovidas = 0;
+    $horasMarcadas = 0;
     if ($ultimaDeclaracao) {
-        // Remover registros de tempo criados ANTES da última declaração
-        $stDel = $pdo->prepare("
-            DELETE FROM registros_tempo
+        $stMark = $pdo->prepare("
+            UPDATE registros_tempo
+            SET id_pagamento = :id_pag
             WHERE user_id = :user_id
               AND criado_em < :ultima_declaracao
+              AND id_pagamento IS NULL
         ");
-        $stDel->execute([
+        $stMark->execute([
+            ':id_pag' => $id_pagamento,
             ':user_id' => $user_id,
             ':ultima_declaracao' => $ultimaDeclaracao,
         ]);
-        $horasRemovidas = $stDel->rowCount();
+        $horasMarcadas = $stMark->rowCount();
     }
 
     $pdo->commit();
 
-    responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s). {$horasRemovidas} registro(s) de tempo removido(s).", [
+    responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s). {$horasMarcadas} registro(s) de tempo marcado(s).", [
         'id_pagamento' => $id_pagamento,
         'user_id' => $user_id,
         'id_usuario' => $id_usuario,

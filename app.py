@@ -2623,7 +2623,8 @@ class App(tk.Tk):
     def _finalizar(self) -> None:
         if not self._usuario:
             return
-        self._verificar_limite_horas()
+        if not self._verificar_limite_horas():
+            return
 
         if not self._monitor.tem_sessao_carregada():
             messagebox.showwarning("Atenção", "Clique em INICIAR antes de ZERAR.")
@@ -2649,7 +2650,7 @@ class App(tk.Tk):
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
             return
-        self._verificar_limite_horas()
+        self._verificar_limite_horas()  # Avisa mas não bloqueia (usuário precisa declarar)
 
         if getattr(self._monitor, "_offline_notificado", False):
             messagebox.showwarning("Sem conexão", "Você precisa estar conectado à internet para acessar as tarefas.")

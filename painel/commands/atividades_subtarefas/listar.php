@@ -85,13 +85,22 @@ try {
     $mapaTrab = [];
     $mapaDecl = [];
     foreach ($userIds as $uid) {
-        // Total trabalhando (todas as datas)
-        $stT = $pdo->prepare("
-            SELECT COALESCE(SUM(segundos), 0)
-            FROM registros_tempo
-            WHERE user_id = :uid AND situacao = 'trabalhando'
-        ");
-        $stT->execute([':uid' => $uid]);
+        // Total trabalhando (todas as datas) — exclui horas já pagas
+        try {
+            $stT = $pdo->prepare("
+                SELECT COALESCE(SUM(segundos), 0)
+                FROM registros_tempo
+                WHERE user_id = :uid AND situacao = 'trabalhando' AND id_pagamento IS NULL
+            ");
+            $stT->execute([':uid' => $uid]);
+        } catch (Throwable $_) {
+            $stT = $pdo->prepare("
+                SELECT COALESCE(SUM(segundos), 0)
+                FROM registros_tempo
+                WHERE user_id = :uid AND situacao = 'trabalhando'
+            ");
+            $stT->execute([':uid' => $uid]);
+        }
         $mapaTrab[$uid] = (int)$stT->fetchColumn();
 
         // Total declarado (todas as subtarefas)

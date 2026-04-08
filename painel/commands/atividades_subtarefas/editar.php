@@ -67,12 +67,21 @@ try {
     }
     if ($segundos !== null) {
         // Validar: total declarado ACUMULADO (excluindo esta tarefa) + novo valor não pode exceder total trabalhado
-        $stTrab = $pdo->prepare("
-            SELECT COALESCE(SUM(segundos), 0)
-            FROM registros_tempo
-            WHERE user_id = :uid AND situacao = 'trabalhando'
-        ");
-        $stTrab->execute([':uid' => $atual['user_id']]);
+        try {
+            $stTrab = $pdo->prepare("
+                SELECT COALESCE(SUM(segundos), 0)
+                FROM registros_tempo
+                WHERE user_id = :uid AND situacao = 'trabalhando' AND id_pagamento IS NULL
+            ");
+            $stTrab->execute([':uid' => $atual['user_id']]);
+        } catch (Throwable $_) {
+            $stTrab = $pdo->prepare("
+                SELECT COALESCE(SUM(segundos), 0)
+                FROM registros_tempo
+                WHERE user_id = :uid AND situacao = 'trabalhando'
+            ");
+            $stTrab->execute([':uid' => $atual['user_id']]);
+        }
         $trabalhado_total = (int)$stTrab->fetchColumn();
 
         $stDecl = $pdo->prepare("

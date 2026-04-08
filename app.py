@@ -38,7 +38,9 @@ HISTORICO_VERSOES = [
             "Pagamentos aparecem na lista de tarefas",
             "Limite de 30h não declaradas (aviso a partir de 20h)",
             "Trava por hora: tarefas após pagamento ficam livres",
-            "Correções de travamento e estabilidade",
+            "Ordenação por data e hora real (pagamentos na posição correta)",
+            "Changelog acessível na tela de login",
+            "Correções de travamento e estabilidade (9 bugs corrigidos)",
         ],
     },
     {

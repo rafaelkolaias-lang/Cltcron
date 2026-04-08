@@ -253,9 +253,10 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
-### v7.3 — App v2.3: changelog, fix sair, notas de atualização `[Desktop]` (2026-04-08)
+### v7.3 — App v2.3: changelog, ordenação datetime, fixes `[Desktop]` (2026-04-08)
 - **Versão do app atualizada para v2.3** (título da janela: "Cronômetro v2.3").
 - **Changelog na tela de login:** link "v2.3 — ver novidades" na parte inferior abre popup scrollável com histórico completo de versões. Estrutura `HISTORICO_VERSOES` permite adicionar futuras versões facilmente.
+- **Ordenação por datetime real:** lista de tarefas e pagamentos agora ordena por `criada_em`/`criado_em` (hora exata), não apenas por data. Pagamentos aparecem na posição cronológica correta entre as subtarefas.
 - **Fix erro ao sair:** `_tick_ui` tentava configurar `_btn_tarefas` após destruição dos widgets — adicionado `winfo_exists()` + try/catch.
 
 ### v7.2 — Auditoria e correção de 9 bugs `[App+Web]` (2026-04-08)

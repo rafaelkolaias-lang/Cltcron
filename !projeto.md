@@ -253,6 +253,17 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.2 — Auditoria e correção de 9 bugs `[App+Web]` (2026-04-08)
+- **Fix `_finalizar()` (Desktop):** agora bloqueia quando limite de 30h é atingido (antes ignorava o retorno de `_verificar_limite_horas`).
+- **Fix `_abrir_tarefas_do_dia()` (Desktop):** avisa sobre limite mas permite abrir (usuário precisa declarar para resolver).
+- **Fix ALTER TABLE em transação (Web):** `criar.php` movia o `ALTER TABLE registros_tempo ADD COLUMN id_pagamento` para antes do `beginTransaction()` — MySQL faz commit implícito em DDL, quebrando a atomicidade da transação.
+- **Fix registros_tempo reversível (Web):** pagamento agora marca horas com `id_pagamento` via UPDATE em vez de DELETE. Ao excluir pagamento, horas são restauradas (`id_pagamento = NULL`).
+- **Fix `in_array` com tipos mistos (Web):** `excluir.php` e `editar.php` usavam comparação loose entre int e string — corrigido com `intval` + `strict=true`.
+- **Limite de 2 últimos pagamentos (Web):** apenas os 2 pagamentos mais recentes de cada usuário podem ser editados/excluídos. Pagamentos mais antigos mostram 🔒 na interface.
+- **Fallback coluna `id_pagamento` (Web):** 4 queries PHP que filtram `AND id_pagamento IS NULL` agora têm fallback gracioso (try/catch) para bancos antigos sem a coluna.
+- **Fix `concluir_subtarefa` (Desktop):** não marca mais como paga quando `criada_em` é NULL — antes assumia `marcar=True` por padrão, agora só marca se `criada_em <= dt_pagamento`.
+- **Queries filtram horas pagas (Web):** `listar.php`, `editar.php`, `tempo_trabalhado.php` e `horas_mes.php` excluem registros com `id_pagamento IS NOT NULL` do total trabalhado.
+
 ### v7.1 — Gestão em página, limite 30h, limpeza no pagamento `[App+Web]` (2026-04-08)
 - **Gestão de usuário em página completa:** modal substituído por seção SPA com layout em 2 colunas — dados do usuário e resumo à esquerda, pagamentos e tarefas declaradas à direita. Botão "← Voltar" retorna à lista de usuários.
 - **Tabela de tarefas declaradas na gestão:** lista todas as subtarefas do usuário com botão "Editar" que abre o mesmo modal de Gerenciar Tarefas. Tarefas bloqueadas por pagamento têm botão desabilitado. Recarrega automaticamente após edição.

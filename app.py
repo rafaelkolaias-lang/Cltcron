@@ -1345,7 +1345,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._arvore.heading("data", text="Data")
         self._arvore.heading("tempo", text="Tempo")
         self._arvore.heading("observacao", text="Observação")
-        self._arvore.heading("bloqueio", text="Bloqueio")
+        self._arvore.heading("bloqueio", text="Pagamento")
 
         self._arvore.column("titulo", width=290, stretch=True)
         self._arvore.column("canal", width=180, stretch=True)
@@ -1393,6 +1393,11 @@ class JanelaSubtarefas(tk.Toplevel):
             return valor.strftime("%d/%m/%Y %H:%M")
         if isinstance(valor, date):
             return valor.strftime("%d/%m/%Y")
+        if isinstance(valor, str) and len(valor) >= 10:
+            try:
+                return date.fromisoformat(valor[:10]).strftime("%d/%m/%Y")
+            except (ValueError, TypeError):
+                pass
         return str(valor)
 
     def _obter_id_subtarefa_selecionada(self) -> int:
@@ -1402,10 +1407,11 @@ class JanelaSubtarefas(tk.Toplevel):
         return int(selecionado.split("_", 1)[1])
 
     def _data_esta_travada(self) -> bool:
+        """Verifica se a data de referência está estritamente antes da trava (dia exato é livre)."""
         travado_ate = self._travado_ate_cache
         if travado_ate is None:
             return False
-        return bool(self._referencia_data <= travado_ate)
+        return bool(self._referencia_data < travado_ate)
 
     def _atualizar_texto_trava(self, travado_ate: object) -> None:
         self._travado_ate_cache = travado_ate
@@ -1413,33 +1419,35 @@ class JanelaSubtarefas(tk.Toplevel):
             self._var_trava.set("Sem bloqueio por pagamento para este usuário.")
             return
 
-        if self._referencia_data <= travado_ate:
+        if self._referencia_data < travado_ate:
             self._var_trava.set(
-                f"Lançamentos travados até {travado_ate.strftime('%d/%m/%Y')}. Esta data não pode mais ser editada ou excluída."
+                f"Lançamentos travados até {travado_ate.strftime('%d/%m/%Y')}. Datas anteriores não podem mais ser editadas."
             )
         else:
             self._var_trava.set(
-                f"Última trava por pagamento: {travado_ate.strftime('%d/%m/%Y')}. Esta data ainda pode ser alterada."
+                f"Última trava por pagamento: {travado_ate.strftime('%d/%m/%Y')}. Tarefas após o pagamento ainda podem ser alteradas."
             )
 
     def _recarregar_dados(self) -> None:
         self._var_resumo.set("Carregando...")
 
         user_id = self._usuario_id()
-        referencia_data = self._referencia_data
         id_atividade = self._id_atividade
         segundos_trabalhando = self._segundos_trabalhando
 
         def _buscar() -> tuple:
-            subtarefas = self._repositorio.listar_subtarefas_do_dia(user_id, referencia_data, id_atividade)
+            subtarefas = self._repositorio.listar_subtarefas_do_dia(user_id, id_atividade=id_atividade)
             resumo = self._repositorio.obter_resumo_do_dia(
                 user_id,
-                referencia_data,
-                id_atividade,
+                id_atividade=id_atividade,
                 segundos_monitorados_adicionais=segundos_trabalhando,
             )
             travado_ate = self._repositorio.obter_data_travada_por_pagamento(user_id)
-            return subtarefas, resumo, travado_ate
+            try:
+                pagamentos = self._repositorio.listar_pagamentos_do_usuario(user_id)
+            except Exception:
+                pagamentos = []
+            return subtarefas, resumo, travado_ate, pagamentos
 
         def _aplicar(resultado: object) -> None:
             try:
@@ -1449,32 +1457,84 @@ class JanelaSubtarefas(tk.Toplevel):
             if not self._arvore.winfo_exists():
                 return
 
-            subtarefas, resumo, travado_ate = resultado  # type: ignore[misc]
+            subtarefas, resumo, travado_ate, pagamentos = resultado  # type: ignore[misc]
 
             self._subtarefas = subtarefas
             self._mapa_subtarefas = {
                 int(getattr(s, "id_subtarefa", 0)): s for s in subtarefas
             }
 
+            # Configurar tag visual para linhas de pagamento
+            self._arvore.tag_configure("pagamento", foreground="#00cc66", background="#1a2e1a")
+
             for item in self._arvore.get_children():
                 self._arvore.delete(item)
 
+            # Mesclar subtarefas e pagamentos ordenados por data desc
+            # Cada item: (data, tipo_ordem, iid, valores, tags)
+            # tipo_ordem: 0=pagamento (aparece acima), 1=subtarefa
+            itens_mesclados: list[tuple[date | None, int, str, tuple, tuple]] = []
+
             for subtarefa in subtarefas:
                 id_sub = int(getattr(subtarefa, "id_subtarefa", 0))
-                self._arvore.insert(
-                    "",
-                    "end",
-                    iid=f"subtarefa_{id_sub}",
-                    values=(
+                ref = getattr(subtarefa, "referencia_data", None)
+                itens_mesclados.append((
+                    ref if isinstance(ref, date) else None,
+                    1,
+                    f"subtarefa_{id_sub}",
+                    (
                         str(getattr(subtarefa, "titulo", "") or ""),
                         str(getattr(subtarefa, "canal_entrega", "") or ""),
                         "Concluída" if bool(getattr(subtarefa, "concluida", False)) else "Aberta",
-                        self._formatar_data(getattr(subtarefa, "referencia_data", None)),
+                        self._formatar_data(ref),
                         formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)),
                         str(getattr(subtarefa, "observacao", "") or ""),
-                        "Travada" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else "Livre",
+                        "Pago" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else "",
                     ),
-                )
+                    (),
+                ))
+
+            for pag in pagamentos:
+                data_pag = pag.get("data_pagamento")
+                if isinstance(data_pag, str):
+                    try:
+                        data_pag = date.fromisoformat(data_pag)
+                    except (ValueError, TypeError):
+                        data_pag = None
+                valor = pag.get("valor", 0)
+                valor_fmt = f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                ref_inicio = pag.get("referencia_inicio") or ""
+                ref_fim = pag.get("referencia_fim") or ""
+                periodo = ""
+                if ref_inicio and ref_fim:
+                    periodo = f"{self._formatar_data(ref_inicio)} a {self._formatar_data(ref_fim)}"
+                elif ref_inicio:
+                    periodo = f"A partir de {self._formatar_data(ref_inicio)}"
+                elif ref_fim:
+                    periodo = f"Até {self._formatar_data(ref_fim)}"
+                obs = str(pag.get("observacao") or "")
+                id_pag = int(pag.get("id_pagamento", 0))
+                itens_mesclados.append((
+                    data_pag if isinstance(data_pag, date) else None,
+                    0,
+                    f"pagamento_{id_pag}",
+                    (
+                        f"💰 Pagamento — {valor_fmt}",
+                        periodo,
+                        "Pago",
+                        self._formatar_data(data_pag),
+                        "",
+                        obs,
+                        "",
+                    ),
+                    ("pagamento",),
+                ))
+
+            # Ordenar: data desc, pagamentos acima de subtarefas na mesma data
+            itens_mesclados.sort(key=lambda x: (x[0] or date.min, -x[1]), reverse=True)
+
+            for _, _, iid, valores, tags in itens_mesclados:
+                self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
             self._var_resumo.set(
                 f"Trabalhado: {resumo['monitorado_hhmmss']}    |    "
@@ -1488,11 +1548,21 @@ class JanelaSubtarefas(tk.Toplevel):
 
         self._executar_em_background(_buscar, _aplicar, _falha)
 
-    def _validar_nao_travado(self) -> bool:
+    def _validar_nao_travado(self, id_subtarefa: int | None = None) -> bool:
+        """Valida se a operação é permitida. Para subtarefas existentes, verifica a flag individual."""
+        if id_subtarefa is not None:
+            subtarefa = self._mapa_subtarefas.get(id_subtarefa)
+            if subtarefa and bool(getattr(subtarefa, "bloqueada_pagamento", False)):
+                messagebox.showwarning(
+                    "Atenção",
+                    "Esta subtarefa já foi travada por pagamento e não pode mais ser alterada.",
+                    parent=self,
+                )
+                return False
         if self._data_esta_travada():
             messagebox.showwarning(
                 "Atenção",
-                "Este dia já foi travado por pagamento e não pode mais ser editado ou excluído.",
+                "Este período já foi travado por pagamento e não pode mais ser editado.",
                 parent=self,
             )
             return False
@@ -1505,23 +1575,23 @@ class JanelaSubtarefas(tk.Toplevel):
         self._abrir_formulario_subtarefa(None)
 
     def _editar_subtarefa(self) -> None:
-        if not self._validar_nao_travado():
-            return
         try:
             id_subtarefa = self._obter_id_subtarefa_selecionada()
         except Exception as erro:
             messagebox.showwarning("Atenção", str(erro), parent=self)
+            return
+        if not self._validar_nao_travado(id_subtarefa):
             return
         self._var_resumo.set("Carregando...")
         self._abrir_formulario_subtarefa(id_subtarefa)
 
     def _excluir_subtarefa(self) -> None:
-        if not self._validar_nao_travado():
-            return
         try:
             id_subtarefa = self._obter_id_subtarefa_selecionada()
         except Exception as erro:
             messagebox.showwarning("Atenção", str(erro), parent=self)
+            return
+        if not self._validar_nao_travado(id_subtarefa):
             return
 
         if not messagebox.askyesno("Confirmar", "Excluir a subtarefa selecionada?", parent=self):

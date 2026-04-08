@@ -346,6 +346,34 @@ class RepositorioDeclaracoesDia:
         )
         return self._normalizar_data(None if not linha else linha.get("travado_ate"))
 
+    def obter_datetime_ultimo_pagamento(self, user_id: str) -> datetime | None:
+        """Retorna o criado_em (datetime) do pagamento mais recente do usuário."""
+        user_id = self._normalizar_user_id(user_id)
+        if not user_id:
+            return None
+        linha = self._banco.consultar_um(
+            """
+            SELECT p.criado_em
+            FROM Pagamentos p
+            JOIN usuarios u ON u.id_usuario = p.id_usuario
+            WHERE u.user_id = %s
+            ORDER BY p.criado_em DESC
+            LIMIT 1
+            """,
+            [user_id],
+        )
+        if not linha or not linha.get("criado_em"):
+            return None
+        val = linha["criado_em"]
+        if isinstance(val, datetime):
+            return val
+        if isinstance(val, str):
+            try:
+                return datetime.fromisoformat(val)
+            except (ValueError, TypeError):
+                return None
+        return None
+
     def _obter_pagamento_que_trava_data(self, user_id: str, referencia_data: date) -> dict | None:
         return self._banco.consultar_um(
             """
@@ -364,6 +392,8 @@ class RepositorioDeclaracoesDia:
         )
 
     def data_esta_travada(self, user_id: str, referencia_data: date | datetime | str | None) -> bool:
+        """Retorna True se a data está ESTRITAMENTE antes do dia da trava.
+        Para o dia exato da trava, retorna False — a trava individual é por subtarefa."""
         referencia = self._normalizar_data(referencia_data)
         if referencia is None:
             return False
@@ -372,11 +402,44 @@ class RepositorioDeclaracoesDia:
         if travado_ate is None:
             return False
 
-        return bool(referencia <= travado_ate)
+        # Dias anteriores ao dia da trava: totalmente travados
+        # Dia exato da trava: livre para novas subtarefas (as antigas já têm bloqueada_pagamento=1)
+        return bool(referencia < travado_ate)
 
-    def _validar_periodo_editavel(self, user_id: str, referencia_data: date | None) -> None:
+    def subtarefa_esta_travada(self, user_id: str, id_subtarefa: int) -> bool:
+        """Verifica se uma subtarefa específica está travada (por data anterior OU por flag individual)."""
+        linha = self._banco.consultar_um(
+            """
+            SELECT referencia_data, bloqueada_pagamento
+            FROM atividades_subtarefas
+            WHERE id_subtarefa = %s AND user_id = %s
+            """,
+            [int(id_subtarefa), self._normalizar_user_id(user_id)],
+        )
+        if not linha:
+            return False
+
+        # Se a flag individual está marcada, está travada
+        if bool(linha.get("bloqueada_pagamento")):
+            return True
+
+        # Se a data é estritamente anterior à trava, está travada
+        ref = self._normalizar_data(linha.get("referencia_data"))
+        if ref is None:
+            return False
+        return self.data_esta_travada(user_id, ref)
+
+    def _validar_periodo_editavel(self, user_id: str, referencia_data: date | None, id_subtarefa: int | None = None) -> None:
         if referencia_data is None:
             return
+        # Se é uma subtarefa existente, verificar trava individual
+        if id_subtarefa is not None:
+            if self.subtarefa_esta_travada(user_id, id_subtarefa):
+                raise RuntimeError(
+                    "Esta subtarefa pertence a um período já pago e não pode mais ser alterada."
+                )
+            return
+        # Para criação de novas subtarefas, só trava se a data for estritamente anterior
         if self.data_esta_travada(user_id, referencia_data):
             raise RuntimeError(
                 "Esta subtarefa pertence a um período já pago e não pode mais ser alterada."
@@ -391,7 +454,9 @@ class RepositorioDeclaracoesDia:
 
         pagamento = self._obter_pagamento_que_trava_data(user_id, travado_ate)
         id_pagamento = None if not pagamento else pagamento.get("id_pagamento")
+        dt_pagamento = self.obter_datetime_ultimo_pagamento(user_id)
 
+        # Dias estritamente anteriores: trava tudo
         self._banco.executar(
             """
             UPDATE atividades_subtarefas
@@ -400,11 +465,27 @@ class RepositorioDeclaracoesDia:
                 bloqueada_em = COALESCE(bloqueada_em, NOW())
             WHERE user_id = %s
               AND referencia_data IS NOT NULL
-              AND referencia_data <= %s
+              AND referencia_data < %s
               AND bloqueada_pagamento = 0
             """,
             [id_pagamento, self._normalizar_user_id(user_id), travado_ate],
         )
+
+        # Dia exato da trava: só subtarefas criadas ANTES do horário do pagamento
+        if dt_pagamento:
+            self._banco.executar(
+                """
+                UPDATE atividades_subtarefas
+                SET bloqueada_pagamento = 1,
+                    id_pagamento = COALESCE(%s, id_pagamento),
+                    bloqueada_em = COALESCE(bloqueada_em, NOW())
+                WHERE user_id = %s
+                  AND referencia_data = %s
+                  AND criada_em <= %s
+                  AND bloqueada_pagamento = 0
+                """,
+                [id_pagamento, self._normalizar_user_id(user_id), travado_ate, dt_pagamento],
+            )
 
         linha = self._banco.consultar_um("SELECT ROW_COUNT() AS total")
         return int((linha or {}).get("total") or 0)
@@ -415,22 +496,24 @@ class RepositorioDeclaracoesDia:
     def obter_segundos_monitorados_do_dia(
         self,
         user_id: str,
-        referencia_data: date,
-        id_atividade: int,
+        referencia_data: date | None = None,
+        id_atividade: int = 0,
     ) -> int:
         self._garantir_estrutura()
 
         try:
-            linha = self._banco.consultar_um(
-                """
+            sql = """
                 SELECT COALESCE(SUM(segundos_trabalhando), 0) AS total
                 FROM cronometro_relatorios
                 WHERE user_id = %s
                   AND id_atividade = %s
-                  AND DATE(criado_em) = %s
-                """,
-                [self._normalizar_user_id(user_id), int(id_atividade), referencia_data],
-            )
+            """
+            parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
+            if referencia_data is not None:
+                sql += " AND DATE(criado_em) = %s"
+                parametros.append(referencia_data)
+
+            linha = self._banco.consultar_um(sql, parametros)
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
@@ -438,8 +521,8 @@ class RepositorioDeclaracoesDia:
     def obter_segundos_declarados_do_dia(
         self,
         user_id: str,
-        referencia_data: date,
-        id_atividade: int,
+        referencia_data: date | None = None,
+        id_atividade: int = 0,
         *,
         id_subtarefa_ignorar: int | None = None,
     ) -> int:
@@ -450,10 +533,12 @@ class RepositorioDeclaracoesDia:
             FROM atividades_subtarefas
             WHERE user_id = %s
               AND id_atividade = %s
-              AND referencia_data = %s
               AND concluida = 1
         """
-        parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade), referencia_data]
+        parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
+        if referencia_data is not None:
+            sql += " AND referencia_data = %s"
+            parametros.append(referencia_data)
         if id_subtarefa_ignorar is not None:
             sql += " AND id_subtarefa <> %s"
             parametros.append(int(id_subtarefa_ignorar))
@@ -587,14 +672,23 @@ class RepositorioDeclaracoesDia:
     def listar_subtarefas_do_dia(
         self,
         user_id: str,
-        referencia_data: date,
-        id_atividade: int,
+        referencia_data: date | None = None,
+        id_atividade: int = 0,
     ) -> list[SubtarefaDeclaracaoDia]:
         self._garantir_estrutura()
         self._validar_atividade_do_usuario(user_id, int(id_atividade))
 
+        condicoes = ["s.user_id = %s", "s.id_atividade = %s"]
+        params: list = [self._normalizar_user_id(user_id), int(id_atividade)]
+
+        if referencia_data is not None:
+            condicoes.append("s.referencia_data = %s")
+            params.append(referencia_data)
+
+        where = " AND ".join(condicoes)
+
         linhas = self._banco.consultar_todos(
-            """
+            f"""
             SELECT
               s.id_subtarefa,
               s.id_atividade,
@@ -616,12 +710,10 @@ class RepositorioDeclaracoesDia:
               a.titulo AS titulo_atividade
             FROM atividades_subtarefas s
             JOIN atividades a ON a.id_atividade = s.id_atividade
-            WHERE s.user_id = %s
-              AND s.id_atividade = %s
-              AND s.referencia_data = %s
-            ORDER BY s.concluida ASC, s.criada_em ASC, s.id_subtarefa ASC
+            WHERE {where}
+            ORDER BY s.referencia_data DESC, s.concluida ASC, s.criada_em DESC, s.id_subtarefa DESC
             """,
-            [self._normalizar_user_id(user_id), int(id_atividade), referencia_data],
+            params,
         )
         return [self._mapear_subtarefa(linha) for linha in linhas]
 
@@ -708,7 +800,7 @@ class RepositorioDeclaracoesDia:
 
         antes = self._obter_subtarefa(user_id, int(id_subtarefa))
         referencia_antiga = self._normalizar_data(antes.get("referencia_data"))
-        self._validar_periodo_editavel(user_id, referencia_antiga)
+        self._validar_periodo_editavel(user_id, referencia_antiga, id_subtarefa=int(id_subtarefa))
 
         referencia_nova = referencia_antiga
         if referencia_data is not None:
@@ -792,8 +884,8 @@ class RepositorioDeclaracoesDia:
         if referencia is None:
             referencia = date.today()
 
-        self._validar_periodo_editavel(user_id, referencia)
-        self._validar_periodo_editavel(user_id, self._normalizar_data(antes.get("referencia_data")))
+        self._validar_periodo_editavel(user_id, referencia, id_subtarefa=int(id_subtarefa))
+        self._validar_periodo_editavel(user_id, self._normalizar_data(antes.get("referencia_data")), id_subtarefa=int(id_subtarefa))
 
         segundos_int = self._validar_segundos(segundos_gastos)
 
@@ -829,16 +921,30 @@ class RepositorioDeclaracoesDia:
 
         pagamento = self._obter_pagamento_que_trava_data(user_id, referencia)
         if pagamento:
-            self._banco.executar(
-                """
-                UPDATE atividades_subtarefas
-                SET bloqueada_pagamento = 1,
-                    id_pagamento = %s,
-                    bloqueada_em = COALESCE(bloqueada_em, NOW())
-                WHERE id_subtarefa = %s
-                """,
-                [pagamento.get("id_pagamento"), int(id_subtarefa)],
-            )
+            # Só marca como paga se a subtarefa foi criada ANTES do pagamento
+            dt_pagamento = self.obter_datetime_ultimo_pagamento(user_id)
+            subtarefa_info = self._obter_subtarefa(user_id, int(id_subtarefa))
+            criada_em = subtarefa_info.get("criada_em") if subtarefa_info else None
+            marcar = True
+            if dt_pagamento and criada_em:
+                if isinstance(criada_em, str):
+                    try:
+                        criada_em = datetime.fromisoformat(criada_em)
+                    except (ValueError, TypeError):
+                        criada_em = None
+                if isinstance(criada_em, datetime) and criada_em > dt_pagamento:
+                    marcar = False  # Subtarefa criada após o pagamento — não travar
+            if marcar:
+                self._banco.executar(
+                    """
+                    UPDATE atividades_subtarefas
+                    SET bloqueada_pagamento = 1,
+                        id_pagamento = %s,
+                        bloqueada_em = COALESCE(bloqueada_em, NOW())
+                    WHERE id_subtarefa = %s
+                    """,
+                    [pagamento.get("id_pagamento"), int(id_subtarefa)],
+                )
 
         depois = self._obter_subtarefa(user_id, int(id_subtarefa))
         self._registrar_historico_subtarefa(
@@ -856,7 +962,7 @@ class RepositorioDeclaracoesDia:
 
         antes = self._obter_subtarefa(user_id, int(id_subtarefa))
         referencia = self._normalizar_data(antes.get("referencia_data"))
-        self._validar_periodo_editavel(user_id, referencia)
+        self._validar_periodo_editavel(user_id, referencia, id_subtarefa=int(id_subtarefa))
 
         self._banco.executar(
             """
@@ -888,7 +994,7 @@ class RepositorioDeclaracoesDia:
 
         antes = self._obter_subtarefa(user_id, int(id_subtarefa))
         referencia = self._normalizar_data(antes.get("referencia_data"))
-        self._validar_periodo_editavel(user_id, referencia)
+        self._validar_periodo_editavel(user_id, referencia, id_subtarefa=int(id_subtarefa))
 
         self._registrar_historico_subtarefa(
             id_subtarefa=int(id_subtarefa),
@@ -1117,8 +1223,8 @@ class RepositorioDeclaracoesDia:
     def obter_resumo_do_dia(
         self,
         user_id: str,
-        referencia_data: date,
-        id_atividade: int,
+        referencia_data: date | None = None,
+        id_atividade: int = 0,
         *,
         segundos_monitorados_adicionais: int = 0,
     ) -> dict[str, Any]:
@@ -1130,18 +1236,20 @@ class RepositorioDeclaracoesDia:
         declarado = self.obter_segundos_declarados_do_dia(user_id, referencia_data, int(id_atividade))
         saldo = max(0, monitorado - declarado)
 
-        linha = self._banco.consultar_um(
-            """
+        sql_contagem = """
             SELECT
               COUNT(*) AS total_subtarefas,
               SUM(CASE WHEN concluida = 1 THEN 1 ELSE 0 END) AS total_concluidas
             FROM atividades_subtarefas
             WHERE user_id = %s
               AND id_atividade = %s
-              AND referencia_data = %s
-            """,
-            [self._normalizar_user_id(user_id), int(id_atividade), referencia_data],
-        )
+        """
+        params_contagem: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
+        if referencia_data is not None:
+            sql_contagem += " AND referencia_data = %s"
+            params_contagem.append(referencia_data)
+
+        linha = self._banco.consultar_um(sql_contagem, params_contagem)
 
         return {
             "monitorado_segundos": monitorado,
@@ -1152,6 +1260,30 @@ class RepositorioDeclaracoesDia:
             "saldo_hhmmss": formatar_hhmmss(saldo),
             "total_subtarefas": int((linha or {}).get("total_subtarefas") or 0),
             "total_concluidas": int((linha or {}).get("total_concluidas") or 0),
-            "periodo_travado": self.data_esta_travada(user_id, referencia_data),
+            "periodo_travado": self.data_esta_travada(user_id, referencia_data) if referencia_data else False,
             "travado_ate": self.obter_data_travada_por_pagamento(user_id),
         }
+
+    # ==========================================================
+    # Pagamentos
+    # ==========================================================
+    def listar_pagamentos_do_usuario(self, user_id: str) -> list[dict[str, Any]]:
+        """Retorna pagamentos do usuário ordenados por data desc."""
+        linhas = self._banco.consultar_todos(
+            """
+            SELECT
+              p.id_pagamento,
+              p.data_pagamento,
+              p.referencia_inicio,
+              p.referencia_fim,
+              p.valor,
+              p.observacao,
+              p.criado_em
+            FROM Pagamentos p
+            INNER JOIN usuarios u ON u.id_usuario = p.id_usuario
+            WHERE u.user_id = %s
+            ORDER BY p.data_pagamento DESC, p.id_pagamento DESC
+            """,
+            [self._normalizar_user_id(user_id)],
+        )
+        return linhas or []

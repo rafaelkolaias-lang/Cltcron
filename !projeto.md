@@ -253,6 +253,11 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.3 — App v2.3: changelog, fix sair, notas de atualização `[Desktop]` (2026-04-08)
+- **Versão do app atualizada para v2.3** (título da janela: "Cronômetro v2.3").
+- **Changelog na tela de login:** link "v2.3 — ver novidades" na parte inferior abre popup scrollável com histórico completo de versões. Estrutura `HISTORICO_VERSOES` permite adicionar futuras versões facilmente.
+- **Fix erro ao sair:** `_tick_ui` tentava configurar `_btn_tarefas` após destruição dos widgets — adicionado `winfo_exists()` + try/catch.
+
 ### v7.2 — Auditoria e correção de 9 bugs `[App+Web]` (2026-04-08)
 - **Fix `_finalizar()` (Desktop):** agora bloqueia quando limite de 30h é atingido (antes ignorava o retorno de `_verificar_limite_horas`).
 - **Fix `_abrir_tarefas_do_dia()` (Desktop):** avisa sobre limite mas permite abrir (usuário precisa declarar para resolver).

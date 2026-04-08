@@ -1503,17 +1503,23 @@ class JanelaSubtarefas(tk.Toplevel):
             for item in self._arvore.get_children():
                 self._arvore.delete(item)
 
-            # Mesclar subtarefas e pagamentos ordenados por data desc
-            # Cada item: (data, tipo_ordem, iid, valores, tags)
-            # tipo_ordem: 0=pagamento (aparece acima), 1=subtarefa
-            itens_mesclados: list[tuple[date | None, int, str, tuple, tuple]] = []
+            # Mesclar subtarefas e pagamentos ordenados por datetime desc
+            # Cada item: (datetime_ordenacao, iid, valores, tags)
+            _DT_MIN = datetime.min
+            itens_mesclados: list[tuple[datetime, str, tuple, tuple]] = []
 
             for subtarefa in subtarefas:
                 id_sub = int(getattr(subtarefa, "id_subtarefa", 0))
                 ref = getattr(subtarefa, "referencia_data", None)
+                criada = getattr(subtarefa, "criada_em", None)
+                if isinstance(criada, datetime):
+                    dt_ord = criada
+                elif isinstance(ref, date):
+                    dt_ord = datetime(ref.year, ref.month, ref.day)
+                else:
+                    dt_ord = _DT_MIN
                 itens_mesclados.append((
-                    ref if isinstance(ref, date) else None,
-                    1,
+                    dt_ord,
                     f"subtarefa_{id_sub}",
                     (
                         str(getattr(subtarefa, "titulo", "") or ""),
@@ -1524,7 +1530,7 @@ class JanelaSubtarefas(tk.Toplevel):
                         str(getattr(subtarefa, "observacao", "") or ""),
                         "Pago" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else "",
                     ),
-                    (),
+                    (),  # tags
                 ))
 
             for pag in pagamentos:
@@ -1534,26 +1540,28 @@ class JanelaSubtarefas(tk.Toplevel):
                         data_pag = date.fromisoformat(data_pag)
                     except (ValueError, TypeError):
                         data_pag = None
+                criado_em_pag = pag.get("criado_em")
+                if isinstance(criado_em_pag, datetime):
+                    dt_ord_pag = criado_em_pag
+                elif isinstance(criado_em_pag, str):
+                    try:
+                        dt_ord_pag = datetime.fromisoformat(criado_em_pag)
+                    except (ValueError, TypeError):
+                        dt_ord_pag = datetime(data_pag.year, data_pag.month, data_pag.day) if isinstance(data_pag, date) else _DT_MIN
+                elif isinstance(data_pag, date):
+                    dt_ord_pag = datetime(data_pag.year, data_pag.month, data_pag.day)
+                else:
+                    dt_ord_pag = _DT_MIN
                 valor = pag.get("valor", 0)
                 valor_fmt = f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                ref_inicio = pag.get("referencia_inicio") or ""
-                ref_fim = pag.get("referencia_fim") or ""
-                periodo = ""
-                if ref_inicio and ref_fim:
-                    periodo = f"{self._formatar_data(ref_inicio)} a {self._formatar_data(ref_fim)}"
-                elif ref_inicio:
-                    periodo = f"A partir de {self._formatar_data(ref_inicio)}"
-                elif ref_fim:
-                    periodo = f"Até {self._formatar_data(ref_fim)}"
                 obs = str(pag.get("observacao") or "")
                 id_pag = int(pag.get("id_pagamento", 0))
                 itens_mesclados.append((
-                    data_pag if isinstance(data_pag, date) else None,
-                    0,
+                    dt_ord_pag,
                     f"pagamento_{id_pag}",
                     (
                         f"💰 Pagamento — {valor_fmt}",
-                        periodo,
+                        "",
                         "Pago",
                         self._formatar_data(data_pag),
                         "",
@@ -1563,10 +1571,10 @@ class JanelaSubtarefas(tk.Toplevel):
                     ("pagamento",),
                 ))
 
-            # Ordenar: data desc, pagamentos acima de subtarefas na mesma data
-            itens_mesclados.sort(key=lambda x: (x[0] or date.min, -x[1]), reverse=True)
+            # Ordenar por datetime desc (mais recente no topo)
+            itens_mesclados.sort(key=lambda x: x[0], reverse=True)
 
-            for _, _, iid, valores, tags in itens_mesclados:
+            for _, iid, valores, tags in itens_mesclados:
                 self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
             self._var_resumo.set(

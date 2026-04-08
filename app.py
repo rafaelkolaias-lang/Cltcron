@@ -419,7 +419,7 @@ class MonitorDeUso:
                 "O cronômetro continua rodando normalmente.\n"
                 "Os dados serão enviados automaticamente quando a conexão voltar.",
                 "Cronômetro — Sem conexão com o servidor",
-                0x00000030,  # MB_OK | MB_ICONWARNING
+                0x00010030,  # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND
             )
         threading.Thread(target=_popup, daemon=True).start()
 
@@ -431,7 +431,7 @@ class MonitorDeUso:
                 f"Conexão com o servidor restaurada!\n\n"
                 f"{eventos_enviados} evento(s) pendente(s) foram enviados com sucesso.",
                 "Cronômetro — Conexão restaurada",
-                0x00000040,  # MB_OK | MB_ICONINFORMATION
+                0x00010040,  # MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND
             )
         threading.Thread(target=_popup, daemon=True).start()
 
@@ -1072,79 +1072,125 @@ class MonitorDeUso:
                     delta_scan = max(1, int(mono_agora - self._ultimo_scan_apps_mono)) if self._ultimo_scan_apps_mono > 0 else int(INTERVALO_SCAN_APPS_SEGUNDOS)
                     self._ultimo_scan_apps_mono = mono_agora
 
+                # Flags para operações de banco — decididas dentro do lock,
+                # executadas FORA para não bloquear Pausar/Retomar/Iniciar
+                _foco_mudou       = False
+                _evt_situacao: tuple | None = None
+                _fazer_heartbeat  = False
+                _hb_situacao      = ""
+                _hb_idle          = 0
+                _fazer_flush      = False
+                _fazer_status     = False
+                _salvar_local     = False
+
                 try:
                     with self._trava:
                         if not self._sessao_carregada:
                             continue
-
                         if not self._rodando:
                             continue
 
+                        # ── Atualização de estado puro (sem banco) ──────────
                         situacao_anterior = self._situacao_calculada
                         nova_situacao = "ocioso" if idle >= LIMITE_OCIOSO_SEGUNDOS else "trabalhando"
                         self._situacao_calculada = nova_situacao
-
                         self._acumular_tempo_ate_agora_locked(mono_agora)
-
                         self._nome_app_foco = nome_foco
                         self._titulo_janela_foco = titulo_foco
                         foco_atual = (nome_foco, titulo_foco)
 
+                        # ── Marcar o que precisa ir ao banco ─────────────────
                         if foco_atual != ultimo_foco:
-                            try:
-                                self._fechar_foco()
-                            except Exception:
-                                pass
-                            try:
-                                self._abrir_foco(nome_foco, titulo_foco)
-                            except Exception:
-                                pass
-                            ultimo_foco = foco_atual
-
-                        if apps_visiveis_scan is not None:
-                            try:
-                                self._atualizar_intervalos_apps_locked(apps_visiveis_scan, delta_scan)
-                            except Exception as e:
-                                self._registrar_erro_locked(f"Falha scan apps: {e}")
+                            _foco_mudou = True
 
                         if situacao_anterior != nova_situacao:
                             if situacao_anterior == "trabalhando" and nova_situacao == "ocioso":
-                                try:
-                                    self._inserir_evento("ocioso_inicio", "ocioso", idle)
-                                except Exception:
-                                    self._adicionar_a_fila_offline("ocioso_inicio", "ocioso", idle)
+                                _evt_situacao = ("ocioso_inicio", "ocioso", idle)
                             elif situacao_anterior == "ocioso" and nova_situacao == "trabalhando":
-                                try:
-                                    self._inserir_evento("ocioso_fim", "trabalhando", idle)
-                                except Exception:
-                                    self._adicionar_a_fila_offline("ocioso_fim", "trabalhando", idle)
+                                _evt_situacao = ("ocioso_fim", "trabalhando", idle)
 
                         if (mono_agora - self._ultimo_heartbeat_mono) >= INTERVALO_HEARTBEAT_SEGUNDOS:
                             self._ultimo_heartbeat_mono = mono_agora
-                            self._tentar_flush_fila_offline()
-                            try:
-                                self._inserir_evento("heartbeat", self._situacao_calculada, idle)
-                            except Exception as e:
-                                self._registrar_erro_locked(f"Falha heartbeat: {e}")
-                                self._adicionar_a_fila_offline("heartbeat", self._situacao_calculada, idle)
-                                if not self._offline_notificado:
-                                    self._offline_notificado = True
-                                    self._notificar_sem_conexao()
+                            _fazer_heartbeat = True
+                            _fazer_flush     = True
+                            _hb_situacao     = self._situacao_calculada
+                            _hb_idle         = idle
 
                         if (mono_agora - self._ultimo_sync_status_mono) >= INTERVALO_STATUS_BANCO_SEGUNDOS:
                             self._ultimo_sync_status_mono = mono_agora
-                            try:
-                                self._atualizar_status_atual_locked()
-                            except Exception as e:
-                                self._registrar_erro_locked(f"Falha status atual: {e}")
+                            _fazer_status = True
 
                         if (mono_agora - self._ultimo_save_estado_mono) >= 10.0:
                             self._ultimo_save_estado_mono = mono_agora
-                            self._salvar_estado_local_locked(sessao_em_aberto=True)
+                            _salvar_local = True
 
                 except Exception as e:
                     with self._trava:
                         self._registrar_erro_locked(f"Falha loop: {e}")
+
+                # ── Operações de banco FORA do lock ──────────────────────────
+
+                if _salvar_local:
+                    try:
+                        with self._trava:
+                            self._salvar_estado_local_locked(sessao_em_aberto=True)
+                    except Exception:
+                        pass
+
+                if _foco_mudou:
+                    try:
+                        self._fechar_foco()
+                    except Exception:
+                        pass
+                    try:
+                        self._abrir_foco(nome_foco, titulo_foco)
+                    except Exception:
+                        pass
+                    ultimo_foco = foco_atual
+
+                if apps_visiveis_scan is not None:
+                    try:
+                        self._atualizar_intervalos_apps_locked(apps_visiveis_scan, delta_scan)
+                    except Exception as e:
+                        with self._trava:
+                            self._registrar_erro_locked(f"Falha scan apps: {e}")
+
+                if _evt_situacao:
+                    try:
+                        self._inserir_evento(*_evt_situacao)
+                    except Exception:
+                        self._adicionar_a_fila_offline(*_evt_situacao)
+
+                if _fazer_flush:
+                    try:
+                        self._tentar_flush_fila_offline()
+                    except Exception:
+                        pass
+
+                if _fazer_heartbeat:
+                    try:
+                        self._inserir_evento("heartbeat", _hb_situacao, _hb_idle)
+                    except Exception as e:
+                        with self._trava:
+                            self._registrar_erro_locked(f"Falha heartbeat: {e}")
+                            if not self._offline_notificado:
+                                self._offline_notificado = True
+                                self._notificar_sem_conexao()
+                        self._adicionar_a_fila_offline("heartbeat", _hb_situacao, _hb_idle)
+
+                if _fazer_status:
+                    try:
+                        self._atualizar_status_atual_locked()
+                        with self._trava:
+                            if self._offline_notificado:
+                                self._offline_notificado = False
+                                self._registrar_erro_locked("")
+                    except Exception as e:
+                        with self._trava:
+                            self._registrar_erro_locked(f"Falha status atual: {e}")
+                            if not self._offline_notificado:
+                                self._offline_notificado = True
+                                self._notificar_sem_conexao()
 
         finally:
             try:
@@ -1866,7 +1912,11 @@ class App(tk.Tk):
 
         self._aplicar_estilo()
         self._montar_tela_login()
-        self._carregar_login_salvo()
+        dados_salvos = self._ler_login_salvo()
+        if dados_salvos:
+            self._var_user.set(dados_salvos["user_id"])
+            self._var_chave.set(dados_salvos["chave"])
+            self._logar()
 
         self.protocol("WM_DELETE_WINDOW", self._ao_fechar)
         self.after(INTERVALO_UI_MILISSEGUNDOS, self._tick_ui)
@@ -2018,15 +2068,18 @@ class App(tk.Tk):
         except Exception:
             pass  # sem Pillow ou sem arquivo — ignora silenciosamente
 
-    def _carregar_login_salvo(self) -> None:
+    def _ler_login_salvo(self) -> dict | None:
         try:
             if not ARQUIVO_LOGIN_SALVO.exists():
-                return
+                return None
             dados = json.loads(ARQUIVO_LOGIN_SALVO.read_text(encoding="utf-8"))
-            self._var_user.set(str(dados.get("user_id") or "").strip())
-            self._var_chave.set(str(dados.get("chave") or "").strip())
+            uid = str(dados.get("user_id") or "").strip()
+            chave = str(dados.get("chave") or "").strip()
+            if uid and chave:
+                return {"user_id": uid, "chave": chave}
         except Exception:
             pass
+        return None
 
     def _salvar_login(self, user_id: str, chave: str) -> None:
         try:
@@ -2034,6 +2087,40 @@ class App(tk.Tk):
             ARQUIVO_LOGIN_SALVO.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
+
+    def _montar_tela_carregando(self) -> None:
+        self.geometry("480x520")
+        for widget in self.winfo_children():
+            widget.destroy()
+        fundo = tk.Frame(self, bg="#111111")
+        fundo.pack(fill="both", expand=True)
+        tk.Label(fundo, text="Conectando…", bg="#111111", fg="#606060",
+                 font=("Segoe UI", 12)).place(relx=0.5, rely=0.5, anchor="center")
+
+    def _tentar_auto_login(self, user_id: str, chave: str) -> None:
+        def _em_thread() -> None:
+            try:
+                usuario = self._repositorio.autenticar_usuario(user_id, chave)
+            except Exception:
+                self.after(0, lambda: self._mostrar_login_com_erro(
+                    user_id, chave, "Sem conexão com o servidor."))
+                return
+            if not usuario:
+                self.after(0, lambda: self._mostrar_login_com_erro(
+                    user_id, chave, "Credenciais inválidas."))
+                return
+            def _na_ui() -> None:
+                self._usuario = usuario
+                self._verificar_atualizacao()
+                self._montar_tela_principal()
+            self.after(0, _na_ui)
+        threading.Thread(target=_em_thread, daemon=True).start()
+
+    def _mostrar_login_com_erro(self, user_id: str, chave: str, msg: str) -> None:
+        self._montar_tela_login()
+        self._var_user.set(user_id)
+        self._var_chave.set(chave)
+        self._var_status.set(msg)
 
     def _montar_tela_login(self) -> None:
         self.geometry("480x520")
@@ -2094,7 +2181,7 @@ class App(tk.Tk):
             except Exception:
                 return
             txt = self._var_status.get().lower()
-            if any(p in txt for p in ("inválido", "erro", "falha")):
+            if any(p in txt for p in ("inválido", "erro", "falha", "sem conexão")):
                 lbl_status.configure(fg="#ff5555")
             elif any(p in txt for p in ("ok", "verificando", "carregando", "baixando")):
                 lbl_status.configure(fg="#3ecf6e")
@@ -2130,7 +2217,8 @@ class App(tk.Tk):
 
         ttk.Label(painel, textvariable=self._var_tempo, font=("Segoe UI", 44, "bold"), foreground="#ffffff").pack(anchor="center")
         ttk.Label(painel, textvariable=self._var_status, font=("Segoe UI", 10, "bold"), foreground="#aaaaaa").pack(anchor="center", pady=(6, 0))
-        ttk.Label(painel, textvariable=self._var_erro, foreground="#ff5555").pack(anchor="center", pady=(2, 0))
+        ttk.Label(painel, textvariable=self._var_erro, foreground="#f0a500",
+                  font=("Segoe UI", 8), wraplength=380, justify="center").pack(anchor="center", pady=(2, 0))
 
         self._var_texto_btn_principal = tk.StringVar(value="Iniciar")
 
@@ -2139,7 +2227,8 @@ class App(tk.Tk):
 
         self._btn_principal = ttk.Button(botoes, textvariable=self._var_texto_btn_principal, style="Verde.TButton", command=self._acao_principal)
         self._btn_principal.pack(side="left", expand=True, fill="x", padx=4)
-        ttk.Button(botoes, text="Tarefas", command=self._abrir_tarefas_do_dia).pack(side="left", expand=True, fill="x", padx=4)
+        self._btn_tarefas = ttk.Button(botoes, text="Tarefas", command=self._abrir_tarefas_do_dia)
+        self._btn_tarefas.pack(side="left", expand=True, fill="x", padx=4)
         ttk.Button(botoes, text="Zerar Cronômetro", command=self._finalizar).pack(side="left", expand=True, fill="x", padx=4)
 
         self._carregar_atividades()
@@ -2251,8 +2340,8 @@ class App(tk.Tk):
         def _em_thread() -> None:
             try:
                 usuario = self._repositorio.autenticar_usuario(user_id, chave)
-            except Exception as erro:
-                self.after(0, lambda: self._var_status.set(f"Erro no banco: {erro}"))
+            except Exception:
+                self.after(0, lambda: self._var_status.set("Sem conexão com o servidor."))
                 return
 
             if not usuario:
@@ -2286,7 +2375,10 @@ class App(tk.Tk):
         self._ultimo_segundo_renderizado = -1
         self._ultimo_status_renderizado = ""
         self._montar_tela_login()
-        self._carregar_login_salvo()
+        dados_salvos = self._ler_login_salvo()
+        if dados_salvos:
+            self._var_user.set(dados_salvos["user_id"])
+            self._var_chave.set(dados_salvos["chave"])
 
     def _carregar_atividades(self) -> None:
         if not self._usuario:
@@ -2456,6 +2548,10 @@ class App(tk.Tk):
         if not self._usuario:
             return
 
+        if getattr(self._monitor, "_offline_notificado", False):
+            messagebox.showwarning("Sem conexão", "Você precisa estar conectado à internet para acessar as tarefas.")
+            return
+
         self._var_status.set("Carregando...")
         self.update_idletasks()
 
@@ -2528,7 +2624,18 @@ class App(tk.Tk):
             except (AttributeError, tk.TclError):
                 pass
 
-        self._var_erro.set(f"Erro: {estado.ultimo_erro}" if estado.ultimo_erro else "")
+        if estado.ultimo_erro:
+            offline = getattr(self._monitor, "_offline_notificado", False)
+            if offline:
+                self._var_erro.set("⚠ Perdemos a conexão com o servidor, provavelmente você está sem internet.")
+            else:
+                self._var_erro.set(f"⚠ {estado.ultimo_erro}")
+        else:
+            self._var_erro.set("")
+
+        if hasattr(self, "_btn_tarefas"):
+            offline = getattr(self._monitor, "_offline_notificado", False)
+            self._btn_tarefas.configure(state="disabled" if offline else "normal")
 
         self.after(INTERVALO_UI_MILISSEGUNDOS, self._tick_ui)
 

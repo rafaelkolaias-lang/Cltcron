@@ -27,7 +27,16 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.2"
+VERSAO_APLICACAO = "v2.3"
+
+NOTAS_ATUALIZACAO = """
+v2.3 — Novidades:
+- Tarefas de todas as datas na lista (nao filtra mais por dia)
+- Pagamentos aparecem na lista de tarefas
+- Limite de 30h nao declaradas (aviso a partir de 20h)
+- Trava por hora: tarefas apos pagamento ficam livres
+- Correcoes de travamento e estabilidade
+"""
 URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/main/painel/downloads/CronometroLeve.exe"
 
 INTERVALO_LOOP_SEGUNDOS = 0.20
@@ -2201,7 +2210,7 @@ class App(tk.Tk):
         self._var_status.set(msg)
 
     def _montar_tela_login(self) -> None:
-        self.geometry("480x520")
+        self.geometry("480x600")
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -2267,6 +2276,11 @@ class App(tk.Tk):
                 lbl_status.configure(fg=_D)
 
         self._var_status.trace_add("write", _atualizar_cor_status)
+
+        # Notas de atualização
+        tk.Label(fundo, text=NOTAS_ATUALIZACAO.strip(), bg=_BG, fg="#555555",
+                 font=("Segoe UI", 7), justify="left", anchor="w").place(
+            relx=0.5, rely=1.0, anchor="s", y=-8)
 
         entrada_user.focus_set()
         self.bind("<Return>", lambda _e: self._logar())

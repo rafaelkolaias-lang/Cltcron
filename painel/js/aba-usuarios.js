@@ -23,6 +23,8 @@
     return `./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(userId)}`;
   }
   function urlCriarPagamento() { return "./commands/pagamentos/criar.php"; }
+  function urlEditarPagamento() { return "./commands/pagamentos/editar.php"; }
+  function urlExcluirPagamento() { return "./commands/pagamentos/excluir.php"; }
 
   // ============================
   // HTTP helper
@@ -101,6 +103,26 @@
       body: JSON.stringify(payload),
     });
     if (!json.ok) throw new Error(json.mensagem || "Falha ao registrar pagamento.");
+    return json.dados || null;
+  }
+
+  async function editarPagamentoNoBackend(payload) {
+    const json = await requisitarJson(urlEditarPagamento(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao editar pagamento.");
+    return json.dados || null;
+  }
+
+  async function excluirPagamentoNoBackend(idPagamento) {
+    const json = await requisitarJson(urlExcluirPagamento(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ id_pagamento: idPagamento }),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao excluir pagamento.");
     return json.dados || null;
   }
 
@@ -428,10 +450,11 @@
     const elTotal = document.getElementById("textoGestaoTotalPago");
 
     try {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Carregando…</td></tr>`;
 
       const lista = await listarPagamentosDoBackend(uid);
       const ordenada = lista.slice(0).sort((a, b) => String(b.data_pagamento || "").localeCompare(String(a.data_pagamento || "")));
+      _pagamentosCache = ordenada;
 
       const total = ordenada.reduce((acc, p) => acc + Number(p.valor || 0), 0);
       if (elTotal) elTotal.textContent = formatarDinheiroBr(total);
@@ -439,7 +462,7 @@
       if (!tbody) return;
 
       if (!ordenada.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="texto-fraco">Nenhum pagamento registrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Nenhum pagamento registrado.</td></tr>`;
         return;
       }
 
@@ -448,6 +471,7 @@
         const periodo = formatarPeriodoPagamento(p.referencia_inicio, p.referencia_fim);
         const travado = p.travado_ate_data ? dataIsoParaBrSeguro(String(p.travado_ate_data || "")) : "—";
         const observacao = String(p.observacao || "").trim() || "—";
+        const idPag = Number(p.id_pagamento || 0);
 
         return `
           <tr>
@@ -456,11 +480,15 @@
             <td>${escapeHtmlSeguro(travado)}</td>
             <td class="text-end fw-semibold">${escapeHtmlSeguro(formatarDinheiroBr(p.valor))}</td>
             <td>${escapeHtmlSeguro(observacao)}</td>
+            <td class="text-end" style="white-space:nowrap;">
+              <button class="btn btn-sm btn-outline-light me-1" onclick="window.__editarPagamento(${idPag})" title="Editar">✏️</button>
+              <button class="btn btn-sm btn-outline-danger" onclick="window.__excluirPagamento(${idPag})" title="Excluir">🗑️</button>
+            </td>
           </tr>
         `;
       }).join("");
     } catch (e) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="texto-fraco">Falha ao carregar.</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Falha ao carregar.</td></tr>`;
       nucleo.utilidades.mostrarAlerta("erro", "Falha ao listar pagamentos", String(e && e.message ? e.message : e));
     }
   }
@@ -626,6 +654,150 @@
       nucleo.utilidades.mostrarAlerta("erro", "Erro ao atualizar status", String(e && e.message ? e.message : e));
     }
   }
+
+  // ============================
+  // Editar / Excluir pagamento
+  // ============================
+  let _pagamentosCache = [];
+
+  async function editarPagamentoModal(idPagamento) {
+    const nucleo = obterNucleo();
+    const pag = _pagamentosCache.find(p => Number(p.id_pagamento) === idPagamento);
+    if (!pag) {
+      nucleo.utilidades.mostrarAlerta("erro", "Erro", "Pagamento não encontrado.");
+      return;
+    }
+
+    const dataPag = String(pag.data_pagamento || "");
+    const refInicio = String(pag.referencia_inicio || "");
+    const refFim = String(pag.referencia_fim || "");
+    const travadoAte = String(pag.travado_ate_data || "");
+    const valor = formatarDinheiroBr(pag.valor);
+    const obs = String(pag.observacao || "");
+
+    const html = `
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Data pagamento</label>
+        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagData" value="${escapeHtmlSeguro(dataPag)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Referência início</label>
+        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagRefInicio" value="${escapeHtmlSeguro(refInicio)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Referência fim</label>
+        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagRefFim" value="${escapeHtmlSeguro(refFim)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Travado até</label>
+        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagTravado" value="${escapeHtmlSeguro(travadoAte)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Valor (R$)</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagValor" value="${escapeHtmlSeguro(valor)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Observação</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagObs" value="${escapeHtmlSeguro(obs)}"></div>
+    `;
+
+    // Criar modal dinamicamente
+    let modal = document.getElementById("modalEditarPagamento");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "modalEditarPagamento";
+      modal.className = "modal fade";
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+              <h6 class="modal-title">Editar Pagamento #${idPagamento}</h6>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="_editPagBody">${html}</div>
+            <div class="modal-footer border-secondary">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-sm btn-primary" id="_editPagSalvar">Salvar</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    } else {
+      modal.querySelector(".modal-title").textContent = `Editar Pagamento #${idPagamento}`;
+      modal.querySelector("#_editPagBody").innerHTML = html;
+    }
+
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    const btnSalvar = modal.querySelector("#_editPagSalvar");
+    const novoBtn = btnSalvar.cloneNode(true);
+    btnSalvar.parentNode.replaceChild(novoBtn, btnSalvar);
+
+    novoBtn.addEventListener("click", async () => {
+      const novaData = document.getElementById("_editPagData")?.value || "";
+      const novaRefInicio = document.getElementById("_editPagRefInicio")?.value || "";
+      const novaRefFim = document.getElementById("_editPagRefFim")?.value || "";
+      const novoTravado = document.getElementById("_editPagTravado")?.value || "";
+      const novoValor = normalizarDinheiroBr(document.getElementById("_editPagValor")?.value);
+      const novaObs = document.getElementById("_editPagObs")?.value || "";
+
+      if (!novaData) {
+        nucleo.utilidades.mostrarAlerta("aviso", "Data inválida", "Informe a data do pagamento.");
+        return;
+      }
+      if (novoValor <= 0) {
+        nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior que zero.");
+        return;
+      }
+
+      try {
+        await editarPagamentoNoBackend({
+          id_pagamento: idPagamento,
+          data_pagamento: novaData,
+          referencia_inicio: novaRefInicio || null,
+          referencia_fim: novaRefFim || null,
+          travado_ate_data: novoTravado || novaRefFim || novaData,
+          valor: novoValor,
+          observacao: novaObs,
+        });
+
+        bsModal.hide();
+
+        if (usuarioGestaoAbertoId) {
+          const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+          await Promise.all([
+            carregarPagamentosNoModal(usuarioGestaoAbertoId),
+            u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+          ]);
+        }
+
+        nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento atualizado", `Pagamento #${idPagamento} salvo.`);
+      } catch (e) {
+        nucleo.utilidades.mostrarAlerta("erro", "Erro ao editar", String(e && e.message ? e.message : e));
+      }
+    });
+  }
+
+  async function excluirPagamentoConfirmar(idPagamento) {
+    const nucleo = obterNucleo();
+
+    if (!confirm(`Excluir pagamento #${idPagamento}?\n\nAs subtarefas travadas por este pagamento serão destravadas.`)) {
+      return;
+    }
+
+    try {
+      const resultado = await excluirPagamentoNoBackend(idPagamento);
+      const destravadas = resultado?.tarefas_destravadas || 0;
+
+      if (usuarioGestaoAbertoId) {
+        const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+        await Promise.all([
+          carregarPagamentosNoModal(usuarioGestaoAbertoId),
+          u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+        ]);
+      }
+
+      nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento excluído", `Pagamento removido. ${destravadas} tarefa(s) destravada(s).`);
+    } catch (e) {
+      nucleo.utilidades.mostrarAlerta("erro", "Erro ao excluir", String(e && e.message ? e.message : e));
+    }
+  }
+
+  // Expor para onclick inline
+  window.__editarPagamento = editarPagamentoModal;
+  window.__excluirPagamento = excluirPagamentoConfirmar;
 
   async function registrarPagamentoReal() {
     const nucleo = obterNucleo();

@@ -422,12 +422,13 @@ header('Content-Type: text/html; charset=utf-8');
                                 <th style="min-width: 190px;">Referência</th>
                                 <th style="min-width: 130px;">Travado até</th>
                                 <th class="text-end" style="min-width: 140px;">Valor</th>
-                                <th style="min-width: 260px;">Obs</th>
+                                <th style="min-width: 200px;">Obs</th>
+                                <th class="text-end" style="min-width: 100px;">Ações</th>
                               </tr>
                             </thead>
                             <tbody id="tbodyGestaoPagamentos">
                               <tr>
-                                <td colspan="5" class="texto-fraco">Carregando…</td>
+                                <td colspan="6" class="texto-fraco">Carregando…</td>
                               </tr>
                             </tbody>
                           </table>

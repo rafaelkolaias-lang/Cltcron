@@ -179,8 +179,8 @@
   }
 
   // ─── modal de edição ──────────────────────────────────────────────────────
-  window.gtAbrirEdicao = function (id) {
-    const tarefa = _dados.find(t => t.id_subtarefa === id);
+  window.gtAbrirEdicao = function (id, tarefaExterna) {
+    const tarefa = tarefaExterna || _dados.find(t => t.id_subtarefa === id);
     if (!tarefa) return;
     _idEditando = id;
 
@@ -263,6 +263,7 @@
 
       bootstrap.Modal.getOrCreateInstance(el("modalEditarTarefa")).hide();
       await carregarTarefas();
+      if (typeof window.__onTarefaEditada === "function") window.__onTarefaEditada();
     } catch (err) {
       if (errDiv) { errDiv.textContent = err.message; errDiv.classList.remove("d-none"); }
       if (btn) btn.disabled = false;

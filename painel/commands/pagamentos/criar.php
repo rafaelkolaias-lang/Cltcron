@@ -199,9 +199,37 @@ try {
         }
     }
 
+    // Limpar registros_tempo anteriores à última declaração do usuário
+    // Buscar o horário da última subtarefa concluída (declarada)
+    $stUltDecl = $pdo->prepare("
+        SELECT MAX(concluida_em) AS ultima_declaracao
+        FROM atividades_subtarefas
+        WHERE user_id = :user_id
+          AND concluida = 1
+          AND concluida_em IS NOT NULL
+    ");
+    $stUltDecl->execute([':user_id' => $user_id]);
+    $linhaDecl = $stUltDecl->fetch(PDO::FETCH_ASSOC);
+    $ultimaDeclaracao = $linhaDecl['ultima_declaracao'] ?? null;
+
+    $horasRemovidas = 0;
+    if ($ultimaDeclaracao) {
+        // Remover registros de tempo criados ANTES da última declaração
+        $stDel = $pdo->prepare("
+            DELETE FROM registros_tempo
+            WHERE user_id = :user_id
+              AND criado_em < :ultima_declaracao
+        ");
+        $stDel->execute([
+            ':user_id' => $user_id,
+            ':ultima_declaracao' => $ultimaDeclaracao,
+        ]);
+        $horasRemovidas = $stDel->rowCount();
+    }
+
     $pdo->commit();
 
-    responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s).", [
+    responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s). {$horasRemovidas} registro(s) de tempo removido(s).", [
         'id_pagamento' => $id_pagamento,
         'user_id' => $user_id,
         'id_usuario' => $id_usuario,

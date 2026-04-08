@@ -415,33 +415,12 @@
 
   function prepararCamposPagamentoPadrao() {
     const elData = document.getElementById("entradaPagamentoData");
-    const elReferenciaInicio = document.getElementById("entradaPagamentoReferenciaInicio");
-    const elReferenciaFim = document.getElementById("entradaPagamentoReferenciaFim");
-    const elTravadoAte = document.getElementById("entradaPagamentoTravadoAte");
     const elValor = document.getElementById("entradaPagamentoValor");
     const elObs = document.getElementById("entradaPagamentoObs");
 
     if (elData) elData.value = dataHojeIsoSeguro();
-    if (elReferenciaInicio) elReferenciaInicio.value = "";
-    if (elReferenciaFim) elReferenciaFim.value = "";
-    if (elTravadoAte) elTravadoAte.value = "";
     if (elValor) elValor.value = "";
     if (elObs) elObs.value = "";
-  }
-
-  function sincronizarTravadoAteComReferencia() {
-    const elData = document.getElementById("entradaPagamentoData");
-    const elReferenciaFim = document.getElementById("entradaPagamentoReferenciaFim");
-    const elTravadoAte = document.getElementById("entradaPagamentoTravadoAte");
-
-    if (!elTravadoAte) return;
-
-    const referenciaFim = String(elReferenciaFim?.value || "").trim();
-    const dataPagamento = String(elData?.value || "").trim();
-
-    if (!String(elTravadoAte.value || "").trim()) {
-      elTravadoAte.value = referenciaFim || dataPagamento || "";
-    }
   }
 
   async function carregarPagamentosNoModal(uid) {
@@ -450,7 +429,7 @@
     const elTotal = document.getElementById("textoGestaoTotalPago");
 
     try {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Carregando…</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="texto-fraco">Carregando…</td></tr>`;
 
       const lista = await listarPagamentosDoBackend(uid);
       const ordenada = lista.slice(0).sort((a, b) => String(b.data_pagamento || "").localeCompare(String(a.data_pagamento || "")));
@@ -462,22 +441,18 @@
       if (!tbody) return;
 
       if (!ordenada.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Nenhum pagamento registrado.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="texto-fraco">Nenhum pagamento registrado.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = ordenada.map((p) => {
         const dataPagamento = dataIsoParaBrSeguro(String(p.data_pagamento || ""));
-        const periodo = formatarPeriodoPagamento(p.referencia_inicio, p.referencia_fim);
-        const travado = p.travado_ate_data ? dataIsoParaBrSeguro(String(p.travado_ate_data || "")) : "—";
         const observacao = String(p.observacao || "").trim() || "—";
         const idPag = Number(p.id_pagamento || 0);
 
         return `
           <tr>
             <td>${escapeHtmlSeguro(dataPagamento)}</td>
-            <td>${escapeHtmlSeguro(periodo)}</td>
-            <td>${escapeHtmlSeguro(travado)}</td>
             <td class="text-end fw-semibold">${escapeHtmlSeguro(formatarDinheiroBr(p.valor))}</td>
             <td>${escapeHtmlSeguro(observacao)}</td>
             <td class="text-end" style="white-space:nowrap;">
@@ -488,7 +463,7 @@
         `;
       }).join("");
     } catch (e) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Falha ao carregar.</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="texto-fraco">Falha ao carregar.</td></tr>`;
       nucleo.utilidades.mostrarAlerta("erro", "Falha ao listar pagamentos", String(e && e.message ? e.message : e));
     }
   }
@@ -580,11 +555,72 @@
     await Promise.all([
       carregarPagamentosNoModal(uid),
       carregarResumoHorasPagamento(uid, u.valor_hora),
+      carregarTarefasDoUsuario(uid),
     ]);
 
-    const modalEl = document.getElementById("modalGestaoUsuario");
-    if (modalEl && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    if (typeof window.PainelNucleo_trocarAba === "function") {
+      window.PainelNucleo_trocarAba("abaGestaoUsuario");
+    }
   }
+
+  let _tarefasGestaoCache = [];
+
+  async function carregarTarefasDoUsuario(uid) {
+    const tbody = document.getElementById("tbodyGestaoTarefas");
+    const elTotal = document.getElementById("textoGestaoTotalTarefas");
+
+    try {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>`;
+
+      const json = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
+      const lista = Array.isArray(json.dados) ? json.dados : [];
+      _tarefasGestaoCache = lista;
+
+      if (elTotal) elTotal.textContent = `${lista.length} tarefa(s)`;
+
+      if (!tbody) return;
+
+      if (!lista.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = lista.map(t => {
+        const seg = t.segundos_gastos || 0;
+        const bloqueada = t.bloqueada_pagamento;
+        const btnEditar = bloqueada
+          ? `<button class="btn btn-sm btn-outline-secondary" disabled title="Bloqueada por pagamento">Editar</button>`
+          : `<button class="btn btn-sm btn-outline-light botao-mini" onclick="window.__editarTarefaGestao(${t.id_subtarefa})">Editar</button>`;
+        return `<tr>
+          <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
+          <td>${escapeHtmlSeguro(String(t.atividade_titulo || "—"))}</td>
+          <td>${escapeHtmlSeguro(String(t.titulo || "—"))}</td>
+          <td>${formatarHm(seg)}</td>
+          <td class="text-center">${t.concluida
+            ? '<span class="badge text-bg-success">Concluída</span>'
+            : '<span class="badge text-bg-secondary">Aberta</span>'}</td>
+          <td>${escapeHtmlSeguro(String(t.canal_entrega || "—"))}</td>
+          <td class="text-end">${btnEditar}</td>
+        </tr>`;
+      }).join("");
+    } catch (e) {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Falha ao carregar tarefas.</td></tr>`;
+    }
+  }
+
+  window.__editarTarefaGestao = function (idSubtarefa) {
+    const tarefa = _tarefasGestaoCache.find(t => t.id_subtarefa === idSubtarefa);
+    if (!tarefa || typeof window.gtAbrirEdicao !== "function") return;
+    window.gtAbrirEdicao(idSubtarefa, tarefa);
+  };
+
+  window.__onTarefaEditada = function () {
+    if (usuarioGestaoAbertoId) {
+      carregarTarefasDoUsuario(usuarioGestaoAbertoId);
+      const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+      if (u) carregarResumoHorasPagamento(u.user_id, u.valor_hora);
+    }
+  };
 
   async function salvarEdicaoUsuario() {
     const nucleo = obterNucleo();
@@ -669,21 +705,12 @@
     }
 
     const dataPag = String(pag.data_pagamento || "");
-    const refInicio = String(pag.referencia_inicio || "");
-    const refFim = String(pag.referencia_fim || "");
-    const travadoAte = String(pag.travado_ate_data || "");
     const valor = formatarDinheiroBr(pag.valor);
     const obs = String(pag.observacao || "");
 
     const html = `
       <div class="mb-2"><label class="form-label small texto-fraco mb-1">Data pagamento</label>
         <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagData" value="${escapeHtmlSeguro(dataPag)}"></div>
-      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Referência início</label>
-        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagRefInicio" value="${escapeHtmlSeguro(refInicio)}"></div>
-      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Referência fim</label>
-        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagRefFim" value="${escapeHtmlSeguro(refFim)}"></div>
-      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Travado até</label>
-        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagTravado" value="${escapeHtmlSeguro(travadoAte)}"></div>
       <div class="mb-2"><label class="form-label small texto-fraco mb-1">Valor (R$)</label>
         <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editPagValor" value="${escapeHtmlSeguro(valor)}"></div>
       <div class="mb-2"><label class="form-label small texto-fraco mb-1">Observação</label>
@@ -727,9 +754,6 @@
 
     novoBtn.addEventListener("click", async () => {
       const novaData = document.getElementById("_editPagData")?.value || "";
-      const novaRefInicio = document.getElementById("_editPagRefInicio")?.value || "";
-      const novaRefFim = document.getElementById("_editPagRefFim")?.value || "";
-      const novoTravado = document.getElementById("_editPagTravado")?.value || "";
       const novoValor = normalizarDinheiroBr(document.getElementById("_editPagValor")?.value);
       const novaObs = document.getElementById("_editPagObs")?.value || "";
 
@@ -746,9 +770,9 @@
         await editarPagamentoNoBackend({
           id_pagamento: idPagamento,
           data_pagamento: novaData,
-          referencia_inicio: novaRefInicio || null,
-          referencia_fim: novaRefFim || null,
-          travado_ate_data: novoTravado || novaRefFim || novaData,
+          referencia_inicio: null,
+          referencia_fim: null,
+          travado_ate_data: novaData,
           valor: novoValor,
           observacao: novaObs,
         });
@@ -760,6 +784,7 @@
           await Promise.all([
             carregarPagamentosNoModal(usuarioGestaoAbertoId),
             u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+            carregarTarefasDoUsuario(usuarioGestaoAbertoId),
           ]);
         }
 
@@ -786,6 +811,7 @@
         await Promise.all([
           carregarPagamentosNoModal(usuarioGestaoAbertoId),
           u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+          carregarTarefasDoUsuario(usuarioGestaoAbertoId),
         ]);
       }
 
@@ -807,16 +833,10 @@
     if (!u) return;
 
     const elData = document.getElementById("entradaPagamentoData");
-    const elReferenciaInicio = document.getElementById("entradaPagamentoReferenciaInicio");
-    const elReferenciaFim = document.getElementById("entradaPagamentoReferenciaFim");
-    const elTravadoAte = document.getElementById("entradaPagamentoTravadoAte");
     const elValor = document.getElementById("entradaPagamentoValor");
     const elObs = document.getElementById("entradaPagamentoObs");
 
     const data = String(elData?.value || "").trim();
-    const referenciaInicio = String(elReferenciaInicio?.value || "").trim();
-    const referenciaFim = String(elReferenciaFim?.value || "").trim();
-    const travadoAteInformado = String(elTravadoAte?.value || "").trim();
     const valor = normalizarDinheiroBr(elValor?.value);
     const obs = String(elObs?.value || "").trim();
 
@@ -828,20 +848,14 @@
       nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior que zero.");
       return;
     }
-    if (referenciaInicio && referenciaFim && referenciaInicio > referenciaFim) {
-      nucleo.utilidades.mostrarAlerta("aviso", "Período inválido", "A referência início não pode ser maior que a referência fim.");
-      return;
-    }
-
-    const travadoAte = travadoAteInformado || referenciaFim || data;
 
     try {
       await criarPagamentoNoBackend({
         user_id: u.user_id,
         data_pagamento: data,
-        referencia_inicio: referenciaInicio || null,
-        referencia_fim: referenciaFim || null,
-        travado_ate_data: travadoAte || null,
+        referencia_inicio: null,
+        referencia_fim: null,
+        travado_ate_data: data,
         valor,
         observacao: obs,
       });
@@ -850,6 +864,7 @@
       await Promise.all([
         carregarPagamentosNoModal(u.user_id),
         carregarResumoHorasPagamento(u.user_id, u.valor_hora),
+        carregarTarefasDoUsuario(u.user_id),
       ]);
 
       nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento registrado", `${u.user_id}: ${formatarDinheiroBr(valor)}`);
@@ -905,25 +920,14 @@
     const botaoRegistrarPagamento = document.getElementById("botaoRegistrarPagamento");
     if (botaoRegistrarPagamento) botaoRegistrarPagamento.addEventListener("click", () => registrarPagamentoReal());
 
-    const elPagamentoData = document.getElementById("entradaPagamentoData");
-    const elPagamentoReferenciaFim = document.getElementById("entradaPagamentoReferenciaFim");
-    const elPagamentoTravadoAte = document.getElementById("entradaPagamentoTravadoAte");
-
-    if (elPagamentoData) {
-      elPagamentoData.addEventListener("change", () => sincronizarTravadoAteComReferencia());
-    }
-    if (elPagamentoReferenciaFim) {
-      elPagamentoReferenciaFim.addEventListener("change", () => sincronizarTravadoAteComReferencia());
-    }
-    if (elPagamentoTravadoAte) {
-      elPagamentoTravadoAte.addEventListener("focus", () => sincronizarTravadoAteComReferencia());
-    }
-
-    const modalGestao = document.getElementById("modalGestaoUsuario");
-    if (modalGestao) {
-      modalGestao.addEventListener("hidden.bs.modal", () => {
+    const botaoVoltar = document.getElementById("botaoVoltarUsuarios");
+    if (botaoVoltar) {
+      botaoVoltar.addEventListener("click", () => {
         usuarioGestaoAbertoId = "";
         alternarModoEdicao(false);
+        if (typeof window.PainelNucleo_trocarAba === "function") {
+          window.PainelNucleo_trocarAba("abaUsuarios");
+        }
       });
     }
   }

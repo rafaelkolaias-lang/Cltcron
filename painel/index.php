@@ -17,7 +17,7 @@ header('Content-Type: text/html; charset=utf-8');
   <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css" rel="stylesheet">
+  <link href="./css/painel.css?v=7" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 
@@ -161,7 +161,7 @@ header('Content-Type: text/html; charset=utf-8');
               </div>
 
               <div class="texto-fraco small mt-2">
-                Dica: clique em “Gestão” para editar dados, ativar/inativar e registrar pagamentos.
+                Dica: clique em "Gestão" para editar dados, ativar/inativar e registrar pagamentos.
               </div>
             </article>
           </section>
@@ -221,232 +221,207 @@ header('Content-Type: text/html; charset=utf-8');
             </div>
           </div>
 
-          <div class="modal fade" id="modalGestaoUsuario" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-              <div class="modal-content bg-dark text-white border-secondary">
-                <div class="modal-header border-secondary">
-                  <div>
-                    <h5 class="modal-title mb-0">Gestão do usuário</h5>
-                    <div class="texto-fraco small" id="textoGestaoSubtitulo">—</div>
+          <div id="abaGestaoUsuario" class="d-none" aria-label="Gestão do Usuário">
+
+            <div class="d-flex align-items-center gap-3 mb-3">
+              <button type="button" class="btn btn-outline-light btn-sm" id="botaoVoltarUsuarios">← Voltar</button>
+              <div>
+                <h2 class="h5 mb-0">Gestão do usuário</h2>
+                <div class="texto-fraco small" id="textoGestaoSubtitulo">—</div>
+              </div>
+            </div>
+
+            <div class="row g-3">
+
+              <!-- Coluna esquerda: dados do usuário -->
+              <div class="col-12 col-lg-4">
+                <article class="cartao-grafite p-3">
+
+                  <div class="texto-fraco small">Usuário</div>
+                  <div class="fw-semibold" id="textoGestaoUsuario">—</div>
+
+                  <hr class="border-light opacity-10 my-3">
+
+                  <div class="texto-fraco small">Chave de acesso</div>
+                  <div class="texto-mono fw-bold" id="textoGestaoChave">—</div>
+
+                  <hr class="border-light opacity-10 my-3">
+
+                  <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                      <div class="texto-fraco small">Status da conta</div>
+                      <div class="fw-semibold" id="textoGestaoStatusConta">—</div>
+                    </div>
+                    <div class="form-check form-switch m-0">
+                      <input class="form-check-input" type="checkbox" role="switch" id="switchGestaoAtiva">
+                      <label class="form-check-label texto-fraco small" for="switchGestaoAtiva">Ativa</label>
+                    </div>
                   </div>
-                  <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
 
-                <div class="modal-body">
-                  <div class="row g-3">
+                  <hr class="border-light opacity-10 my-3">
 
-                    <div class="col-12 col-lg-4">
-                      <div class="cartao-grafite p-3">
-
-                        <div class="texto-fraco small">Usuário</div>
-                        <div class="fw-semibold" id="textoGestaoUsuario">—</div>
-
-                        <hr class="border-light opacity-10 my-3">
-
-                        <div class="texto-fraco small">Chave de acesso</div>
-                        <div class="texto-mono fw-bold" id="textoGestaoChave">—</div>
-
-                        <hr class="border-light opacity-10 my-3">
-
-                        <div class="d-flex justify-content-between align-items-center">
-                          <div>
-                            <div class="texto-fraco small">Status da conta</div>
-                            <div class="fw-semibold" id="textoGestaoStatusConta">—</div>
-                          </div>
-
-                          <div class="form-check form-switch m-0">
-                            <input class="form-check-input" type="checkbox" role="switch" id="switchGestaoAtiva">
-                            <label class="form-check-label texto-fraco small" for="switchGestaoAtiva">Ativa</label>
-                          </div>
-                        </div>
-
-                        <hr class="border-light opacity-10 my-3">
-
-                        <div id="blocoGestaoVisual">
-                          <div class="d-flex justify-content-between">
-                            <div>
-                              <div class="texto-fraco small">Nome</div>
-                              <div class="fw-semibold" id="textoGestaoNome">—</div>
-                            </div>
-                            <div class="text-end">
-                              <div class="texto-fraco small">Nível</div>
-                              <div class="fw-semibold" id="textoGestaoNivel">—</div>
-                            </div>
-                          </div>
-
-                          <div class="d-flex justify-content-between mt-2">
-                            <div>
-                              <div class="texto-fraco small">R$/hora</div>
-                              <div class="fw-semibold" id="textoGestaoValorHora">—</div>
-                            </div>
-                            <div class="text-end">
-                              <div class="texto-fraco small">—</div>
-                              <div class="texto-fraco small"> </div>
-                            </div>
-                          </div>
-
-                          <div class="d-grid gap-2 mt-3">
-                            <button type="button" class="btn btn-outline-light" id="botaoEditarDadosUsuario">Editar dados</button>
-                          </div>
-                        </div>
-
-                        <div id="blocoGestaoEdicao" class="d-none">
-                          <div class="mb-2">
-                            <label class="form-label texto-fraco">Nome (exibição)</label>
-                            <input id="entradaEditarNome" class="form-control bg-transparent text-white border-secondary" placeholder="ex: João da Silva">
-                          </div>
-
-                          <div class="row g-2">
-                            <div class="col-6">
-                              <label class="form-label texto-fraco">Nível</label>
-                              <select id="entradaEditarNivel" class="form-select bg-transparent text-white border-secondary">
-                                <option value="iniciante">Iniciante</option>
-                                <option value="intermediario">Intermediário</option>
-                                <option value="avancado">Avançado</option>
-                              </select>
-                            </div>
-
-                            <div class="col-6">
-                              <label class="form-label texto-fraco">Valor por hora (R$)</label>
-                              <input id="entradaEditarValorHora" class="form-control bg-transparent text-white border-secondary" placeholder="ex: 35,00">
-                            </div>
-                          </div>
-
-                          <div class="d-flex gap-2 mt-3">
-                            <button type="button" class="btn btn-light flex-fill" id="botaoSalvarEdicaoUsuario">Salvar</button>
-                            <button type="button" class="btn btn-outline-light flex-fill" id="botaoCancelarEdicaoUsuario">Cancelar</button>
-                          </div>
-
-                          <div class="texto-fraco small mt-2">
-                            Alterações são salvas no banco.
-                          </div>
-                        </div>
-
+                  <div id="blocoGestaoVisual">
+                    <div class="d-flex justify-content-between">
+                      <div>
+                        <div class="texto-fraco small">Nome</div>
+                        <div class="fw-semibold" id="textoGestaoNome">—</div>
+                      </div>
+                      <div class="text-end">
+                        <div class="texto-fraco small">Nível</div>
+                        <div class="fw-semibold" id="textoGestaoNivel">—</div>
                       </div>
                     </div>
 
-                    <div class="col-12 col-lg-8">
-
-                      <!-- Resumo de horas para pagamento -->
-                      <div class="cartao-grafite p-3 mb-3" id="blocoResumoHorasPagamento">
-                        <h6 class="mb-2">Resumo para pagamento</h6>
-                        <div class="row g-2">
-                          <div class="col-6 col-md-3">
-                            <div class="card-metrica">
-                              <div class="card-metrica__rotulo">Trabalhado</div>
-                              <div class="card-metrica__valor text-success" id="gestaoResumoTrabalhado">—</div>
-                            </div>
-                          </div>
-                          <div class="col-6 col-md-3">
-                            <div class="card-metrica">
-                              <div class="card-metrica__rotulo">Declarado</div>
-                              <div class="card-metrica__valor text-warning" id="gestaoResumoDeclarado">—</div>
-                            </div>
-                          </div>
-                          <div class="col-6 col-md-3">
-                            <div class="card-metrica">
-                              <div class="card-metrica__rotulo">Não declarado</div>
-                              <div class="card-metrica__valor" style="color:#60a5fa" id="gestaoResumoNaoDeclarado">—</div>
-                            </div>
-                          </div>
-                          <div class="col-6 col-md-3">
-                            <div class="card-metrica">
-                              <div class="card-metrica__rotulo">A pagar</div>
-                              <div class="card-metrica__valor text-info" id="gestaoResumoAPagar">—</div>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="texto-fraco small mt-2">Apenas horas <strong>não pagas</strong> (subtarefas com <code>bloqueada_pagamento = 0</code>).</div>
+                    <div class="d-flex justify-content-between mt-2">
+                      <div>
+                        <div class="texto-fraco small">R$/hora</div>
+                        <div class="fw-semibold" id="textoGestaoValorHora">—</div>
                       </div>
-
-                      <div class="cartao-grafite p-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                          <h6 class="mb-0">Registrar pagamento</h6>
-                          <span class="badge badge-suave">BANCO</span>
-                        </div>
-
-                        <div class="row g-2 mt-2">
-                          <div class="col-12 col-md-3">
-                            <label class="form-label texto-fraco">Data do pagamento</label>
-                            <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoData">
-                          </div>
-
-                          <div class="col-12 col-md-3">
-                            <label class="form-label texto-fraco">Referência início</label>
-                            <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoReferenciaInicio">
-                          </div>
-
-                          <div class="col-12 col-md-3">
-                            <label class="form-label texto-fraco">Referência fim</label>
-                            <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoReferenciaFim">
-                          </div>
-
-                          <div class="col-12 col-md-3">
-                            <label class="form-label texto-fraco">Travado até</label>
-                            <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoTravadoAte">
-                          </div>
-
-                          <div class="col-12 col-md-4">
-                            <label class="form-label texto-fraco">Valor (R$)</label>
-                            <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoValor" placeholder="ex: 350,00">
-                          </div>
-
-                          <div class="col-12 col-md-8">
-                            <label class="form-label texto-fraco">Observação (opcional)</label>
-                            <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoObs" placeholder="ex: pix / adiantamento / pagamento março">
-                          </div>
-
-                          <div class="col-12 d-grid">
-                            <button type="button" class="btn btn-light" id="botaoRegistrarPagamento">Salvar pagamento</button>
-                          </div>
-                        </div>
-
-                        <div class="texto-fraco small mt-2">
-                          O campo “Travado até” define até qual data o prestador não poderá mais editar nem excluir subtarefas.
-                        </div>
-                      </div>
-
-                      <div class="cartao-grafite p-3 mt-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                          <h6 class="mb-0">Pagamentos (histórico)</h6>
-                          <div class="texto-fraco small">
-                            Total: <span class="fw-semibold" id="textoGestaoTotalPago">—</span>
-                          </div>
-                        </div>
-
-                        <div class="table-responsive mt-2">
-                          <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
-                            <thead>
-                              <tr class="texto-fraco small">
-                                <th style="min-width: 120px;">Data pagto</th>
-                                <th style="min-width: 190px;">Referência</th>
-                                <th style="min-width: 130px;">Travado até</th>
-                                <th class="text-end" style="min-width: 140px;">Valor</th>
-                                <th style="min-width: 200px;">Obs</th>
-                                <th class="text-end" style="min-width: 100px;">Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody id="tbodyGestaoPagamentos">
-                              <tr>
-                                <td colspan="6" class="texto-fraco">Carregando…</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div class="texto-fraco small mt-2">
-                          Pagamentos são registros reais no banco e o período travado deve aparecer aqui também.
-                        </div>
-                      </div>
-
                     </div>
 
+                    <div class="d-grid gap-2 mt-3">
+                      <button type="button" class="btn btn-outline-light" id="botaoEditarDadosUsuario">Editar dados</button>
+                    </div>
                   </div>
-                </div>
 
-                <div class="modal-footer border-secondary">
-                  <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Fechar</button>
-                </div>
+                  <div id="blocoGestaoEdicao" class="d-none">
+                    <div class="mb-2">
+                      <label class="form-label texto-fraco">Nome (exibição)</label>
+                      <input id="entradaEditarNome" class="form-control bg-transparent text-white border-secondary" placeholder="ex: João da Silva">
+                    </div>
+                    <div class="row g-2">
+                      <div class="col-6">
+                        <label class="form-label texto-fraco">Nível</label>
+                        <select id="entradaEditarNivel" class="form-select bg-transparent text-white border-secondary">
+                          <option value="iniciante">Iniciante</option>
+                          <option value="intermediario">Intermediário</option>
+                          <option value="avancado">Avançado</option>
+                        </select>
+                      </div>
+                      <div class="col-6">
+                        <label class="form-label texto-fraco">Valor por hora (R$)</label>
+                        <input id="entradaEditarValorHora" class="form-control bg-transparent text-white border-secondary" placeholder="ex: 35,00">
+                      </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-3">
+                      <button type="button" class="btn btn-light flex-fill" id="botaoSalvarEdicaoUsuario">Salvar</button>
+                      <button type="button" class="btn btn-outline-light flex-fill" id="botaoCancelarEdicaoUsuario">Cancelar</button>
+                    </div>
+                    <div class="texto-fraco small mt-2">Alterações são salvas no banco.</div>
+                  </div>
+
+                </article>
+
+                <!-- Resumo para pagamento -->
+                <article class="cartao-grafite p-3 mt-3" id="blocoResumoHorasPagamento">
+                  <h6 class="mb-2">Resumo para pagamento</h6>
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Trabalhado</div>
+                        <div class="card-metrica__valor text-success" id="gestaoResumoTrabalhado">—</div>
+                      </div>
+                    </div>
+                    <div class="col-6">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Declarado</div>
+                        <div class="card-metrica__valor text-warning" id="gestaoResumoDeclarado">—</div>
+                      </div>
+                    </div>
+                    <div class="col-6">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Não declarado</div>
+                        <div class="card-metrica__valor" style="color:#60a5fa" id="gestaoResumoNaoDeclarado">—</div>
+                      </div>
+                    </div>
+                    <div class="col-6">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">A pagar</div>
+                        <div class="card-metrica__valor text-info" id="gestaoResumoAPagar">—</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="texto-fraco small mt-2">Apenas horas <strong>não pagas</strong> (subtarefas com <code>bloqueada_pagamento = 0</code>).</div>
+                </article>
+              </div>
+
+              <!-- Coluna direita: pagamentos + tarefas -->
+              <div class="col-12 col-lg-8">
+
+                <!-- Registrar pagamento -->
+                <article class="cartao-grafite p-3 mb-3">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Registrar pagamento</h6>
+                    <span class="badge badge-suave">BANCO</span>
+                  </div>
+                  <div class="row g-2 mt-2">
+                    <div class="col-12 col-md-4">
+                      <label class="form-label texto-fraco">Data do pagamento</label>
+                      <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoData">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label texto-fraco">Valor (R$)</label>
+                      <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoValor" placeholder="ex: 350,00">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label texto-fraco">Observação (opcional)</label>
+                      <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoObs" placeholder="ex: pix / março 2026 / 62h">
+                    </div>
+                    <div class="col-12 d-grid">
+                      <button type="button" class="btn btn-light" id="botaoRegistrarPagamento">Salvar pagamento</button>
+                    </div>
+                  </div>
+                </article>
+
+                <!-- Histórico de pagamentos -->
+                <article class="cartao-grafite p-3 mb-3">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Pagamentos (histórico)</h6>
+                    <div class="texto-fraco small">Total: <span class="fw-semibold" id="textoGestaoTotalPago">—</span></div>
+                  </div>
+                  <div class="table-responsive mt-2">
+                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
+                      <thead>
+                        <tr class="texto-fraco small">
+                          <th style="min-width:120px;">Data pagto</th>
+                          <th class="text-end" style="min-width:140px;">Valor</th>
+                          <th style="min-width:200px;">Obs</th>
+                          <th class="text-end" style="min-width:100px;">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGestaoPagamentos">
+                        <tr><td colspan="4" class="texto-fraco">Carregando…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+
+                <!-- Tarefas declaradas -->
+                <article class="cartao-grafite p-3">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Tarefas declaradas</h6>
+                    <span class="texto-fraco small" id="textoGestaoTotalTarefas">—</span>
+                  </div>
+                  <div class="table-responsive mt-2" style="max-height:500px; overflow-y:auto;">
+                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
+                      <thead class="sticky-top" style="background:var(--cor-fundo);">
+                        <tr class="texto-fraco small">
+                          <th style="min-width:90px;">Data</th>
+                          <th style="min-width:140px;">Atividade</th>
+                          <th style="min-width:200px;">Tarefa</th>
+                          <th style="min-width:80px;">Tempo</th>
+                          <th class="text-center" style="min-width:80px;">Status</th>
+                          <th style="min-width:100px;">Canal</th>
+                          <th class="text-end" style="min-width:80px;">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGestaoTarefas">
+                        <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+
               </div>
             </div>
           </div>
@@ -787,12 +762,12 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <script src="./js/aba-usuarios.js"></script>
-  <script src="./js/aba-atividades.js"></script>
-  <script src="./js/aba-gerenciar-tarefas.js"></script>
-  <script src="./js/aba-graficos.js"></script>
-  <script src="./js/aba-relatorio.js"></script>
-  <script src="./js/painel.js"></script>
+  <script src="./js/aba-usuarios.js?v=7"></script>
+  <script src="./js/aba-atividades.js?v=7"></script>
+  <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
+  <script src="./js/aba-graficos.js?v=7"></script>
+  <script src="./js/aba-relatorio.js?v=7"></script>
+  <script src="./js/painel.js?v=7"></script>
 </body>
 
 </html>

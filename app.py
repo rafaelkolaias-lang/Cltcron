@@ -37,6 +37,9 @@ INTERVALO_STATUS_BANCO_SEGUNDOS = 5.0
 
 LIMITE_OCIOSO_SEGUNDOS = 5 * 60
 
+LIMITE_HORAS_AVISO = 20 * 3600       # 20h — avisa o usuário
+LIMITE_HORAS_MAXIMO = 30 * 3600      # 30h — para de computar
+
 CAPTURAR_TITULO_JANELA = False
 
 INTERVALO_SCAN_APPS_SEGUNDOS = 15.0
@@ -307,7 +310,12 @@ class MonitorDeUso:
             if self._situacao_calculada == "ocioso":
                 self._segundos_ocioso_float += delta
             else:
-                self._segundos_trabalhando_float += delta
+                # Não acumula acima do limite máximo
+                if self._segundos_trabalhando_float < LIMITE_HORAS_MAXIMO:
+                    self._segundos_trabalhando_float = min(
+                        self._segundos_trabalhando_float + delta,
+                        float(LIMITE_HORAS_MAXIMO),
+                    )
 
         self._ultimo_marco_mono = mono_agora
 
@@ -2500,7 +2508,30 @@ class App(tk.Tk):
                 return id_atividade, titulo
         return self._obter_id_atividade_selecionada()
 
+    def _verificar_limite_horas(self) -> bool:
+        """Retorna True se pode continuar. Mostra aviso se acima de 20h."""
+        seg = self._monitor.obter_segundos_trabalhando()
+        if seg >= LIMITE_HORAS_MAXIMO:
+            messagebox.showwarning(
+                "Limite atingido",
+                "Você atingiu 30 horas trabalhadas não declaradas.\n"
+                "O sistema não computa mais horas até que declare as existentes.\n\n"
+                "Abra Tarefas e declare seu trabalho.",
+            )
+            return False
+        if seg >= LIMITE_HORAS_AVISO:
+            horas = seg // 3600
+            messagebox.showwarning(
+                "Atenção — horas não declaradas",
+                f"Você tem mais de {horas} horas trabalhadas não declaradas.\n"
+                f"O sistema só computa até 30 horas, perdendo horas que exceder isso.\n\n"
+                f"Declare suas horas em Tarefas para não perder tempo.",
+            )
+        return True
+
     def _acao_principal(self) -> None:
+        if not self._verificar_limite_horas():
+            return
         if not self._monitor.tem_sessao_carregada():
             self._iniciar()
         elif self._monitor.obter_estado().rodando:
@@ -2592,6 +2623,7 @@ class App(tk.Tk):
     def _finalizar(self) -> None:
         if not self._usuario:
             return
+        self._verificar_limite_horas()
 
         if not self._monitor.tem_sessao_carregada():
             messagebox.showwarning("Atenção", "Clique em INICIAR antes de ZERAR.")
@@ -2617,6 +2649,7 @@ class App(tk.Tk):
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
             return
+        self._verificar_limite_horas()
 
         if getattr(self._monitor, "_offline_notificado", False):
             messagebox.showwarning("Sem conexão", "Você precisa estar conectado à internet para acessar as tarefas.")

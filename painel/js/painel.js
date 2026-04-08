@@ -74,6 +74,8 @@
     },
   };
 
+  window.PainelNucleo_trocarAba = function(idAba) { trocarAba(idAba); };
+
   // ==========================================================
   // API helpers
   // ==========================================================
@@ -148,7 +150,7 @@
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio"];
+    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -162,6 +164,7 @@
     const subt = {
       abaDashboard: "Dashboard · visão geral e gráficos",
       abaUsuarios: "Usuários · gestão e pagamentos",
+      abaGestaoUsuario: "Gestão do Usuário · dados e pagamentos",
       abaAtividades: "Atividades · atribuições",
       abaGerenciarTarefas: "Gerenciar Tarefas · declarações",
       abaRelatorio: "Relatório · tempo trabalhado declarado",
@@ -171,6 +174,11 @@
     if (elSub) elSub.textContent = subt;
 
     // ✅ Render específico por aba
+    if (idAba === "abaGestaoUsuario") {
+      // Conteúdo carregado ao abrir via abrirModalGestaoUsuario
+      return;
+    }
+
     if (idAba === "abaUsuarios") {
       window.PainelAbaUsuarios?.renderizarAbaUsuarios?.();
       return;
@@ -198,6 +206,9 @@
   }
 
   function obterAbaVisivel() {
+    const abaGestaoUsuario = document.getElementById("abaGestaoUsuario");
+    if (abaGestaoUsuario && !abaGestaoUsuario.classList.contains("d-none")) return "abaGestaoUsuario";
+
     const abaAtividades = document.getElementById("abaAtividades");
     if (abaAtividades && !abaAtividades.classList.contains("d-none")) return "abaAtividades";
 

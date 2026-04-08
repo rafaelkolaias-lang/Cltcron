@@ -2755,8 +2755,12 @@ class App(tk.Tk):
             self._var_erro.set("")
 
         if hasattr(self, "_btn_tarefas"):
-            offline = getattr(self._monitor, "_offline_notificado", False)
-            self._btn_tarefas.configure(state="disabled" if offline else "normal")
+            try:
+                if self._btn_tarefas.winfo_exists():
+                    offline = getattr(self._monitor, "_offline_notificado", False)
+                    self._btn_tarefas.configure(state="disabled" if offline else "normal")
+            except Exception:
+                pass
 
         self.after(INTERVALO_UI_MILISSEGUNDOS, self._tick_ui)
 

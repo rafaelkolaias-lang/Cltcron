@@ -211,6 +211,7 @@ class MonitorDeUso:
         self._ultimo_flush_fila_mono: float = 0.0
         self._ultimo_marco_mono: float = 0.0
         self._ultimo_erro: str = ""
+        self._offline_notificado: bool = False
 
         self._mapa_intervalos_apps: dict[str, dict] = {}
         self._ultimo_scan_apps_mono: float = 0.0
@@ -400,11 +401,39 @@ class MonitorDeUso:
         if enviados > 0:
             self._salvar_fila_offline(fila[enviados:])
             pendentes = len(fila) - enviados
+            if pendentes == 0 and self._offline_notificado:
+                self._offline_notificado = False
+                self._notificar_conexao_restaurada(enviados)
             msg = (
                 f"Fila offline: {enviados} eventos re-enviados"
                 + (f", {pendentes} ainda pendentes" if pendentes else " (fila limpa)")
             )
             self._registrar_erro_locked(msg)
+
+    def _notificar_sem_conexao(self) -> None:
+        """Popup Windows não-bloqueante avisando sobre queda de conexão."""
+        def _popup() -> None:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                "O Cronômetro perdeu a conexão com o servidor.\n\n"
+                "O cronômetro continua rodando normalmente.\n"
+                "Os dados serão enviados automaticamente quando a conexão voltar.",
+                "Cronômetro — Sem conexão com o servidor",
+                0x00000030,  # MB_OK | MB_ICONWARNING
+            )
+        threading.Thread(target=_popup, daemon=True).start()
+
+    def _notificar_conexao_restaurada(self, eventos_enviados: int) -> None:
+        """Popup Windows não-bloqueante avisando que a conexão voltou."""
+        def _popup() -> None:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Conexão com o servidor restaurada!\n\n"
+                f"{eventos_enviados} evento(s) pendente(s) foram enviados com sucesso.",
+                "Cronômetro — Conexão restaurada",
+                0x00000040,  # MB_OK | MB_ICONINFORMATION
+            )
+        threading.Thread(target=_popup, daemon=True).start()
 
     def _abrir_foco(self, nome_app: str, titulo: str) -> None:
         if self._id_sessao is None:
@@ -1098,6 +1127,9 @@ class MonitorDeUso:
                             except Exception as e:
                                 self._registrar_erro_locked(f"Falha heartbeat: {e}")
                                 self._adicionar_a_fila_offline("heartbeat", self._situacao_calculada, idle)
+                                if not self._offline_notificado:
+                                    self._offline_notificado = True
+                                    self._notificar_sem_conexao()
 
                         if (mono_agora - self._ultimo_sync_status_mono) >= INTERVALO_STATUS_BANCO_SEGUNDOS:
                             self._ultimo_sync_status_mono = mono_agora

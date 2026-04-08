@@ -2210,7 +2210,7 @@ class App(tk.Tk):
         self._var_status.set(msg)
 
     def _montar_tela_login(self) -> None:
-        self.geometry("480x600")
+        self.geometry("480x520")
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -2277,10 +2277,13 @@ class App(tk.Tk):
 
         self._var_status.trace_add("write", _atualizar_cor_status)
 
-        # Notas de atualização
-        tk.Label(fundo, text=NOTAS_ATUALIZACAO.strip(), bg=_BG, fg="#555555",
-                 font=("Segoe UI", 7), justify="left", anchor="w").place(
-            relx=0.5, rely=1.0, anchor="s", y=-8)
+        # Botão notas de atualização
+        btn_notas = tk.Label(fundo, text=f"{VERSAO_APLICACAO} — ver novidades",
+                             bg=_BG, fg="#555555", font=("Segoe UI", 8),
+                             cursor="hand2")
+        btn_notas.place(relx=0.5, rely=1.0, anchor="s", y=-8)
+        btn_notas.bind("<Button-1>", lambda _: messagebox.showinfo(
+            f"Novidades {VERSAO_APLICACAO}", NOTAS_ATUALIZACAO.strip()))
 
         entrada_user.focus_set()
         self.bind("<Return>", lambda _e: self._logar())

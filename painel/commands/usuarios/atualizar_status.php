@@ -41,7 +41,7 @@ try {
         ':user_id' => $user_id,
     ]);
 
-    $st2 = $pdo->prepare("SELECT id_usuario FROM Usuarios WHERE user_id = :user_id LIMIT 1");
+    $st2 = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE user_id = :user_id LIMIT 1");
     $st2->execute([':user_id' => $user_id]);
     if (!$st2->fetch()) {
         responder_json(false, 'Usuário não encontrado.', ['user_id' => $user_id], 404);

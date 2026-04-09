@@ -19,19 +19,42 @@
   }
 
   function mostrarAlerta(tipo, titulo, detalhe) {
-    const area = document.getElementById("areaAlertas");
-    if (!area) return;
+    const mapaCor = { sucesso: "#3ecf6e", erro: "#ff5555", aviso: "#f0a500", info: "#60a5fa" };
+    const mapaBorda = { sucesso: "#2a7d44", erro: "#8b2020", aviso: "#7a5500", info: "#2a5090" };
+    const cor = mapaCor[tipo] || "#60a5fa";
+    const borda = mapaBorda[tipo] || "#2a5090";
 
-    const mapa = { sucesso: "success", erro: "danger", aviso: "warning", info: "info" };
-    const classe = mapa[tipo] || "info";
+    let modal = document.getElementById("modalAlertaGlobal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "modalAlertaGlobal";
+      modal.className = "modal fade";
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+          <div class="modal-content bg-dark text-light" style="border:1px solid ${borda};" id="modalAlertaConteudo">
+            <div class="modal-body text-center py-4">
+              <div class="fw-bold mb-1" style="color:${cor};" id="modalAlertaTitulo"></div>
+              <div class="small texto-fraco" id="modalAlertaDetalhe"></div>
+            </div>
+            <div class="modal-footer border-secondary justify-content-center py-2">
+              <button type="button" class="btn btn-sm btn-outline-light" data-bs-dismiss="modal">OK</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
 
-    area.innerHTML = `
-      <div class="alert alert-${classe} alert-dismissible fade show cartao-grafite" role="alert">
-        <div class="fw-semibold">${escapeHtml(titulo || "Aviso")}</div>
-        ${detalhe ? `<div class="small texto-fraco mt-1">${escapeHtml(detalhe)}</div>` : ""}
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert"></button>
-      </div>
-    `;
+    const elConteudo = modal.querySelector("#modalAlertaConteudo");
+    if (elConteudo) elConteudo.style.borderColor = borda;
+    const elTitulo = modal.querySelector("#modalAlertaTitulo");
+    const elDetalhe = modal.querySelector("#modalAlertaDetalhe");
+    if (elTitulo) { elTitulo.textContent = titulo || "Aviso"; elTitulo.style.color = cor; }
+    if (elDetalhe) elDetalhe.textContent = detalhe || "";
+
+    const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
+    bsModal.show();
   }
 
   function dataHojeIso() {

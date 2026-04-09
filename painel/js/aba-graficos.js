@@ -500,30 +500,31 @@
     const chart = criarOuObterChart("chartDonutApps", 300);
     if (!chart) return;
 
-    // Usa periodos_foco filtrado pelo dia atual da timeline — garante que
-    // as horas do "Top Apps" sejam exatamente a soma do que aparece na timeline
-    const diaSelecionado = _timelineDias[_timelineIdxDia] || null;
-    const diaIniMs = diaSelecionado ? new Date(diaSelecionado + "T00:00:00").getTime() : 0;
-    const diaFimMs = diaSelecionado ? new Date(diaSelecionado + "T23:59:59.999").getTime() : Infinity;
+    // Calcular a partir de periodos_foco clipados no dia/período
+    let dIniMs, dFimMs;
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      dIniMs = new Date(ini + "T00:00:00").getTime();
+      dFimMs = new Date(fim + "T23:59:59.999").getTime();
+    } else {
+      const dia = _timelineDias[_timelineIdxDia] || obterDataHojeIso();
+      dIniMs = new Date(dia + "T00:00:00").getTime();
+      dFimMs = new Date(dia + "T23:59:59.999").getTime();
+    }
     const mapa = {};
     (usuario.periodos_foco || [])
       .filter(p => {
-        if (!diaSelecionado) return true;
         if (!p.inicio_em) return false;
         const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
         const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-        return ini <= diaFimMs && fim >= diaIniMs;
+        return ini <= dFimMs && fim >= dIniMs;
       })
       .forEach(p => {
         const nome = p.nome_app || "—";
-        // Clipar segundos no limite do dia
-        if (diaSelecionado && p.inicio_em) {
-          const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), diaIniMs);
-          const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), diaFimMs);
-          mapa[nome] = (mapa[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
-        } else {
-          mapa[nome] = (mapa[nome] || 0) + (p.segundos_periodo || 0);
-        }
+        const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), dIniMs);
+        const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), dFimMs);
+        mapa[nome] = (mapa[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
       });
     const todosApps = Object.entries(mapa)
       .map(([nome, seg]) => ({ nome_app: nome, segundos_em_foco: seg }))

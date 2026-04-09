@@ -253,6 +253,12 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.6 — Tempo Declarado 30 dias fixos + coluna Pago `[Web]` (2026-04-09)
+- **Tempo Declarado sempre 30 dias:** seção não segue filtro de data — mostra sempre os últimos 30 dias independente do período selecionado nos gráficos.
+- **"Valor estimado" → "Pagamento Pendente":** card renomeado com cor amarela para indicar valor pendente.
+- **Nova coluna "Pago":** card verde mostrando o total de pagamentos registrados nos últimos 30 dias (soma de todos os usuários).
+- **Setas de navegação corrigidas:** sem filtro manual, backend recebe últimos 7 dias (permitindo navegação por seta) enquanto gráficos iniciam no dia de hoje.
+
 ### v7.5 — Fix gráficos duplicados, períodos fantasma, consistência de filtros `[Web]` (2026-04-09)
 - **Fix "Resumo detalhado por app" duplicado:** `insertAdjacentHTML` adicionava nova seção a cada filtro — agora usa container com ID que é removido e recriado.
 - **Períodos fantasma (fim_em NULL):** server-side, `graficos.php` agora usa `usuarios_status_atual.ultimo_em` como fim quando heartbeat > 5 minutos (PC desligou/crash). Não altera dados no banco — compatível com fila offline.

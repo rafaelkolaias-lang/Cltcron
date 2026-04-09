@@ -344,10 +344,11 @@
             <span class="badge badge-suave">declarado</span>
           </div>
           <div class="row g-3 mb-3" id="cardsDeclarado">
-            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Total declarado</div><div class="card-metrica__valor texto-mono" id="declTotalHoras">—</div></div></div>
-            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Valor estimado</div><div class="card-metrica__valor text-success" id="declTotalValor">—</div></div></div>
-            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Membros</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
-            <div class="col-6 col-md-3"><div class="card-metrica"><div class="card-metrica__rotulo">Período</div><div class="card-metrica__valor" style="font-size:1rem" id="declPeriodo">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Total declarado</div><div class="card-metrica__valor texto-mono" id="declTotalHoras">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pagamento Pendente</div><div class="card-metrica__valor text-warning" id="declTotalValor">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pago</div><div class="card-metrica__valor text-success" id="declTotalPago">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Membros</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
+            <div class="col-6 col-md-4"><div class="card-metrica"><div class="card-metrica__rotulo">Período</div><div class="card-metrica__valor" style="font-size:1rem" id="declPeriodo">—</div></div></div>
           </div>
           <div id="areaDeclaradoPorUsuario"><div class="texto-fraco small">Carregando…</div></div>
         </div>
@@ -380,10 +381,10 @@
       };
     }
 
-    // Sem filtro manual: mostra dia de hoje (meia-noite até agora)
+    // Sem filtro manual: busca últimos 7 dias (setas navegam), gráficos iniciam no dia de hoje
     const hoje = obterDataHojeIso();
     return {
-      data_inicio: hoje,
+      data_inicio: subtrairDiasIso(hoje, 6),
       data_fim: hoje,
       usuarios: userId ? [userId] : [],
       apps: [],
@@ -1613,26 +1614,54 @@
     return `<span class="badge badge-suave me-1">${ds}</span>${m[3]}/${m[2]}`;
   }
 
-  async function carregarTempoDeclarado(filtros) {
+  async function carregarTempoDeclarado() {
     const area = document.getElementById("areaDeclaradoPorUsuario");
     if (!area) return;
     area.innerHTML = `<div class="texto-fraco small">Carregando…</div>`;
     try {
-      const dados = await requisitarJson("./commands/relatorio/tempo_trabalhado.php", {
-        data_inicio: filtros.data_inicio, data_fim: filtros.data_fim, usuarios: filtros.usuarios,
-      });
-      renderizarTempoDeclarado(dados);
+      // Sempre últimos 30 dias, independente do filtro de data
+      const hoje = obterDataHojeIso();
+      const inicio30 = subtrairDiasIso(hoje, 29);
+
+      const [dados, pagamentos] = await Promise.all([
+        requisitarJson("./commands/relatorio/tempo_trabalhado.php", {
+          data_inicio: inicio30, data_fim: hoje, usuarios: [],
+        }),
+        (async () => {
+          try {
+            // Buscar pagamentos de todos os usuários nos últimos 30 dias
+            const r = await requisitarJson("./commands/usuarios/listar.php");
+            const users = Array.isArray(r.dados) ? r.dados : [];
+            let totalPago = 0;
+            for (const u of users) {
+              try {
+                const rp = await requisitarJson(`./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(u.user_id)}`);
+                const pags = Array.isArray(rp.dados) ? rp.dados : [];
+                pags.forEach(p => {
+                  if (p.data_pagamento && p.data_pagamento >= inicio30 && p.data_pagamento <= hoje) {
+                    totalPago += Number(p.valor || 0);
+                  }
+                });
+              } catch (_) {}
+            }
+            return totalPago;
+          } catch (_) { return 0; }
+        })(),
+      ]);
+
+      renderizarTempoDeclarado(dados, pagamentos);
     } catch (e) {
       area.innerHTML = `<div class="texto-fraco small text-danger">Erro: ${escaparHtml(e.message)}</div>`;
     }
   }
 
-  function renderizarTempoDeclarado(dados) {
+  function renderizarTempoDeclarado(dados, totalPago) {
     const area = document.getElementById("areaDeclaradoPorUsuario");
     if (!area) return;
     const periodo = dados.periodo ?? {};
     setTexto("declTotalHoras", dados.total_geral_horas ?? "—");
     setTexto("declTotalValor", formatarRs(dados.total_geral_valor ?? 0));
+    setTexto("declTotalPago", formatarRs(totalPago ?? 0));
     setTexto("declTotalEditores", String((dados.totais_por_usuario ?? []).length));
     const elP = document.getElementById("declPeriodo");
     if (elP) {
@@ -1709,7 +1738,7 @@
           data_inicio: filtros.data_inicio, data_fim: filtros.data_fim,
           usuarios: filtros.usuarios, apps: filtros.apps,
         }),
-        carregarTempoDeclarado(filtros),
+        carregarTempoDeclarado(),
       ]);
 
       _dadosPainelAtual = dadosPainel;

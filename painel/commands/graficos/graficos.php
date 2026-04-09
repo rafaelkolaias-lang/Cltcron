@@ -527,7 +527,7 @@ try {
         INNER JOIN usuarios u ON u.user_id = fj.user_id
         WHERE {$where_foco}
         ORDER BY u.nome_exibicao ASC, fj.inicio_em DESC
-        LIMIT 5000
+        LIMIT 50000
     ";
     $cmdPeriodos = $conexao_banco->prepare($sqlPeriodos);
     $cmdPeriodos->execute($parametros_foco);
@@ -567,7 +567,7 @@ try {
         INNER JOIN usuarios u ON u.user_id = ai.user_id
         WHERE {$where_intervalos}
         ORDER BY ai.user_id ASC, ai.inicio_em DESC
-        LIMIT 8000
+        LIMIT 50000
     ";
     $cmdPeriodosAbertos = $conexao_banco->prepare($sqlPeriodosAbertos);
     $cmdPeriodosAbertos->execute($parametros_intervalos);

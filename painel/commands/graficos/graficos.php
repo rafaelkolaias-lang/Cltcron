@@ -516,15 +516,28 @@ try {
             fj.nome_app,
             fj.titulo_janela,
             fj.inicio_em,
-            fj.fim_em,
+            CASE
+                WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
+                ELSE NULL
+            END AS fim_em,
             TIMESTAMPDIFF(
                 SECOND,
                 fj.inicio_em,
-                COALESCE(fj.fim_em, NOW())
+                CASE
+                    WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
+                    ELSE NOW()
+                END
             ) AS segundos_periodo,
-            CASE WHEN fj.fim_em IS NULL THEN 1 ELSE 0 END AS aberto_agora
+            CASE
+                WHEN fj.fim_em IS NOT NULL THEN 0
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN 0
+                ELSE 1
+            END AS aberto_agora
         FROM cronometro_foco_janela fj
         INNER JOIN usuarios u ON u.user_id = fj.user_id
+        LEFT JOIN usuarios_status_atual s ON s.user_id = fj.user_id
         WHERE {$where_foco}
         ORDER BY u.nome_exibicao ASC, fj.inicio_em DESC
         LIMIT 50000
@@ -559,12 +572,18 @@ try {
             ai.user_id,
             ai.nome_app,
             ai.inicio_em,
-            COALESCE(ai.fim_em, ai.ultima_atualizacao_em, NOW()) AS fim_em,
+            CASE
+                WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
+                WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
+                ELSE NOW()
+            END AS fim_em,
             ai.segundos_em_foco,
             ai.segundos_segundo_plano,
             (ai.segundos_em_foco + ai.segundos_segundo_plano) AS segundos_total
         FROM cronometro_apps_intervalos ai
         INNER JOIN usuarios u ON u.user_id = ai.user_id
+        LEFT JOIN usuarios_status_atual s ON s.user_id = ai.user_id
         WHERE {$where_intervalos}
         ORDER BY ai.user_id ASC, ai.inicio_em DESC
         LIMIT 50000

@@ -513,7 +513,7 @@
       dFimMs = new Date(dia + "T23:59:59.999").getTime();
     }
     const mapa = {};
-    (usuario.periodos_foco || [])
+    _limparPeriodosFantasma(usuario.periodos_foco || [])
       .filter(p => {
         if (!p.inicio_em) return false;
         const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
@@ -715,6 +715,27 @@
 
   // Clipa sobreposições: dentro de cada lane (value[0]), ordena por início e corta
   // cada período onde o seguinte começa — sem sobreposição, sem redundância.
+  // Remove períodos "fantasma" — mantém apenas o mais recente por app quando fim_em é vazio
+  function _limparPeriodosFantasma(periodos) {
+    const abertoPorApp = {};
+    // Primeiro, encontrar o período aberto mais recente por app
+    periodos.forEach(p => {
+      if (p.fim_em) return; // tem fim, não é fantasma
+      const app = p.nome_app || "—";
+      const ini = new Date(String(p.inicio_em || "").replace(" ", "T")).getTime();
+      if (!abertoPorApp[app] || ini > abertoPorApp[app]) {
+        abertoPorApp[app] = ini;
+      }
+    });
+    // Filtrar: manter períodos com fim, e sem fim apenas o mais recente por app
+    return periodos.filter(p => {
+      if (p.fim_em) return true;
+      const app = p.nome_app || "—";
+      const ini = new Date(String(p.inicio_em || "").replace(" ", "T")).getTime();
+      return ini === abertoPorApp[app];
+    });
+  }
+
   function _cliparSobreposicoes(dados) {
     const porLane = {};
     dados.forEach(d => {
@@ -749,7 +770,7 @@
       diaInicioMs = new Date(ini + "T00:00:00").getTime();
       diaFimMs = new Date(fim + "T23:59:59.999").getTime();
 
-      periodos = (_timelineUsuarioAtual.periodos_foco || [])
+      periodos = _limparPeriodosFantasma(_timelineUsuarioAtual.periodos_foco || [])
         .filter(p => {
           if (!p.inicio_em) return false;
           const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
@@ -765,7 +786,7 @@
       diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
       diaFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
 
-      periodos = (_timelineUsuarioAtual.periodos_foco || [])
+      periodos = _limparPeriodosFantasma(_timelineUsuarioAtual.periodos_foco || [])
         .filter(p => {
           if (!p.inicio_em) return false;
           const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
@@ -1073,7 +1094,7 @@
     const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
     const trabalhando = usuarios.map(u => {
       let total = 0;
-      (u.periodos_foco || []).forEach(p => {
+      _limparPeriodosFantasma(u.periodos_foco || []).forEach(p => {
         if (!p.inicio_em) return;
         const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
         const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
@@ -1134,7 +1155,7 @@
     }
     const mapaApps = {};
     usuarios.forEach(u => {
-      (u.periodos_foco || [])
+      _limparPeriodosFantasma(u.periodos_foco || [])
         .filter(p => {
           if (!p.inicio_em) return false;
           const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
@@ -1248,7 +1269,7 @@
       const nome = u.nome_exibicao || u.user_id || "—";
       if (!userNomes.includes(nome)) userNomes.push(nome);
 
-      (u.periodos_foco || [])
+      _limparPeriodosFantasma(u.periodos_foco || [])
         .filter(p => {
           if (!p.inicio_em) return false;
           const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();

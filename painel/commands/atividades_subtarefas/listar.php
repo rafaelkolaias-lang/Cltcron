@@ -103,11 +103,11 @@ try {
         }
         $mapaTrab[$uid] = (int)$stT->fetchColumn();
 
-        // Total declarado (todas as subtarefas)
+        // Total declarado (apenas subtarefas NÃO pagas)
         $stD = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid
+            WHERE user_id = :uid AND bloqueada_pagamento = 0
         ");
         $stD->execute([':uid' => $uid]);
         $mapaDecl[$uid] = (int)$stD->fetchColumn();

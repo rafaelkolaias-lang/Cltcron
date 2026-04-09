@@ -489,23 +489,15 @@
       const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
       const subs = (rSub.dados || []).filter(s => !s.bloqueada_pagamento);
 
-      // Totais acumulados vêm no primeiro item (se houver)
-      const trabTotal = subs.length > 0 ? (subs[0].segundos_trabalhados_total || 0) : 0;
-      const declTotal = subs.length > 0 ? (subs[0].segundos_declarados_total || 0) : 0;
+      // Totais não pagos (registros_tempo sem id_pagamento + subtarefas sem bloqueada_pagamento)
+      const trabalhado = subs.length > 0 ? (subs[0].segundos_trabalhados_total || 0) : 0;
+      const declarado = subs.length > 0 ? (subs[0].segundos_declarados_total || 0) : 0;
 
-      // Horas não pagas: só subtarefas com bloqueada_pagamento=0
-      const declNaoPago = subs.reduce((acc, s) => acc + (s.segundos_gastos || 0), 0);
+      const naoDeclarado = Math.max(0, trabalhado - declarado);
+      const aPagar = declarado * (valorHora / 3600);
 
-      // Trabalhado não pago = total trabalhado - total declarado já pago
-      // Total declarado pago = declTotal - declNaoPago
-      const declPago = declTotal - declNaoPago;
-      const trabNaoPago = Math.max(0, trabTotal - declPago);
-
-      const naoDeclarado = Math.max(0, trabNaoPago - declNaoPago);
-      const aPagar = declNaoPago * (valorHora / 3600);
-
-      if (elTrab) elTrab.textContent = formatarHm(trabNaoPago);
-      if (elDecl) elDecl.textContent = formatarHm(declNaoPago);
+      if (elTrab) elTrab.textContent = formatarHm(trabalhado);
+      if (elDecl) elDecl.textContent = formatarHm(declarado);
       if (elNaoDecl) elNaoDecl.textContent = formatarHm(naoDeclarado);
       if (elAPagar) elAPagar.textContent = formatarDinheiroBr(aPagar);
     } catch (_) {

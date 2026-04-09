@@ -253,12 +253,18 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
-### v7.4 — Fix filtros de data e timeline `[Web]` (2026-04-09)
-- **Padrão mostra dia atual:** sem filtro manual, `data_inicio` e `data_fim` defaultam para hoje (antes era 7 dias).
+### v7.4 — Fix filtros de data, timeline e gráficos `[Web]` (2026-04-09)
+- **Padrão sem filtro:** ao carregar ou limpar, datas não são enviadas — backend retorna últimos 7 dias. Filtro só aplica ao clicar "Aplicar data".
 - **Filtro por período:** ao aplicar datas diferentes, timelines mostram o TOTAL acumulado do período inteiro. Label mostra "DD/MM → DD/MM".
-- **Setas bloqueadas com filtro:** navegação dia a dia desabilitada quando há filtro de período ativo — tanto na timeline individual quanto na team timeline.
-- **Limpar restaura hoje:** botão "Limpar" volta datas para hoje e reabilita setas.
+- **Setas bloqueadas com filtro:** navegação dia a dia desabilitada quando há filtro de período ativo. Seta não permite avançar além de hoje.
+- **Dias contíguos na navegação:** dias sem atividade aparecem na navegação (sem pular). Gera range do mais antigo até hoje.
+- **Linhas de meia-noite:** no modo período, riscos tracejados verticais a cada 00:00 com label DD/MM para separar dias.
+- **Limpar mantém campos:** botão "Limpar data" só desativa o filtro — datas e membro permanecem nos campos.
+- **Botões reorganizados:** "Aplicar data" e "Limpar data" posicionados junto aos campos de data.
 - **Fix timeline travada em ontem:** períodos de foco que cruzam dias agora aparecem em ambos os dias com clipping em 00:00–23:59 (máximo 24h por dia).
+- **Todos os gráficos respeitam dia/período:** Tempo por Membro, Top Apps da Equipe e Foco vs 2.º Plano agora calculam a partir dos períodos clipados no dia selecionado (não mais totais brutos do backend).
+- **Setas atualizam todos os gráficos:** ao navegar por dia, Tempo por Membro, Top Apps e Foco vs 2.º Plano recarregam junto com as timelines.
+- **Fix LIMIT 5000:** query de `cronometro_foco_janela` cortava membros alfabeticamente posteriores — aumentado para 50000.
 - **Fix resumo pagamento:** `segundos_declarados_total` agora filtra `bloqueada_pagamento = 0` (antes somava pagas + não pagas).
 - **Fix case-sensitive:** tabela `Usuarios` → `usuarios` em `editar.php` e `atualizar_status.php` (MySQL Linux é case-sensitive).
 - **Alertas como popup modal:** substituiu banners no topo por modal centralizado com cor por tipo (sucesso/erro/aviso).

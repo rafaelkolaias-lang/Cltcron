@@ -490,12 +490,27 @@
     // Usa periodos_foco filtrado pelo dia atual da timeline — garante que
     // as horas do "Top Apps" sejam exatamente a soma do que aparece na timeline
     const diaSelecionado = _timelineDias[_timelineIdxDia] || null;
+    const diaIniMs = diaSelecionado ? new Date(diaSelecionado + "T00:00:00").getTime() : 0;
+    const diaFimMs = diaSelecionado ? new Date(diaSelecionado + "T23:59:59.999").getTime() : Infinity;
     const mapa = {};
     (usuario.periodos_foco || [])
-      .filter(p => !diaSelecionado || _extrairDiaIso(p.inicio_em) === diaSelecionado)
+      .filter(p => {
+        if (!diaSelecionado) return true;
+        if (!p.inicio_em) return false;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        return ini <= diaFimMs && fim >= diaIniMs;
+      })
       .forEach(p => {
         const nome = p.nome_app || "—";
-        mapa[nome] = (mapa[nome] || 0) + (p.segundos_periodo || 0);
+        // Clipar segundos no limite do dia
+        if (diaSelecionado && p.inicio_em) {
+          const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), diaIniMs);
+          const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), diaFimMs);
+          mapa[nome] = (mapa[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
+        } else {
+          mapa[nome] = (mapa[nome] || 0) + (p.segundos_periodo || 0);
+        }
       });
     const todosApps = Object.entries(mapa)
       .map(([nome, seg]) => ({ nome_app: nome, segundos_em_foco: seg }))
@@ -666,8 +681,18 @@
     const diaSelecionado = _timelineDias[_timelineIdxDia];
     if (!diaSelecionado) { chart.clear(); return; }
 
+    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFimMs    = new Date(diaSelecionado + "T23:59:59.999").getTime();
+
+    // Incluir períodos que TOCAM este dia (não apenas os que começaram nele)
     const periodos = (_timelineUsuarioAtual.periodos_foco || [])
-      .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado)
+      .filter(p => {
+        if (!p.inicio_em) return false;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        // Período toca o dia se: inicio < fimDoDia E fim > inicioDoDia
+        return ini <= diaFimMs && fim >= diaInicioMs;
+      })
       .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
 
     if (!periodos.length) {
@@ -677,23 +702,25 @@
     }
 
     const appsUnicos = [...new Set(periodos.map(p => p.nome_app || "—"))];
-    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
     const dados = _cliparSobreposicoes(
       periodos
         .filter(p => p.inicio_em)
         .map(p => {
           const app = p.nome_app || "—";
-          const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
-          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
+          let inicio = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          let fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          // Clipar nos limites do dia (máximo 24h)
+          inicio = Math.max(inicio, diaInicioMs);
+          fim = Math.min(fim, diaFimMs);
+          const segs = Math.round((fim - inicio) / 1000);
           return {
             name: app,
-            value: [app, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0],
+            value: [app, inicio, fim, segs],
             itemStyle: { color: _obterCorApp(app) },
           };
         })
-        .filter(d => !isNaN(d.value[1]))
+        .filter(d => !isNaN(d.value[1]) && d.value[2] > d.value[1])
     );
 
     if (!dados.length) { chart.clear(); return; }
@@ -749,16 +776,32 @@
     }, true);
   }
 
+  function _extrairDiasAbrangidos(inicioStr, fimStr) {
+    // Retorna todos os dias (YYYY-MM-DD) que um período toca
+    const dias = [];
+    const inicio = inicioStr ? new Date(String(inicioStr).replace(" ", "T")) : null;
+    const fim = fimStr ? new Date(String(fimStr).replace(" ", "T")) : new Date();
+    if (!inicio || isNaN(inicio.getTime())) return dias;
+    if (isNaN(fim.getTime())) return dias;
+
+    const d = new Date(inicio.getFullYear(), inicio.getMonth(), inicio.getDate());
+    const fimDia = new Date(fim.getFullYear(), fim.getMonth(), fim.getDate());
+    while (d <= fimDia) {
+      dias.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    return dias;
+  }
+
   function renderizarTimelineApps(usuario) {
     _timelineUsuarioAtual = usuario;
 
     const periodos = usuario.periodos_foco || [];
 
-    // Extrair dias únicos e ordenar (mais recente primeiro)
+    // Extrair dias únicos (incluindo dias que períodos cruzam)
     const diasSet = new Set();
     periodos.forEach(p => {
-      const dia = _extrairDiaIso(p.inicio_em);
-      if (dia) diasSet.add(dia);
+      _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
     });
     _timelineDias = [...diasSet].sort().reverse();
     _timelineIdxDia = 0; // começa no dia mais recente
@@ -1012,15 +1055,22 @@
       if (!userNomes.includes(nome)) userNomes.push(nome);
 
       (u.periodos_foco || [])
-        .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado && p.inicio_em)
+        .filter(p => {
+          if (!p.inicio_em) return false;
+          const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          return ini <= diaFimMs && fim >= diaInicioMs;
+        })
         .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"))
         .forEach(p => {
-          const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
-          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")) : new Date();
-          if (!isNaN(inicio.getTime())) {
+          let inicio = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          let fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          inicio = Math.max(inicio, diaInicioMs);
+          fim = Math.min(fim, diaFimMs);
+          if (!isNaN(inicio) && fim > inicio) {
             dados.push({
               name: p.nome_app || "—",
-              value: [nome, inicio.getTime(), fim.getTime(), p.segundos_periodo || 0, p.nome_app || "—"],
+              value: [nome, inicio, fim, Math.round((fim - inicio) / 1000), p.nome_app || "—"],
               itemStyle: { color: _obterCorApp(p.nome_app) },
             });
           }
@@ -1194,13 +1244,11 @@
     const diasSet = new Set();
     usuarios.forEach(u => {
       (u.periodos_foco || []).forEach(p => {
-        const dia = _extrairDiaIso(p.inicio_em);
-        if (dia) diasSet.add(dia);
+        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
       });
       if (individual) {
         (u.periodos_abertos || []).forEach(p => {
-          const dia = _extrairDiaIso(p.inicio_em);
-          if (dia) diasSet.add(dia);
+          _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
         });
       }
     });

@@ -1552,11 +1552,17 @@
       setTimeout(() => {
         const a = document.getElementById("areaUsuarioSelecionadoGraficos");
         if (!a) return;
+
+        // Remover resumo anterior se existir
+        const existente = document.getElementById("_resumoDetalhadoApps");
+        if (existente) existente.remove();
+
         const u = usuarios[0];
-        // Status em tempo real — header de perfil compacto
         const status = u.status_atual || "sem_status";
         const appsAbertos = u.apps_abertos_agora || [];
-        const headerHtml = `
+        const wrapper = document.createElement("div");
+        wrapper.id = "_resumoDetalhadoApps";
+        wrapper.innerHTML = `
           <div class="perfil-usuario-header mt-3">
             <div class="perfil-avatar">${iniciais(u.nome_exibicao || u.user_id)}</div>
             <div class="flex-grow-1">
@@ -1571,8 +1577,8 @@
           <hr class="separador-sutil">
           <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Resumo detalhado por app</div>
           ${montarTabelaApps(u.apps_resumo || [])}`;
-        a.insertAdjacentHTML("beforeend", headerHtml);
-      }, 120); // após montarVisaoGeralTodosUsuarios já ter rodado o setTimeout de 50ms
+        a.appendChild(wrapper);
+      }, 120);
     }
   }
 

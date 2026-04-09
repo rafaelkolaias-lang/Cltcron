@@ -253,8 +253,17 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.5 — Fix gráficos duplicados, períodos fantasma, consistência de filtros `[Web]` (2026-04-09)
+- **Fix "Resumo detalhado por app" duplicado:** `insertAdjacentHTML` adicionava nova seção a cada filtro — agora usa container com ID que é removido e recriado.
+- **Períodos fantasma (fim_em NULL):** server-side, `graficos.php` agora usa `usuarios_status_atual.ultimo_em` como fim quando heartbeat > 5 minutos (PC desligou/crash). Não altera dados no banco — compatível com fila offline.
+- **Limpeza de fantasmas no JS:** `_limparPeriodosFantasma()` mantém apenas o período aberto mais recente por app — aplicado em todos os 6 gráficos como defesa extra.
+- **Fix donut Top Apps 29h:** clipagem correta em todos os cenários (com/sem filtro manual).
+- **Fix Foco vs 2.º Plano:** calcula a partir de `periodos_abertos` clipados no dia/período (antes usava `apps_resumo` bruto do backend).
+- **Consistência sem filtro = hoje:** ao carregar ou limpar, envia hoje/hoje ao backend (não mais vazio que retornava 7 dias).
+- **Fix LIMIT 5000:** query de `cronometro_foco_janela` cortava membros — aumentado para 50000.
+
 ### v7.4 — Fix filtros de data, timeline e gráficos `[Web]` (2026-04-09)
-- **Padrão sem filtro:** ao carregar ou limpar, datas não são enviadas — backend retorna últimos 7 dias. Filtro só aplica ao clicar "Aplicar data".
+- **Padrão mostra dia atual:** sem filtro manual, envia hoje/hoje ao backend.
 - **Filtro por período:** ao aplicar datas diferentes, timelines mostram o TOTAL acumulado do período inteiro. Label mostra "DD/MM → DD/MM".
 - **Setas bloqueadas com filtro:** navegação dia a dia desabilitada quando há filtro de período ativo. Seta não permite avançar além de hoje.
 - **Dias contíguos na navegação:** dias sem atividade aparecem na navegação (sem pular). Gera range do mais antigo até hoje.

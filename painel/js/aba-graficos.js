@@ -316,13 +316,15 @@
               <label>Fim</label>
               <input type="date" id="filtroGraficosDataFim" class="form-control form-control-sm bg-transparent text-white border-secondary" style="width:145px">
             </div>
+            <div class="d-flex gap-1 align-items-end">
+              <button type="button" id="botaoAplicarFiltrosGraficos" class="btn btn-sm btn-light botao-mini">Aplicar data</button>
+              <button type="button" id="botaoLimparFiltrosGraficos" class="btn btn-sm btn-outline-light botao-mini">Limpar data</button>
+            </div>
             <div>
               <label>Membro</label>
               <select id="filtroGraficosUsuarioDetalhe" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:220px"></select>
             </div>
-            <div class="d-flex gap-2 align-items-end">
-              <button type="button" id="botaoAplicarFiltrosGraficos" class="btn btn-sm btn-light botao-mini">Aplicar</button>
-              <button type="button" id="botaoLimparFiltrosGraficos" class="btn btn-sm btn-outline-light botao-mini">Limpar</button>
+            <div class="d-flex align-items-end">
               <button type="button" id="botaoAbrirModalCores" class="btn btn-sm btn-outline-warning botao-mini" title="Personalizar cores dos aplicativos">🎨 Cores</button>
             </div>
           </div>
@@ -668,9 +670,11 @@
     }
 
     if (!label || !_timelineDias.length) return;
-    label.textContent = _formatarDiaBr(_timelineDias[_timelineIdxDia]);
+    const diaAtual = _timelineDias[_timelineIdxDia] || "";
+    label.textContent = _formatarDiaBr(diaAtual);
     if (btnAnt) btnAnt.disabled = _timelineIdxDia >= _timelineDias.length - 1;
-    if (btnProx) btnProx.disabled = _timelineIdxDia <= 0;
+    // Não permite avançar além de hoje
+    if (btnProx) btnProx.disabled = _timelineIdxDia <= 0 || diaAtual >= obterDataHojeIso();
   }
 
   // Clipa sobreposições: dentro de cada lane (value[0]), ordena por início e corta
@@ -775,24 +779,48 @@
     if (el) el.style.height = alturaChart + "px";
     chart.resize();
 
+    // Linhas de meia-noite no modo período
+    const markLinesInd = [];
+    if (_modoTotalPeriodo) {
+      const dIni = new Date(diaInicioMs);
+      const dFim = new Date(diaFimMs);
+      const cursor = new Date(dIni.getFullYear(), dIni.getMonth(), dIni.getDate() + 1);
+      while (cursor <= dFim) {
+        markLinesInd.push({
+          xAxis: cursor.getTime(),
+          label: { formatter: cursor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), color: "rgba(255,255,255,.5)", fontSize: 10, position: "start" },
+          lineStyle: { color: "rgba(255,255,255,.15)", type: "dashed", width: 1 },
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
+    const xLabelFmtInd = _modoTotalPeriodo
+      ? (v) => new Date(v).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const xIntervalInd = _modoTotalPeriodo ? 6 * 3600 * 1000 : 2 * 3600 * 1000;
+
     chart.setOption({
       tooltip: {
         backgroundColor: "rgba(15,20,35,.92)",
         borderColor: "rgba(255,255,255,.1)",
         textStyle: { color: "#e2e8f0", fontSize: 12 },
         formatter: (p) => {
+          if (p.componentType === "markLine") return "";
           const v = p.value;
-          const ini = new Date(v[1]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-          const f = new Date(v[2]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const dtFmt = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
+          const ini = new Date(v[1]).toLocaleString("pt-BR", dtFmt);
+          const f = new Date(v[2]).toLocaleString("pt-BR", dtFmt);
           return `<strong>${escaparHtml(v[0])}</strong><br/>${ini} → ${f}<br/>Duração: ${hhmm(v[3])}`;
         },
       },
-      grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
+      grid: { left: 8, right: 16, top: 8, bottom: 36, containLabel: true },
       xAxis: {
         type: "time",
         min: xMin, max: xMax,
-        minInterval: 15 * 60 * 1000, maxInterval: 2 * 3600 * 1000,
-        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
+        minInterval: _modoTotalPeriodo ? 3600 * 1000 : 15 * 60 * 1000,
+        maxInterval: xIntervalInd,
+        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 10, formatter: xLabelFmtInd, rotate: _modoTotalPeriodo ? 30 : 0 },
         splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
       },
       yAxis: { type: "category", data: appsUnicos, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 100, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
@@ -802,7 +830,7 @@
           const catIdx = api.value(0);
           const inicio = api.coord([api.value(1), catIdx]);
           const fim = api.coord([api.value(2), catIdx]);
-          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18); // v4.8: máx 18px
+          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18);
           return {
             type: "rect",
             shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
@@ -812,6 +840,7 @@
         },
         encode: { x: [1, 2], y: 0 },
         data: dados,
+        markLine: markLinesInd.length > 0 ? { silent: true, symbol: "none", data: markLinesInd } : undefined,
       }],
     }, true);
   }
@@ -833,18 +862,47 @@
     return dias;
   }
 
+  function _gerarDiasContiguos(dataInicio, dataFim) {
+    // Gera todos os dias de dataInicio até dataFim (inclusive), sem pular
+    const dias = [];
+    const d = new Date(dataInicio + "T00:00:00");
+    const fim = new Date(dataFim + "T00:00:00");
+    if (isNaN(d.getTime()) || isNaN(fim.getTime())) return dias;
+    while (d <= fim) {
+      dias.push(d.toISOString().slice(0, 10));
+      d.setDate(d.getDate() + 1);
+    }
+    return dias;
+  }
+
   function renderizarTimelineApps(usuario) {
     _timelineUsuarioAtual = usuario;
     _modoTotalPeriodo = _filtroTemMultiplosDias();
 
     const periodos = usuario.periodos_foco || [];
+    const hoje = obterDataHojeIso();
 
-    // Extrair dias únicos (incluindo dias que períodos cruzam)
-    const diasSet = new Set();
-    periodos.forEach(p => {
-      _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-    });
-    _timelineDias = [...diasSet].sort().reverse();
+    if (_modoTotalPeriodo) {
+      // Modo período: todos os dias do filtro
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje;
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || hoje;
+      _timelineDias = _gerarDiasContiguos(ini, fim).reverse();
+    } else {
+      // Modo navegação: extrair dias com dados + preencher lacunas até hoje
+      const diasSet = new Set();
+      periodos.forEach(p => {
+        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
+      });
+      // Se tem dados, gerar range contíguo do mais antigo até hoje
+      if (diasSet.size > 0) {
+        const todos = [...diasSet].sort();
+        const maisAntigo = todos[0];
+        const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
+        _timelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
+      } else {
+        _timelineDias = [hoje];
+      }
+    }
     _timelineIdxDia = 0;
 
     _atualizarLabelDia();
@@ -963,8 +1021,32 @@
     if (!chart) return;
     if (!usuarios.length) { chart.clear(); return; }
 
+    // Calcular tempo por membro a partir dos periodos_foco clipados no dia/período
+    let cIniMs, cFimMs;
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      cIniMs = new Date(ini + "T00:00:00").getTime();
+      cFimMs = new Date(fim + "T23:59:59.999").getTime();
+    } else {
+      const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
+      cIniMs = new Date(dia + "T00:00:00").getTime();
+      cFimMs = new Date(dia + "T23:59:59.999").getTime();
+    }
+
     const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
-    const trabalhando = usuarios.map(u => u.segundos_trabalhando_total || 0).reverse();
+    const trabalhando = usuarios.map(u => {
+      let total = 0;
+      (u.periodos_foco || []).forEach(p => {
+        if (!p.inicio_em) return;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        if (ini <= cFimMs && fim >= cIniMs) {
+          total += Math.max(0, Math.round((Math.min(fim, cFimMs) - Math.max(ini, cIniMs)) / 1000));
+        }
+      });
+      return total;
+    }).reverse();
     const ocioso = usuarios.map(u => u.segundos_ocioso_total || 0).reverse();
     const pausado = usuarios.map(u => u.segundos_pausado_total || 0).reverse();
 
@@ -1002,15 +1084,32 @@
     const chart = criarOuObterChart("chartGlobalApps", 300);
     if (!chart) return;
 
-    // Usa periodos_foco filtrado pelo dia atual da team timeline — mesma fonte da timeline
-    const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia] || null;
+    // Usa periodos_foco filtrado pelo dia/período atual
+    let gIniMs, gFimMs;
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      gIniMs = new Date(ini + "T00:00:00").getTime();
+      gFimMs = new Date(fim + "T23:59:59.999").getTime();
+    } else {
+      const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
+      gIniMs = new Date(diaSelecionado + "T00:00:00").getTime();
+      gFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
+    }
     const mapaApps = {};
     usuarios.forEach(u => {
       (u.periodos_foco || [])
-        .filter(p => !diaSelecionado || _extrairDiaIso(p.inicio_em) === diaSelecionado)
+        .filter(p => {
+          if (!p.inicio_em) return false;
+          const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          return ini <= gFimMs && fim >= gIniMs;
+        })
         .forEach(p => {
           const nome = p.nome_app || "—";
-          mapaApps[nome] = (mapaApps[nome] || 0) + (p.segundos_periodo || 0);
+          const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), gIniMs);
+          const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), gFimMs);
+          mapaApps[nome] = (mapaApps[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
         });
     });
 
@@ -1082,9 +1181,10 @@
       if (btnProx) btnProx.disabled = true;
       return;
     }
-    label.textContent = _formatarDiaBr(_teamTimelineDias[_teamTimelineIdxDia]);
+    const diaAtual = _teamTimelineDias[_teamTimelineIdxDia] || "";
+    label.textContent = _formatarDiaBr(diaAtual);
     if (btnAnt) btnAnt.disabled = _teamTimelineIdxDia >= _teamTimelineDias.length - 1;
-    if (btnProx) btnProx.disabled = _teamTimelineIdxDia <= 0;
+    if (btnProx) btnProx.disabled = _teamTimelineIdxDia <= 0 || diaAtual >= obterDataHojeIso();
   }
 
   function _renderizarTeamTimelineDoDia() {
@@ -1153,23 +1253,48 @@
     if (el) el.style.height = alturaChart + "px";
     chart.resize();
 
+    // Linhas de meia-noite no modo período
+    const markLines = [];
+    if (_modoTotalPeriodo) {
+      const dIni = new Date(diaInicioMs);
+      const dFim = new Date(diaFimMs);
+      const cursor = new Date(dIni.getFullYear(), dIni.getMonth(), dIni.getDate() + 1);
+      while (cursor <= dFim) {
+        markLines.push({
+          xAxis: cursor.getTime(),
+          label: { formatter: cursor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), color: "rgba(255,255,255,.5)", fontSize: 10, position: "start" },
+          lineStyle: { color: "rgba(255,255,255,.15)", type: "dashed", width: 1 },
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
+    // Formato do eixo X: inclui dia se modo período
+    const xLabelFmt = _modoTotalPeriodo
+      ? (v) => new Date(v).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+      : (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const xInterval = _modoTotalPeriodo ? 6 * 3600 * 1000 : 2 * 3600 * 1000;
+
     chart.setOption({
       tooltip: {
         backgroundColor: "rgba(15,20,35,.92)",
         borderColor: "rgba(255,255,255,.1)",
         textStyle: { color: "#e2e8f0", fontSize: 12 },
         formatter: (p) => {
+          if (p.componentType === "markLine") return "";
           const v = p.value;
-          const ini = new Date(v[1]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-          const f = new Date(v[2]).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const dtFmt = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
+          const ini = new Date(v[1]).toLocaleString("pt-BR", dtFmt);
+          const f = new Date(v[2]).toLocaleString("pt-BR", dtFmt);
           return `<strong>${escaparHtml(v[0])}</strong><br/>${escaparHtml(v[4])}<br/>${ini} → ${f}<br/>Duração: ${hhmm(v[3])}`;
         },
       },
-      grid: { left: 8, right: 16, top: 8, bottom: 32, containLabel: true },
+      grid: { left: 8, right: 16, top: 8, bottom: 36, containLabel: true },
       xAxis: {
         type: "time", min: xMin, max: xMax,
-        minInterval: 15 * 60 * 1000, maxInterval: 2 * 3600 * 1000,
-        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 11, formatter: (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) },
+        minInterval: _modoTotalPeriodo ? 3600 * 1000 : 15 * 60 * 1000,
+        maxInterval: xInterval,
+        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 10, formatter: xLabelFmt, rotate: _modoTotalPeriodo ? 30 : 0 },
         splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
       },
       yAxis: { type: "category", data: userNomes, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 120, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
@@ -1179,7 +1304,7 @@
           const catIdx = api.value(0);
           const inicio = api.coord([api.value(1), catIdx]);
           const fim = api.coord([api.value(2), catIdx]);
-          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18); // v4.8: máx 18px
+          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18);
           return {
             type: "rect",
             shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
@@ -1189,6 +1314,7 @@
         },
         encode: { x: [1, 2], y: 0 },
         data: dadosClipados,
+        markLine: markLines.length > 0 ? { silent: true, symbol: "none", data: markLines } : undefined,
       }],
     }, true);
   }
@@ -1300,18 +1426,33 @@
 
     _teamTimelineUsuarios = usuarios;
     _modoTotalPeriodo = _filtroTemMultiplosDias();
-    const diasSet = new Set();
-    usuarios.forEach(u => {
-      (u.periodos_foco || []).forEach(p => {
-        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-      });
-      if (individual) {
-        (u.periodos_abertos || []).forEach(p => {
+    const hoje = obterDataHojeIso();
+
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje;
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || hoje;
+      _teamTimelineDias = _gerarDiasContiguos(ini, fim).reverse();
+    } else {
+      const diasSet = new Set();
+      usuarios.forEach(u => {
+        (u.periodos_foco || []).forEach(p => {
           _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
         });
+        if (individual) {
+          (u.periodos_abertos || []).forEach(p => {
+            _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
+          });
+        }
+      });
+      if (diasSet.size > 0) {
+        const todos = [...diasSet].sort();
+        const maisAntigo = todos[0];
+        const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
+        _teamTimelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
+      } else {
+        _teamTimelineDias = [hoje];
       }
-    });
-    _teamTimelineDias = [...diasSet].sort().reverse();
+    }
     _teamTimelineIdxDia = 0;
 
     setTimeout(() => {
@@ -1520,12 +1661,6 @@
   }
 
   function limparFiltros() {
-    const fim = document.getElementById("filtroGraficosDataFim");
-    const ini = document.getElementById("filtroGraficosDataInicio");
-    if (fim) fim.value = "";
-    if (ini) ini.value = "";
-    const det = document.getElementById("filtroGraficosUsuarioDetalhe");
-    if (det) det.value = "";
     foiAplicadoManualmente = false;
     FILTROS_APPS_ATIVOS = [];
   }
@@ -1578,8 +1713,10 @@
           _teamTimelineIdxDia++;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
-          if (_teamTimelineUsuarios) renderizarGlobalApps(_teamTimelineUsuarios);
-          // v4.6: controle unificado — atualiza abertos junto
+          if (_teamTimelineUsuarios) {
+            renderizarGlobalApps(_teamTimelineUsuarios);
+            renderizarComparativoUsuarios(_teamTimelineUsuarios);
+          }
           if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }
       }
@@ -1588,8 +1725,10 @@
           _teamTimelineIdxDia--;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
-          if (_teamTimelineUsuarios) renderizarGlobalApps(_teamTimelineUsuarios);
-          // v4.6: controle unificado — atualiza abertos junto
+          if (_teamTimelineUsuarios) {
+            renderizarGlobalApps(_teamTimelineUsuarios);
+            renderizarComparativoUsuarios(_teamTimelineUsuarios);
+          }
           if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }
       }

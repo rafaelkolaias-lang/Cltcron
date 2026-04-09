@@ -253,6 +253,16 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.4 — Fix filtros de data e timeline `[Web]` (2026-04-09)
+- **Padrão mostra dia atual:** sem filtro manual, `data_inicio` e `data_fim` defaultam para hoje (antes era 7 dias).
+- **Filtro por período:** ao aplicar datas diferentes, timelines mostram o TOTAL acumulado do período inteiro. Label mostra "DD/MM → DD/MM".
+- **Setas bloqueadas com filtro:** navegação dia a dia desabilitada quando há filtro de período ativo — tanto na timeline individual quanto na team timeline.
+- **Limpar restaura hoje:** botão "Limpar" volta datas para hoje e reabilita setas.
+- **Fix timeline travada em ontem:** períodos de foco que cruzam dias agora aparecem em ambos os dias com clipping em 00:00–23:59 (máximo 24h por dia).
+- **Fix resumo pagamento:** `segundos_declarados_total` agora filtra `bloqueada_pagamento = 0` (antes somava pagas + não pagas).
+- **Fix case-sensitive:** tabela `Usuarios` → `usuarios` em `editar.php` e `atualizar_status.php` (MySQL Linux é case-sensitive).
+- **Alertas como popup modal:** substituiu banners no topo por modal centralizado com cor por tipo (sucesso/erro/aviso).
+
 ### v7.3 — App v2.3: changelog, ordenação datetime, fixes `[Desktop]` (2026-04-08)
 - **Versão do app atualizada para v2.3** (título da janela: "Cronômetro v2.3").
 - **Changelog na tela de login:** link "v2.3 — ver novidades" na parte inferior abre popup scrollável com histórico completo de versões. Estrutura `HISTORICO_VERSOES` permite adicionar futuras versões facilmente.

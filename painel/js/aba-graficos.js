@@ -360,7 +360,7 @@
     const ini = document.getElementById("filtroGraficosDataInicio");
     if (!fim || !ini) return;
     if (!fim.value) fim.value = obterDataHojeIso();
-    if (!ini.value) ini.value = subtrairDiasIso(fim.value, 6);
+    if (!ini.value) ini.value = obterDataHojeIso();
   }
 
   function obterFiltros() {
@@ -640,13 +640,24 @@
     return `${semana} ${p[2]}/${p[1]}`;
   }
 
+  let _modoTotalPeriodo = false; // true quando filtro tem múltiplos dias
+
   function _atualizarLabelDia() {
     const label = document.getElementById("timelineDiaLabel");
-    if (!label || !_timelineDias.length) return;
-    label.textContent = _formatarDiaBr(_timelineDias[_timelineIdxDia]);
-
     const btnAnt = document.getElementById("btnTimelineDiaAnterior");
     const btnProx = document.getElementById("btnTimelineDiaProximo");
+
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
+      if (label) label.textContent = `${_formatarDiaBr(ini)} → ${_formatarDiaBr(fim)}`;
+      if (btnAnt) btnAnt.disabled = true;
+      if (btnProx) btnProx.disabled = true;
+      return;
+    }
+
+    if (!label || !_timelineDias.length) return;
+    label.textContent = _formatarDiaBr(_timelineDias[_timelineIdxDia]);
     if (btnAnt) btnAnt.disabled = _timelineIdxDia >= _timelineDias.length - 1;
     if (btnProx) btnProx.disabled = _timelineIdxDia <= 0;
   }
@@ -678,22 +689,40 @@
     const chart = criarOuObterChart("chartTimelineApps", 200);
     if (!chart || !_timelineUsuarioAtual) return;
 
-    const diaSelecionado = _timelineDias[_timelineIdxDia];
-    if (!diaSelecionado) { chart.clear(); return; }
+    let diaInicioMs, diaFimMs, periodos;
 
-    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFimMs    = new Date(diaSelecionado + "T23:59:59.999").getTime();
+    if (_modoTotalPeriodo) {
+      // Modo período: mostra TODOS os períodos sem filtrar por dia
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      diaInicioMs = new Date(ini + "T00:00:00").getTime();
+      diaFimMs = new Date(fim + "T23:59:59.999").getTime();
 
-    // Incluir períodos que TOCAM este dia (não apenas os que começaram nele)
-    const periodos = (_timelineUsuarioAtual.periodos_foco || [])
-      .filter(p => {
-        if (!p.inicio_em) return false;
-        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-        // Período toca o dia se: inicio < fimDoDia E fim > inicioDoDia
-        return ini <= diaFimMs && fim >= diaInicioMs;
-      })
-      .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
+      periodos = (_timelineUsuarioAtual.periodos_foco || [])
+        .filter(p => {
+          if (!p.inicio_em) return false;
+          const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          const pFim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          return pIni <= diaFimMs && pFim >= diaInicioMs;
+        })
+        .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
+    } else {
+      // Modo dia único
+      const diaSelecionado = _timelineDias[_timelineIdxDia];
+      if (!diaSelecionado) { chart.clear(); return; }
+
+      diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+      diaFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
+
+      periodos = (_timelineUsuarioAtual.periodos_foco || [])
+        .filter(p => {
+          if (!p.inicio_em) return false;
+          const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+          const pFim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+          return pIni <= diaFimMs && pFim >= diaInicioMs;
+        })
+        .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
+    }
 
     if (!periodos.length) {
       chart.clear();
@@ -795,6 +824,7 @@
 
   function renderizarTimelineApps(usuario) {
     _timelineUsuarioAtual = usuario;
+    _modoTotalPeriodo = _filtroTemMultiplosDias();
 
     const periodos = usuario.periodos_foco || [];
 
@@ -804,7 +834,7 @@
       _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
     });
     _timelineDias = [...diasSet].sort().reverse();
-    _timelineIdxDia = 0; // começa no dia mais recente
+    _timelineIdxDia = 0;
 
     _atualizarLabelDia();
     renderizarTimelineDoDia();
@@ -1025,7 +1055,16 @@
     const btnAnt = document.getElementById("btnTeamTimelineDiaAnterior");
     const btnProx = document.getElementById("btnTeamTimelineDiaProximo");
     if (!label) return;
-    // v4.9: trata array vazio — desabilita ambos os botões explicitamente
+
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
+      label.textContent = `${_formatarDiaBr(ini)} → ${_formatarDiaBr(fim)}`;
+      if (btnAnt) btnAnt.disabled = true;
+      if (btnProx) btnProx.disabled = true;
+      return;
+    }
+
     if (!_teamTimelineDias.length) {
       label.textContent = "—";
       if (btnAnt) btnAnt.disabled = true;
@@ -1041,11 +1080,19 @@
     const chart = criarOuObterChart("chartGlobalTimeline", 200);
     if (!chart || !_teamTimelineUsuarios) return;
 
-    const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
-    if (!diaSelecionado) { chart.clear(); return; }
+    let diaInicioMs, diaFimMs;
 
-    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      diaInicioMs = new Date(ini + "T00:00:00").getTime();
+      diaFimMs = new Date(fim + "T23:59:59.999").getTime();
+    } else {
+      const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
+      if (!diaSelecionado) { chart.clear(); return; }
+      diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+      diaFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
+    }
 
     const userNomes = [];
     const dados = [];
@@ -1241,6 +1288,7 @@
     if (elTL) elTL.textContent = individual ? "Timelines de atividade" : tituloTL;
 
     _teamTimelineUsuarios = usuarios;
+    _modoTotalPeriodo = _filtroTemMultiplosDias();
     const diasSet = new Set();
     usuarios.forEach(u => {
       (u.periodos_foco || []).forEach(p => {
@@ -1464,11 +1512,17 @@
     const fim = document.getElementById("filtroGraficosDataFim");
     const ini = document.getElementById("filtroGraficosDataInicio");
     if (fim) fim.value = obterDataHojeIso();
-    if (ini) ini.value = subtrairDiasIso(obterDataHojeIso(), 6);
+    if (ini) ini.value = obterDataHojeIso();
     const det = document.getElementById("filtroGraficosUsuarioDetalhe");
     if (det) det.value = "";
     foiAplicadoManualmente = false;
     FILTROS_APPS_ATIVOS = [];
+  }
+
+  function _filtroTemMultiplosDias() {
+    const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
+    const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
+    return ini && fim && ini !== fim;
   }
 
   function configurarGatilhos() {

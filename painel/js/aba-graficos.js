@@ -364,15 +364,26 @@
   }
 
   function obterFiltros() {
-    garantirDatasPadrao();
-    const hoje = obterDataHojeIso();
     const userId = (document.getElementById("filtroGraficosUsuarioDetalhe") || {}).value || "";
+
+    if (foiAplicadoManualmente) {
+      // Usa exatamente o que está nos inputs
+      garantirDatasPadrao();
+      return {
+        data_inicio: (document.getElementById("filtroGraficosDataInicio") || {}).value || "",
+        data_fim:    (document.getElementById("filtroGraficosDataFim")    || {}).value || "",
+        usuarios: userId ? [userId] : [],
+        apps: [],
+        usuario_detalhe: userId,
+      };
+    }
+
+    // Sem filtro manual: não envia datas — backend usa últimos 7 dias
     return {
-      // v5.0: sempre usa os inputs (que defaultam a 7 dias) — nunca força "só hoje"
-      data_inicio: (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje,
-      data_fim:    (document.getElementById("filtroGraficosDataFim")    || {}).value || hoje,
-      usuarios: userId ? [userId] : [], // seletor de membro é o filtro principal
-      apps: [], // filtro de apps é client-side, nunca mandado para a API
+      data_inicio: "",
+      data_fim: "",
+      usuarios: userId ? [userId] : [],
+      apps: [],
       usuario_detalhe: userId,
     };
   }
@@ -1511,8 +1522,8 @@
   function limparFiltros() {
     const fim = document.getElementById("filtroGraficosDataFim");
     const ini = document.getElementById("filtroGraficosDataInicio");
-    if (fim) fim.value = obterDataHojeIso();
-    if (ini) ini.value = obterDataHojeIso();
+    if (fim) fim.value = "";
+    if (ini) ini.value = "";
     const det = document.getElementById("filtroGraficosUsuarioDetalhe");
     if (det) det.value = "";
     foiAplicadoManualmente = false;
@@ -1520,6 +1531,7 @@
   }
 
   function _filtroTemMultiplosDias() {
+    if (!foiAplicadoManualmente) return false;
     const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
     const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
     return ini && fim && ini !== fim;

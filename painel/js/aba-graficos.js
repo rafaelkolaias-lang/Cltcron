@@ -579,7 +579,42 @@
     const chart = criarOuObterChart("chartBarrasApps", 260);
     if (!chart) return;
 
-    const apps = (usuario.apps_resumo || []).slice(0, 10);
+    // Calcular a partir de periodos_abertos clipados no dia/período
+    let bIniMs, bFimMs;
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      bIniMs = new Date(ini + "T00:00:00").getTime();
+      bFimMs = new Date(fim + "T23:59:59.999").getTime();
+    } else {
+      const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
+      bIniMs = new Date(dia + "T00:00:00").getTime();
+      bFimMs = new Date(dia + "T23:59:59.999").getTime();
+    }
+
+    const mapaFoco = {};
+    const mapaBg = {};
+    (usuario.periodos_abertos || []).forEach(p => {
+      if (!p.inicio_em) return;
+      const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+      const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+      if (ini > bFimMs || fim < bIniMs) return;
+      const nome = p.nome_app || "—";
+      const clipIni = Math.max(ini, bIniMs);
+      const clipFim = Math.min(fim, bFimMs);
+      const segs = Math.max(0, Math.round((clipFim - clipIni) / 1000));
+      const segFoco = Math.min(p.segundos_em_foco || 0, segs);
+      const segBg = Math.max(0, segs - segFoco);
+      mapaFoco[nome] = (mapaFoco[nome] || 0) + segFoco;
+      mapaBg[nome] = (mapaBg[nome] || 0) + segBg;
+    });
+
+    const apps = Object.keys(mapaFoco).map(nome => ({
+      nome_app: nome,
+      segundos_em_foco: mapaFoco[nome] || 0,
+      segundos_segundo_plano: mapaBg[nome] || 0,
+    })).sort((a, b) => (b.segundos_em_foco + b.segundos_segundo_plano) - (a.segundos_em_foco + a.segundos_segundo_plano)).slice(0, 10);
+
     if (!apps.length) { chart.clear(); return; }
 
     const nomes = apps.map(a => a.nome_app || "—").reverse();
@@ -1716,6 +1751,7 @@
           if (_teamTimelineUsuarios) {
             renderizarGlobalApps(_teamTimelineUsuarios);
             renderizarComparativoUsuarios(_teamTimelineUsuarios);
+            if (_teamTimelineUsuarios.length === 1) renderizarBarrasApps(_teamTimelineUsuarios[0]);
           }
           if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }
@@ -1728,6 +1764,7 @@
           if (_teamTimelineUsuarios) {
             renderizarGlobalApps(_teamTimelineUsuarios);
             renderizarComparativoUsuarios(_teamTimelineUsuarios);
+            if (_teamTimelineUsuarios.length === 1) renderizarBarrasApps(_teamTimelineUsuarios[0]);
           }
           if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
         }

@@ -380,10 +380,11 @@
       };
     }
 
-    // Sem filtro manual: não envia datas — backend usa últimos 7 dias
+    // Sem filtro manual: mostra dia de hoje (meia-noite até agora)
+    const hoje = obterDataHojeIso();
     return {
-      data_inicio: "",
-      data_fim: "",
+      data_inicio: hoje,
+      data_fim: hoje,
       usuarios: userId ? [userId] : [],
       apps: [],
       usuario_detalhe: userId,

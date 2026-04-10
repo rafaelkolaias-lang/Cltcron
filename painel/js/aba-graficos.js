@@ -1755,7 +1755,14 @@
 
   function limparFiltros() {
     foiAplicadoManualmente = false;
+    _modoTotalPeriodo = false;
+    _teamTimelineIdxDia = 0;
     FILTROS_APPS_ATIVOS = [];
+    const ini = document.getElementById("filtroGraficosDataInicio");
+    const fim = document.getElementById("filtroGraficosDataFim");
+    if (ini) ini.value = "";
+    if (fim) fim.value = "";
+    _atualizarLabelTeamTimeline();
   }
 
   function _filtroTemMultiplosDias() {

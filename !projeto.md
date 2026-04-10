@@ -253,6 +253,11 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.7 — Fix "Limpar data" com membro selecionado `[Web]` (2026-04-10)
+- **Fix limpar filtro com membro:** ao clicar "Limpar data", `limparFiltros()` agora reseta imediatamente `_modoTotalPeriodo`, `_teamTimelineIdxDia` e limpa os inputs de data, atualizando o label do timeline antes mesmo do backend responder. Antes, durante o delay da rede, o gráfico mantinha a data antiga do filtro anterior.
+
+---
+
 ### v7.6 — Tempo Declarado 30 dias fixos + coluna Pago `[Web]` (2026-04-09)
 - **Tempo Declarado sempre 30 dias:** seção não segue filtro de data — mostra sempre os últimos 30 dias independente do período selecionado nos gráficos.
 - **"Valor estimado" → "Pagamento Pendente":** card renomeado com cor amarela para indicar valor pendente.

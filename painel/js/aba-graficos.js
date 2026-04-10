@@ -738,6 +738,28 @@
     });
   }
 
+  // Calcula segundos não-sobrepostos de periodos_foco dentro de uma janela.
+  // Foco é exclusivo (1 janela por vez) — períodos fantasma de apps diferentes
+  // se sobrepõem quando clipados ao mesmo dia; mesclar evita contagem dupla.
+  function _segundosFocoMesclados(periodos, cIniMs, cFimMs) {
+    const clips = [];
+    _limparPeriodosFantasma(periodos).forEach(p => {
+      if (!p.inicio_em) return;
+      const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+      const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+      if (ini <= cFimMs && fim >= cIniMs) {
+        clips.push([Math.max(ini, cIniMs), Math.min(fim, cFimMs)]);
+      }
+    });
+    clips.sort((a, b) => a[0] - b[0]);
+    let total = 0, curEnd = 0;
+    clips.forEach(([s, e]) => {
+      if (s >= curEnd) { total += e - s; curEnd = e; }
+      else if (e > curEnd) { total += e - curEnd; curEnd = e; }
+    });
+    return Math.max(0, Math.round(total / 1000));
+  }
+
   function _cliparSobreposicoes(dados) {
     const porLane = {};
     dados.forEach(d => {
@@ -1094,18 +1116,7 @@
     }
 
     const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
-    const trabalhando = usuarios.map(u => {
-      let total = 0;
-      _limparPeriodosFantasma(u.periodos_foco || []).forEach(p => {
-        if (!p.inicio_em) return;
-        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-        if (ini <= cFimMs && fim >= cIniMs) {
-          total += Math.max(0, Math.round((Math.min(fim, cFimMs) - Math.max(ini, cIniMs)) / 1000));
-        }
-      });
-      return total;
-    }).reverse();
+    const trabalhando = usuarios.map(u => _segundosFocoMesclados(u.periodos_foco || [], cIniMs, cFimMs)).reverse();
     const ocioso = usuarios.map(u => u.segundos_ocioso_total || 0).reverse();
     const pausado = usuarios.map(u => u.segundos_pausado_total || 0).reverse();
 

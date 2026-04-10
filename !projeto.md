@@ -253,8 +253,9 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
-### v7.7 — Fix "Limpar data" com membro selecionado `[Web]` (2026-04-10)
-- **Fix limpar filtro com membro:** ao clicar "Limpar data", `limparFiltros()` agora reseta imediatamente `_modoTotalPeriodo`, `_teamTimelineIdxDia` e limpa os inputs de data, atualizando o label do timeline antes mesmo do backend responder. Antes, durante o delay da rede, o gráfico mantinha a data antiga do filtro anterior.
+### v7.7 — Fix gráficos: períodos fantasma inflavam horas + limpar filtro `[Web]` (2026-04-10)
+- **Fix 48h em um dia (períodos fantasma sobrepostos):** `periodos_foco` de apps diferentes com `fim_em = NOW()` se sobrepunham ao serem clipados no dia — somava 3×16h = 48h. Nova função `_segundosFocoMesclados()` mescla intervalos sobrepostos antes de somar (foco é exclusivo: só 1 janela por vez).
+- **Fix limpar filtro com membro:** ao clicar "Limpar data", `limparFiltros()` agora reseta imediatamente `_modoTotalPeriodo`, `_teamTimelineIdxDia` e limpa os inputs de data, atualizando o label do timeline antes mesmo do backend responder.
 
 ---
 

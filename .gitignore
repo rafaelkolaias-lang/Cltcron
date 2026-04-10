@@ -29,8 +29,11 @@ painel/commands/_comum/.tentativas.json
 # Ambiente virtual
 venv/
 .env
+node_modules/
+npm-debug.log*
 
 # Agentes internos e documentação de execução
 agents/
 \!executar.md
 \!projeto.md
+CLAUDE.md

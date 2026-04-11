@@ -7,7 +7,11 @@ verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 
 try {
-    $user_id = trim((string)($_GET['user_id'] ?? ''));
+    // Aceita user_id via GET, POST ou JSON body
+    $corpo = (string)file_get_contents('php://input');
+    $json  = $corpo !== '' ? (json_decode($corpo, true) ?: []) : [];
+    $entrada = array_merge($_GET ?? [], $_POST ?? [], $json);
+    $user_id = trim((string)($entrada['user_id'] ?? ''));
 
     if ($user_id === '') {
         responder_json(false, 'user_id é obrigatório.', ['campo' => 'user_id'], 400);

@@ -1671,7 +1671,10 @@
     if (!area) return;
     const periodo = dados.periodo ?? {};
     setTexto("declTotalHoras", dados.total_geral_horas ?? "—");
-    setTexto("declTotalValor", formatarRs(dados.total_geral_valor ?? 0));
+    // Pendente = soma apenas das linhas NÃO pagas
+    const linhasAll = dados.linhas ?? [];
+    const valorPendente = linhasAll.filter(ln => !ln.pago).reduce((acc, ln) => acc + (ln.valor_estimado || 0), 0);
+    setTexto("declTotalValor", formatarRs(valorPendente));
     setTexto("declTotalPago", formatarRs(totalPago ?? 0));
     setTexto("declTotalEditores", String((dados.totais_por_usuario ?? []).length));
     const elP = document.getElementById("declPeriodo");

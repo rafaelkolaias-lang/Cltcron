@@ -253,6 +253,12 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v7.8 — Fix resumo de pagamento no dashboard `[Web]` (2026-04-11)
+- **Card "Pagamento Pendente" corrigido:** agora calcula apenas a soma das linhas com `pago === false`, em vez de usar `total_geral_valor` (que incluía linhas já pagas).
+- **`listar_por_usuario.php` mais robusto:** aceita `user_id` via GET, POST ou JSON body (antes lia apenas `$_GET`).
+
+---
+
 ### v7.7 — Fix gráficos: períodos fantasma inflavam horas + limpar filtro `[Web]` (2026-04-10)
 - **Fix 48h em um dia (períodos fantasma sobrepostos):** `periodos_foco` de apps diferentes com `fim_em = NOW()` se sobrepunham ao serem clipados no dia — somava 3×16h = 48h. Nova função `_segundosFocoMesclados()` mescla intervalos sobrepostos antes de somar (foco é exclusivo: só 1 janela por vez).
 - **Fix limpar filtro com membro:** ao clicar "Limpar data", `limparFiltros()` agora reseta imediatamente `_modoTotalPeriodo`, `_teamTimelineIdxDia` e limpa os inputs de data, atualizando o label do timeline antes mesmo do backend responder.
@@ -590,4 +596,4 @@ O painel administrativo foi estilizado conforme a marca **RK Produções**, util
 
 ---
 
-*Última atualização: 2026-04-07 — v6.5*
+*Última atualização: 2026-04-11 — v7.8*

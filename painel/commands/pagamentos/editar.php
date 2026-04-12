@@ -31,10 +31,23 @@ function normalizar_data_iso_ou_nulo($valor): ?string
 
 function normalizar_decimal($valor): float
 {
+    // Se já chegou como número (float/int via JSON), usa direto
+    if (is_int($valor) || is_float($valor)) {
+        return (float)$valor;
+    }
+
     $texto = trim((string)($valor ?? ''));
     if ($texto === '') return 0.0;
-    $texto = str_replace('.', '', $texto);
-    $texto = str_replace(',', '.', $texto);
+
+    // Formato BRL com vírgula decimal (ex: "559,02" ou "R$ 1.559,02")
+    if (str_contains($texto, ',')) {
+        $texto = str_replace('.', '', $texto);  // remove separador de milhar
+        $texto = str_replace(',', '.', $texto); // vírgula → ponto decimal
+    } else {
+        // Já está no formato decimal (ex: "559.02") — remove só caracteres não numéricos exceto ponto
+        $texto = preg_replace('/[^\d.]/', '', $texto);
+    }
+
     return (float)$texto;
 }
 

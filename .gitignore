@@ -40,3 +40,7 @@ agents/
 \!executar.md
 \!projeto.md
 CLAUDE.md
+AGENTS.md
+
+# Schema SQL (contém estrutura sensível do banco)
+dados.sql

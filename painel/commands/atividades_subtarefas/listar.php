@@ -15,6 +15,19 @@ try {
     $user_id     = trim((string)($_GET['user_id']     ?? ''));
     $id_atividade = (int)($_GET['id_atividade'] ?? 0);
     $canal       = trim((string)($_GET['canal']       ?? ''));
+    $resumo_periodo = trim((string)($_GET['resumo_periodo'] ?? 'tudo')); // 'tudo' | '30dias'
+
+    // Filtro temporal para os agregados do resumo (não afeta a listagem de subtarefas)
+    $filtroResumo = '';
+    $paramResumo = [];
+    if ($resumo_periodo === '30dias') {
+        $filtroResumo = ' AND criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
+        $filtroResumoRef = ' AND referencia_data >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
+        $filtroResumoData = ' AND data_pagamento >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
+    } else {
+        $filtroResumoRef = '';
+        $filtroResumoData = '';
+    }
 
     $condicoes = [];
     $params    = [];
@@ -94,7 +107,7 @@ try {
             SELECT COALESCE(SUM(segundos_trabalhando), 0) AS trab,
                    COALESCE(SUM(segundos_ocioso), 0) AS ocio
             FROM cronometro_relatorios
-            WHERE user_id = :uid
+            WHERE user_id = :uid {$filtroResumoRef}
         ");
         $stC->execute([':uid' => $uid]);
         $cron = $stC->fetch(PDO::FETCH_ASSOC);
@@ -105,7 +118,7 @@ try {
         $stD = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid
+            WHERE user_id = :uid {$filtroResumoRef}
         ");
         $stD->execute([':uid' => $uid]);
         $mapaDecl[$uid] = (int)$stD->fetchColumn();
@@ -124,7 +137,7 @@ try {
             SELECT COALESCE(SUM(p.valor), 0)
             FROM Pagamentos p
             JOIN usuarios u ON u.id_usuario = p.id_usuario
-            WHERE u.user_id = :uid
+            WHERE u.user_id = :uid {$filtroResumoData}
         ");
         $stP->execute([':uid' => $uid]);
         $mapaPago[$uid] = (float)$stP->fetchColumn();

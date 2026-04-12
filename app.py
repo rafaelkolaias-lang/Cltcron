@@ -2484,6 +2484,13 @@ class App(tk.Tk):
                     if backup_exe.exists() and not caminho_atual.exists():
                         os.rename(str(backup_exe), str(caminho_atual))
                     return
+                # Zerar sessão antes de reiniciar (envia tudo ao servidor como se o
+                # usuário tivesse clicado em "Zerar Cronômetro")
+                try:
+                    if getattr(self, "_monitor", None) is not None and getattr(self._monitor, "_id_sessao", None):
+                        self._monitor.zerar_sessao()
+                except Exception as e:
+                    print(f"[auto-update] Falha ao zerar sessão antes do reinício: {e}")
                 subprocess.Popen([str(caminho_atual)])
                 self.after(0, lambda: os._exit(0))
             except Exception:

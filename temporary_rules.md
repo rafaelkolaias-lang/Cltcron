@@ -7,6 +7,4 @@ Diferente do `RULES.md` (regras globais e permanentes), as regras aqui podem ser
 
 ## Regras ativas
 
-1. **Nunca subir o arquivo `conexao.php` ao comitar e versionar no GitHub.**
-   - O arquivo `painel/commands/conexao/conexao.php` contém credenciais de banco de dados.
-   - Deve ser mantido no `.gitignore` e nunca incluído em commits.
+SEM REGRAS TEMPORARIAS NO MOMENTO

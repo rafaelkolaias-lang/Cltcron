@@ -314,7 +314,13 @@ header('Content-Type: text/html; charset=utf-8');
 
                 <!-- Resumo para pagamento -->
                 <article class="cartao-grafite p-3 mt-3" id="blocoResumoHorasPagamento">
-                  <h6 class="mb-2">Resumo para pagamento</h6>
+                  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                    <h6 class="mb-0">Resumo para pagamento</h6>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Filtro de período">
+                      <button type="button" class="btn btn-light botao-mini active" data-resumo-periodo="tudo">TUDO</button>
+                      <button type="button" class="btn btn-outline-light botao-mini" data-resumo-periodo="30dias">ÚLTIMOS 30 DIAS</button>
+                    </div>
+                  </div>
                   <div class="row g-2">
                     <div class="col-6">
                       <div class="card-metrica">
@@ -336,12 +342,18 @@ header('Content-Type: text/html; charset=utf-8');
                     </div>
                     <div class="col-6">
                       <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Tempo Ocioso</div>
+                        <div class="card-metrica__valor" style="color:#fbbf24" id="gestaoResumoOcioso">—</div>
+                      </div>
+                    </div>
+                    <div class="col-6">
+                      <div class="card-metrica">
                         <div class="card-metrica__rotulo">A pagar</div>
                         <div class="card-metrica__valor text-info" id="gestaoResumoAPagar">—</div>
                       </div>
                     </div>
                   </div>
-                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. A pagar = (declarado × R$/h) − pagamentos.</div>
+                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos.</div>
                 </article>
               </div>
 

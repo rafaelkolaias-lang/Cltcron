@@ -478,14 +478,22 @@
     return `${h}h ${String(m).padStart(2, "0")}m`;
   }
 
+  let _resumoPeriodoAtivo = "tudo"; // 'tudo' | '30dias'
+  let _resumoUidAtual = null;
+  let _resumoValorHoraAtual = 0;
+
   async function carregarResumoHorasPagamento(uid, valorHora) {
+    _resumoUidAtual = uid;
+    _resumoValorHoraAtual = valorHora;
+
     const elTrab = document.getElementById("gestaoResumoTrabalhado");
     const elDecl = document.getElementById("gestaoResumoDeclarado");
     const elNaoDecl = document.getElementById("gestaoResumoNaoDeclarado");
+    const elOcioso = document.getElementById("gestaoResumoOcioso");
     const elAPagar = document.getElementById("gestaoResumoAPagar");
 
     try {
-      const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
+      const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}&resumo_periodo=${encodeURIComponent(_resumoPeriodoAtivo)}`);
       const subs = rSub.dados || [];
       const first = subs.length > 0 ? subs[0] : {};
 
@@ -493,17 +501,20 @@
       const declarado    = Number(first.segundos_declarados_total_geral || 0);
       const naoDeclarado = Number(first.segundos_nao_declarado_total || 0);
       const trabalhado   = declarado + naoDeclarado;
+      const ocioso       = Number(first.segundos_ocioso_total || 0);
       const totalPago    = Number(first.total_pago || 0);
       const aPagar       = Math.max(0, (declarado * (valorHora / 3600)) - totalPago);
 
       if (elTrab) elTrab.textContent = formatarHm(trabalhado);
       if (elDecl) elDecl.textContent = formatarHm(declarado);
       if (elNaoDecl) elNaoDecl.textContent = formatarHm(naoDeclarado);
+      if (elOcioso) elOcioso.textContent = formatarHm(ocioso);
       if (elAPagar) elAPagar.textContent = formatarDinheiroBr(aPagar);
     } catch (_) {
       if (elTrab) elTrab.textContent = "—";
       if (elDecl) elDecl.textContent = "—";
       if (elNaoDecl) elNaoDecl.textContent = "—";
+      if (elOcioso) elOcioso.textContent = "—";
       if (elAPagar) elAPagar.textContent = "—";
     }
   }
@@ -925,6 +936,26 @@
         }
       });
     }
+
+    // Filtros de período do "Resumo para pagamento"
+    document.querySelectorAll("[data-resumo-periodo]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const periodo = btn.getAttribute("data-resumo-periodo");
+        if (periodo === _resumoPeriodoAtivo) return;
+        _resumoPeriodoAtivo = periodo;
+        // Atualiza estado visual dos botões
+        document.querySelectorAll("[data-resumo-periodo]").forEach(b => {
+          const ativo = b.getAttribute("data-resumo-periodo") === periodo;
+          b.classList.toggle("btn-light", ativo);
+          b.classList.toggle("active", ativo);
+          b.classList.toggle("btn-outline-light", !ativo);
+        });
+        // Recarrega o resumo com o novo filtro
+        if (_resumoUidAtual) {
+          carregarResumoHorasPagamento(_resumoUidAtual, _resumoValorHoraAtual);
+        }
+      });
+    });
   }
 
   // API do módulo

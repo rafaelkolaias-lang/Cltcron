@@ -576,7 +576,7 @@
     const elTotal = document.getElementById("textoGestaoTotalTarefas");
 
     try {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>`;
 
       const json = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
       const lista = Array.isArray(json.dados) ? json.dados : [];
@@ -587,7 +587,7 @@
       if (!tbody) return;
 
       if (!lista.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
         return;
       }
 
@@ -597,6 +597,10 @@
         const btnEditar = bloqueada
           ? `<button class="btn btn-sm btn-outline-secondary" disabled title="Bloqueada por pagamento">Editar</button>`
           : `<button class="btn btn-sm btn-outline-light botao-mini" onclick="window.__editarTarefaGestao(${t.id_subtarefa})">Editar</button>`;
+        const obs = String(t.observacao || "").trim();
+        const obsHtml = obs
+          ? `<span title="${escapeHtmlSeguro(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${escapeHtmlSeguro(obs)}</span>`
+          : '<span class="texto-fraco">—</span>';
         return `<tr>
           <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
           <td>${escapeHtmlSeguro(String(t.atividade_titulo || "—"))}</td>
@@ -606,6 +610,7 @@
             ? '<span class="badge text-bg-success">Concluída</span>'
             : '<span class="badge text-bg-secondary">Aberta</span>'}</td>
           <td>${escapeHtmlSeguro(String(t.canal_entrega || "—"))}</td>
+          <td>${obsHtml}</td>
           <td class="text-end">${btnEditar}</td>
         </tr>`;
       }).join("");

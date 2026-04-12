@@ -312,8 +312,13 @@ header('Content-Type: text/html; charset=utf-8');
 
                 </article>
 
+              </div>
+
+              <!-- Coluna direita: resumo + pagamentos -->
+              <div class="col-12 col-lg-8">
+
                 <!-- Resumo para pagamento -->
-                <article class="cartao-grafite p-3 mt-3" id="blocoResumoHorasPagamento">
+                <article class="cartao-grafite p-3 mb-3" id="blocoResumoHorasPagamento">
                   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                     <h6 class="mb-0">Resumo para pagamento</h6>
                     <div class="btn-group btn-group-sm" role="group" aria-label="Filtro de período">
@@ -322,31 +327,31 @@ header('Content-Type: text/html; charset=utf-8');
                     </div>
                   </div>
                   <div class="row g-2">
-                    <div class="col-6">
+                    <div class="col-6 col-md-4 col-xl">
                       <div class="card-metrica">
                         <div class="card-metrica__rotulo">Trabalhado</div>
                         <div class="card-metrica__valor text-success" id="gestaoResumoTrabalhado">—</div>
                       </div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-6 col-md-4 col-xl">
                       <div class="card-metrica">
                         <div class="card-metrica__rotulo">Declarado</div>
                         <div class="card-metrica__valor text-warning" id="gestaoResumoDeclarado">—</div>
                       </div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-6 col-md-4 col-xl">
                       <div class="card-metrica">
                         <div class="card-metrica__rotulo">Não declarado</div>
                         <div class="card-metrica__valor" style="color:#60a5fa" id="gestaoResumoNaoDeclarado">—</div>
                       </div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-6 col-md-4 col-xl">
                       <div class="card-metrica">
                         <div class="card-metrica__rotulo">Tempo Ocioso</div>
                         <div class="card-metrica__valor" style="color:#fbbf24" id="gestaoResumoOcioso">—</div>
                       </div>
                     </div>
-                    <div class="col-6">
+                    <div class="col-6 col-md-4 col-xl">
                       <div class="card-metrica">
                         <div class="card-metrica__rotulo">A pagar</div>
                         <div class="card-metrica__valor text-info" id="gestaoResumoAPagar">—</div>
@@ -355,60 +360,66 @@ header('Content-Type: text/html; charset=utf-8');
                   </div>
                   <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos.</div>
                 </article>
-              </div>
-
-              <!-- Coluna direita: pagamentos + tarefas -->
-              <div class="col-12 col-lg-8">
 
                 <!-- Registrar pagamento -->
-                <article class="cartao-grafite p-3 mb-3">
-                  <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0">Registrar pagamento</h6>
-                    <span class="badge badge-suave">BANCO</span>
+                <div class="row g-3">
+                  <!-- Registrar pagamento -->
+                  <div class="col-12 col-xl-6">
+                    <article class="cartao-grafite p-3 h-100">
+                      <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Registrar pagamento</h6>
+                        <span class="badge badge-suave">BANCO</span>
+                      </div>
+                      <div class="row g-2 mt-2">
+                        <div class="col-6">
+                          <label class="form-label texto-fraco">Data do pagamento</label>
+                          <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoData">
+                        </div>
+                        <div class="col-6">
+                          <label class="form-label texto-fraco">Valor (R$)</label>
+                          <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoValor" placeholder="ex: 350,00">
+                        </div>
+                        <div class="col-12 col-md-8">
+                          <label class="form-label texto-fraco">Observação (opcional)</label>
+                          <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoObs" placeholder="ex: pix / março 2026 / 62h">
+                        </div>
+                        <div class="col-12 col-md-4 d-flex align-items-end">
+                          <button type="button" class="btn btn-light w-100" id="botaoRegistrarPagamento">Salvar pagamento</button>
+                        </div>
+                      </div>
+                    </article>
                   </div>
-                  <div class="row g-2 mt-2">
-                    <div class="col-12 col-md-4">
-                      <label class="form-label texto-fraco">Data do pagamento</label>
-                      <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoData">
-                    </div>
-                    <div class="col-12 col-md-4">
-                      <label class="form-label texto-fraco">Valor (R$)</label>
-                      <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoValor" placeholder="ex: 350,00">
-                    </div>
-                    <div class="col-12 col-md-4">
-                      <label class="form-label texto-fraco">Observação (opcional)</label>
-                      <input class="form-control bg-transparent text-white border-secondary" id="entradaPagamentoObs" placeholder="ex: pix / março 2026 / 62h">
-                    </div>
-                    <div class="col-12 d-grid">
-                      <button type="button" class="btn btn-light" id="botaoRegistrarPagamento">Salvar pagamento</button>
-                    </div>
-                  </div>
-                </article>
 
-                <!-- Histórico de pagamentos -->
-                <article class="cartao-grafite p-3 mb-3">
-                  <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0">Pagamentos (histórico)</h6>
-                    <div class="texto-fraco small">Total: <span class="fw-semibold" id="textoGestaoTotalPago">—</span></div>
+                  <!-- Histórico de pagamentos -->
+                  <div class="col-12 col-xl-6">
+                    <article class="cartao-grafite p-3 h-100">
+                      <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Pagamentos (histórico)</h6>
+                        <div class="texto-fraco small">Total: <span class="fw-semibold" id="textoGestaoTotalPago">—</span></div>
+                      </div>
+                      <div class="table-responsive mt-2" style="max-height:300px; overflow-y:auto;">
+                        <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
+                          <thead class="sticky-top" style="background:var(--cor-fundo);">
+                            <tr class="texto-fraco small">
+                              <th style="min-width:110px;">Data pagto</th>
+                              <th class="text-end" style="min-width:110px;">Valor</th>
+                              <th style="min-width:140px;">Obs</th>
+                              <th class="text-end" style="min-width:90px;">Ações</th>
+                            </tr>
+                          </thead>
+                          <tbody id="tbodyGestaoPagamentos">
+                            <tr><td colspan="4" class="texto-fraco">Carregando…</td></tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
                   </div>
-                  <div class="table-responsive mt-2">
-                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
-                      <thead>
-                        <tr class="texto-fraco small">
-                          <th style="min-width:120px;">Data pagto</th>
-                          <th class="text-end" style="min-width:140px;">Valor</th>
-                          <th style="min-width:200px;">Obs</th>
-                          <th class="text-end" style="min-width:100px;">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody id="tbodyGestaoPagamentos">
-                        <tr><td colspan="4" class="texto-fraco">Carregando…</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
+                </div>
 
-                <!-- Tarefas declaradas -->
+              </div>
+
+              <!-- Tarefas declaradas (full-width abaixo) -->
+              <div class="col-12 mt-3">
                 <article class="cartao-grafite p-3">
                   <div class="d-flex justify-content-between align-items-center">
                     <h6 class="mb-0">Tarefas declaradas</h6>
@@ -424,16 +435,16 @@ header('Content-Type: text/html; charset=utf-8');
                           <th style="min-width:80px;">Tempo</th>
                           <th class="text-center" style="min-width:80px;">Status</th>
                           <th style="min-width:100px;">Canal</th>
+                          <th style="min-width:200px;">Observação</th>
                           <th class="text-end" style="min-width:80px;">Ações</th>
                         </tr>
                       </thead>
                       <tbody id="tbodyGestaoTarefas">
-                        <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
+                        <tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>
                       </tbody>
                     </table>
                   </div>
                 </article>
-
               </div>
             </div>
           </div>
@@ -544,12 +555,13 @@ header('Content-Type: text/html; charset=utf-8');
                       <th style="min-width:200px;">Tarefa</th>
                       <th style="min-width:80px;">Tempo</th>
                       <th style="min-width:120px;">Canal</th>
+                      <th style="min-width:200px;">Observação</th>
                       <th class="text-center" style="min-width:100px;">Status</th>
                       <th class="text-end" style="min-width:80px;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="tbodyGerenciarTarefas">
-                    <tr><td colspan="8" class="texto-fraco text-center py-3">Selecione os filtros e clique em Buscar.</td></tr>
+                    <tr><td colspan="9" class="texto-fraco text-center py-3">Selecione os filtros e clique em Buscar.</td></tr>
                   </tbody>
                 </table>
               </div>

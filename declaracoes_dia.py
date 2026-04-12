@@ -1032,7 +1032,7 @@ class RepositorioDeclaracoesDia:
         referencia = self._normalizar_data(subtarefa.get("referencia_data"))
         segundos = int(subtarefa.get("segundos_gastos") or 0)
 
-        if (not concluida) or referencia is None or segundos <= 0:
+        if (not concluida) or referencia is None:
             self._banco.executar(
                 "DELETE FROM declaracoes_dia_itens WHERE id_subtarefa = %s",
                 [int(id_subtarefa)],

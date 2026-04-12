@@ -82,40 +82,67 @@ try {
     // Agregar horas trabalhadas e declaradas ACUMULADAS por membro (todas as datas)
     $userIds = array_unique(array_column($linhas, 'user_id'));
 
-    $mapaTrab = [];
-    $mapaDecl = [];
-    foreach ($userIds as $uid) {
-        // Total trabalhando (todas as datas) — exclui horas já pagas
-        try {
-            $stT = $pdo->prepare("
-                SELECT COALESCE(SUM(segundos), 0)
-                FROM registros_tempo
-                WHERE user_id = :uid AND situacao = 'trabalhando' AND id_pagamento IS NULL
-            ");
-            $stT->execute([':uid' => $uid]);
-        } catch (Throwable $_) {
-            $stT = $pdo->prepare("
-                SELECT COALESCE(SUM(segundos), 0)
-                FROM registros_tempo
-                WHERE user_id = :uid AND situacao = 'trabalhando'
-            ");
-            $stT->execute([':uid' => $uid]);
-        }
-        $mapaTrab[$uid] = (int)$stT->fetchColumn();
+    $mapaCron = [];   // horas cronometradas (cronometro_relatorios)
+    $mapaOcio = [];   // horas ociosas (cronometro_relatorios)
+    $mapaDecl = [];   // total declarado (todas as subtarefas)
+    $mapaDeclNaoPago = []; // declarado não pago (para modal de edição)
+    $mapaPago = [];   // total de pagamentos
 
-        // Total declarado (apenas subtarefas NÃO pagas)
+    foreach ($userIds as $uid) {
+        // Horas cronometradas e ociosas (cronometro_relatorios — fonte real do cronômetro)
+        $stC = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos_trabalhando), 0) AS trab,
+                   COALESCE(SUM(segundos_ocioso), 0) AS ocio
+            FROM cronometro_relatorios
+            WHERE user_id = :uid
+        ");
+        $stC->execute([':uid' => $uid]);
+        $cron = $stC->fetch(PDO::FETCH_ASSOC);
+        $mapaCron[$uid] = (int)($cron['trab'] ?? 0);
+        $mapaOcio[$uid] = (int)($cron['ocio'] ?? 0);
+
+        // Total declarado (TODAS as subtarefas)
         $stD = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos_gastos), 0)
+            FROM atividades_subtarefas
+            WHERE user_id = :uid
+        ");
+        $stD->execute([':uid' => $uid]);
+        $mapaDecl[$uid] = (int)$stD->fetchColumn();
+
+        // Total declarado (apenas NÃO pagas — para compatibilidade com modal de edição)
+        $stDnp = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
             WHERE user_id = :uid AND bloqueada_pagamento = 0
         ");
-        $stD->execute([':uid' => $uid]);
-        $mapaDecl[$uid] = (int)$stD->fetchColumn();
+        $stDnp->execute([':uid' => $uid]);
+        $mapaDeclNaoPago[$uid] = (int)$stDnp->fetchColumn();
+
+        // Total pago (soma dos pagamentos)
+        $stP = $pdo->prepare("
+            SELECT COALESCE(SUM(p.valor), 0)
+            FROM Pagamentos p
+            JOIN usuarios u ON u.id_usuario = p.id_usuario
+            WHERE u.user_id = :uid
+        ");
+        $stP->execute([':uid' => $uid]);
+        $mapaPago[$uid] = (float)$stP->fetchColumn();
     }
 
     foreach ($linhas as &$l) {
-        $l['segundos_trabalhados_total'] = $mapaTrab[$l['user_id']] ?? 0;
-        $l['segundos_declarados_total']  = $mapaDecl[$l['user_id']] ?? 0;
+        $uid = $l['user_id'];
+        $decl = $mapaDecl[$uid] ?? 0;
+        $cron = $mapaCron[$uid] ?? 0;
+        $naoDecl = max(0, $cron - $decl);
+
+        $l['segundos_cronometrados_total'] = $cron;
+        $l['segundos_ocioso_total']        = $mapaOcio[$uid] ?? 0;
+        $l['segundos_declarados_total']    = $mapaDeclNaoPago[$uid] ?? 0;
+        $l['segundos_declarados_total_geral'] = $decl;
+        $l['segundos_nao_declarado_total'] = $naoDecl;
+        $l['segundos_trabalhados_total']   = $decl + $naoDecl;
+        $l['total_pago']                   = $mapaPago[$uid] ?? 0.0;
     }
 
     responder_json(true, 'OK', $linhas, 200);

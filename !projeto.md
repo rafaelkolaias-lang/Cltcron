@@ -78,7 +78,9 @@ O projeto é dividido em uma arquitetura Cliente-Servidor:
 - **Gerenciar Tarefas:** Painel para visualizar e editar todas as declarações (`atividades_subtarefas`) de todos os membros; filtros por data, usuário, atividade e canal; painel de horas (Trabalhado/Declarado/Disponível acumulado); validação impede declarar mais que o trabalhado; integração com trava de pagamento.
 - **Pagamentos com Trava:** Registra pagamento e bloqueia automaticamente todas as subtarefas do período — impede edição/exclusão retroativa. Histórico de bloqueio registrado em auditoria. Trava por hora: no dia do pagamento, subtarefas criadas após o horário ficam livres.
 - **Editar/Excluir Pagamentos:** Botões de edição e exclusão por linha no histórico de pagamentos. Exclusão destrava automaticamente subtarefas vinculadas.
-- **Limpeza de horas no pagamento:** Ao registrar pagamento, remove `registros_tempo` anteriores à última declaração do usuário — elimina "ruído" de horas não declaradas acumuladas.
+- **Limpeza de horas no pagamento:** Ao registrar pagamento, marca `registros_tempo` do período com `id_pagamento` — horas pagas são excluídas dos totais pendentes.
+- **Pagamento por período correto:** `criar.php`, `editar.php` e `excluir.php` usam `referencia_data` (entre `referencia_inicio` e `referencia_fim`/`travado_ate_data`) para vincular subtarefas e registros_tempo — nunca mais marca horas fora do período do pagamento.
+- **Reprocessamento automático:** ao editar ou excluir pagamento, todos os pagamentos do usuário são reprocessados em ordem cronológica — garante consistência mesmo com sobreposições.
 - **Gestão de Usuário em Página:** Modal convertido em página completa (seção SPA) com layout em 2 colunas: dados + resumo à esquerda, pagamentos + tarefas declaradas à direita. Botão Editar nas tarefas abre o mesmo modal de Gerenciar Tarefas.
 - **Auditoria Completa:** Toda criação/edição/exclusão/conclusão/bloqueio de subtarefa gera registro JSON com estado antes e depois.
 
@@ -153,7 +155,7 @@ O projeto é dividido em uma arquitetura Cliente-Servidor:
 │       ├── atividades/       # listar, criar, editar, excluir, alterar_status
 │       ├── atividades_subtarefas/ # listar, editar (aba Gerenciar Tarefas)
 │       ├── usuarios/         # listar, criar, editar, excluir, atualizar_status, listar_ativos
-│       └── pagamentos/       # criar, editar, excluir, listar_por_usuario
+│       └── pagamentos/       # criar, editar, excluir, listar_por_usuario, _aplicar_pagamento
 ├── tests/                    # pytest (banco, atividades, declarações, tempo)
 └── .github/workflows/ci.yml  # Pipeline CI (lint, typecheck, test, security)
 ```
@@ -172,7 +174,7 @@ O projeto é dividido em uma arquitetura Cliente-Servidor:
 | `usuarios_status_atual` | Estado em tempo real: situacao, atividade, apps_json, ultimo_em |
 | `cronometro_apps_intervalos` | Intervalos rastreados por app: inicio_em, fim_em, segundos_em_foco, segundos_segundo_plano |
 | `cronometro_foco_janela` | Períodos de foco (janela ativa) — base das timelines individuais |
-| `cronometro_relatorios` | Relatórios finalizados de sessão (inclui "Sessão zerada") |
+| `cronometro_relatorios` | Relatórios finalizados de sessão (inclui "Sessão zerada"); `referencia_data` = dia real do trabalho |
 | `registros_tempo` | Heartbeats por sessão: situacao, segundos acumulados |
 | `Pagamentos` | Histórico de pagamentos com trava: referencia_inicio, referencia_fim, travado_ate_data |
 | `declaracoes_dia_itens` | Itens simples de declaração diária |
@@ -203,10 +205,11 @@ O projeto é dividido em uma arquitetura Cliente-Servidor:
 | `usuarios/editar.php` | POST | Auth | Edita dados do membro |
 | `usuarios/excluir.php` | POST | Auth | Exclui membro |
 | `usuarios/atualizar_status.php` | POST | Auth | Altera status da conta (ativa/inativa/bloqueada) |
-| `pagamentos/criar.php` | POST | Auth | Registra pagamento, trava período e limpa registros_tempo |
-| `pagamentos/editar.php` | POST | Auth | Edita pagamento existente (data, valor, observação) |
-| `pagamentos/excluir.php` | POST | Auth | Exclui pagamento e destrava subtarefas vinculadas |
-| `pagamentos/listar_por_usuario.php` | GET | Auth | Histórico de pagamentos por membro |
+| `pagamentos/criar.php` | POST | Auth | Registra pagamento, trava subtarefas e marca registros_tempo do período |
+| `pagamentos/editar.php` | POST | Auth | Edita pagamento; reprocessa travas se período mudou |
+| `pagamentos/excluir.php` | POST | Auth | Exclui pagamento e reprocessa pagamentos restantes do usuário |
+| `pagamentos/_aplicar_pagamento.php` | — | Interno | Funções compartilhadas: aplicar, desvincular e reprocessar pagamentos |
+| `pagamentos/listar_por_usuario.php` | GET/POST | Auth | Histórico de pagamentos por membro |
 | `conexao/testar.php` | GET | Auth | Health check da conexão com o banco |
 
 ---
@@ -216,11 +219,12 @@ O projeto é dividido em uma arquitetura Cliente-Servidor:
 Mecanismo crítico que garante imutabilidade retroativa após pagamento:
 
 1. **Registrar pagamento:** insere em `Pagamentos` com `data_pagamento`, `valor` e `observacao`. `travado_ate_data` é automaticamente a data do pagamento.
-2. **Travamento automático:** `atualizar_bloqueios_por_pagamento()` percorre subtarefas do período e marca `bloqueada_pagamento=1` + `id_pagamento`. No dia exato do pagamento, só trava subtarefas criadas antes do horário do pagamento.
-3. **Limpeza de horas:** ao registrar pagamento, remove `registros_tempo` com `criado_em` anterior ao `concluida_em` da última declaração — elimina ruído de horas não declaradas.
+2. **Travamento automático:** `pagamento_aplicar()` em `_aplicar_pagamento.php` trava subtarefas e marca `registros_tempo` por `referencia_data` dentro do período (`referencia_inicio` → `referencia_fim`/`travado_ate_data`). Histórico de bloqueio registrado.
+3. **Marcação de horas:** `registros_tempo` do período recebem `id_pagamento` — horas pagas são excluídas dos totais pendentes (sem DELETE).
 4. **Proteção na edição:** `_atividade_tem_movimentacao_em_periodo_travado()` impede editar/excluir atividades com registros em período travado (verifica 3 tabelas: `cronometro_relatorios`, `declaracoes_dia_itens`, `atividades_subtarefas`).
 5. **Validação individual:** `_validar_periodo_editavel()` verifica trava por data (dias anteriores) e por subtarefa individual (`bloqueada_pagamento`). `subtarefa_esta_travada()` verifica a flag individual.
-6. **Editar/Excluir pagamentos:** admin pode editar ou excluir pagamentos — exclusão destrava automaticamente todas as subtarefas vinculadas.
+6. **Editar pagamentos:** ao alterar campos de período, `pagamento_reprocessar_todos()` limpa e reaplicar todos os pagamentos do usuário em ordem cronológica.
+7. **Excluir pagamentos:** desvincula subtarefas e registros do pagamento excluído, depois reprocessa os restantes — itens cobertos por outro pagamento continuam travados.
 
 ---
 
@@ -250,6 +254,28 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 ## 📈 Evolução do Projeto
 
 > **Legenda:** `[Desktop]` = app.py / Python &nbsp;·&nbsp; `[Web]` = painel PHP/JS &nbsp;·&nbsp; `[App+Web]` = ambos
+
+---
+
+### v8.1 — Fix virada do dia + Dashboard hoje por padrão + resumo pagamento `[App+Web]` (2026-04-12)
+- **Fix virada do dia (Ocioso/Pausado contaminando hoje):** `cronometro_relatorios` agora tem coluna `referencia_data` com a data real da sessão. `app.py` grava `date.today()` da criação da sessão (não `datetime.now()` da finalização). `graficos.php` filtra por `referencia_data` com fallback para `criado_em` em registros antigos.
+- **Dashboard abre mostrando hoje:** sem filtro manual, API recebe 7 dias (para setas navegarem), mas gráficos iniciam em `_teamTimelineIdxDia = 0` (hoje). `Tempo Declarado` mantém seus 30 dias isolados.
+- **Resumo para pagamento corrigido (Gestão do Usuário):** cards agora usam `cronometro_relatorios` como fonte. Trabalhado = declarado + não declarado. Não declarado = cronometrado − declarado. A pagar = (declarado × R$/h) − pagamentos.
+- **Fix "PAGO" e "PAGAMENTO PENDENTE" no Dashboard:** card PAGO corrigido (`r.dados` → `r`). Pendente agora calcula `total_geral_valor − totalPago` (não mais filtra por `!ln.pago`). "A pagar" por membro usa `valor_pendente = valor_estimado − total_pago`.
+- **Performance: containers ECharts estáticos (Fix 49):** containers dos charts extraídos para HTML estático em `garantirEstruturaSimplificada()`. `montarVisaoGeralTodosUsuarios()` usa show/hide via `d-none` — zero `innerHTML`, zero dispose. Instâncias ECharts persistem entre filtros e trocas de modo.
+- **Setas de navegação restauradas:** layout individual/equipe alterna via toggle CSS. `resizarGraficos()` chamado pós-render para ajustar charts às novas colunas.
+
+---
+
+### v8.0 — Fix card PAGO R$0 + pagamento por período correto `[App+Web]` (2026-04-11)
+- **Fix card "PAGO" sempre R$0,00:** `requisitarJson` no `aba-graficos.js` já retorna `json.dados` (array direto), mas o código acessava `rp.dados` — sempre `undefined`. Corrigido para usar `rp` diretamente.
+- **Fix "A pagar" por membro incluía linhas pagas:** `tempo_trabalhado.php` somava TODAS as declarações em `valor_estimado`. Adicionado campo `valor_pendente` que soma apenas linhas com `pago=false`. JS usa `valor_pendente` no card "A pagar".
+- **Pagamento por `referencia_data` (não mais `criado_em`):** `criar.php` usava `criado_em < ultima_declaracao` para marcar `registros_tempo` — marcava horas fora do período do pagamento. Agora usa `referencia_data` entre `referencia_inicio` e `referencia_fim`/`travado_ate_data`.
+- **Função compartilhada `_aplicar_pagamento.php`:** lógica de aplicar/desvincular/reprocessar pagamentos extraída para funções reutilizáveis — elimina duplicação entre criar, editar e excluir.
+- **Editar pagamento reprocessa travas:** ao alterar campos de período, `pagamento_reprocessar_todos()` limpa e reaplicar todos os pagamentos do usuário em ordem cronológica.
+- **Excluir pagamento reavalia cobertura:** após excluir, reprocessa pagamentos restantes — itens cobertos por outro pagamento continuam travados.
+- **Fix subtarefas com 0 segundos sumindo:** `_sincronizar_item_espelho_da_subtarefa()` apagava do espelho subtarefas concluídas com `segundos <= 0`. Condição removida — consistente com a regra que permite conclusão com 0 segundos.
+- **Fix evento `zerar` incompatível com schema:** `dados.sql` atualizado com `'zerar'` no enum de `tipo_evento`. `app.py` agora loga a falha no console em vez de engoli-la silenciosamente.
 
 ---
 

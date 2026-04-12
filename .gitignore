@@ -22,6 +22,9 @@ Desktop.ini
 *.log
 painel/logs/*.log
 
+# Credenciais e dados sensíveis
+painel/commands/conexao/conexao.php
+
 # Tokens e tentativas de login (gerados em runtime)
 painel/commands/_comum/.tokens.json
 painel/commands/_comum/.tentativas.json

@@ -178,6 +178,21 @@ try {
     }
 
     // -------------------------------------------------------
+    // 3b. Total pago por usuário (soma de Pagamentos)
+    // -------------------------------------------------------
+    $mapa_total_pago = [];
+    $sql_total_pago = "
+        SELECT u.user_id, COALESCE(SUM(p.valor), 0) AS total_pago
+        FROM Pagamentos p
+        JOIN usuarios u ON u.id_usuario = p.id_usuario
+        GROUP BY u.user_id
+    ";
+    $cmd_tp = $pdo->query($sql_total_pago);
+    foreach ($cmd_tp->fetchAll(PDO::FETCH_ASSOC) ?: [] as $tp) {
+        $mapa_total_pago[$tp['user_id']] = (float)$tp['total_pago'];
+    }
+
+    // -------------------------------------------------------
     // 4. Montar linhas e totais por usuário
     // -------------------------------------------------------
     $linhas        = [];
@@ -224,6 +239,7 @@ try {
                 'segundos_total'       => 0,
                 'segundos_trab_total'  => 0,
                 'valor_estimado'       => 0.0,
+                'total_pago'           => $mapa_total_pago[$uid] ?? 0.0,
                 'dias_trabalhados'     => 0,
             ];
         }
@@ -239,6 +255,8 @@ try {
         $u['horas_formatado']      = relatorio_formatar_horas($u['segundos_total']);
         $u['trabalhado_formatado'] = relatorio_formatar_horas($u['segundos_trab_total']);
         $u['valor_estimado']       = round($u['valor_estimado'], 2);
+        $u['total_pago']           = round($u['total_pago'], 2);
+        $u['valor_pendente']       = round(max(0, $u['valor_estimado'] - $u['total_pago']), 2);
         $totais_por_usuario[]      = $u;
     }
 

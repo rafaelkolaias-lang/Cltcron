@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/_aplicar_pagamento.php';
 
 function ler_json_entrada(): array
 {
@@ -55,43 +56,26 @@ try {
         responder_json(false, 'Apenas os 2 últimos pagamentos podem ser excluídos.', ['id_pagamento' => $id_pagamento], 403);
     }
 
+    $id_usuario = (int)$existente['id_usuario'];
+
     $pdo->beginTransaction();
 
-    // Destravar subtarefas que foram travadas por este pagamento
-    $stUnlock = $pdo->prepare("
-        UPDATE atividades_subtarefas
-        SET bloqueada_pagamento = 0,
-            id_pagamento = NULL,
-            bloqueada_em = NULL
-        WHERE id_pagamento = :id_pag
-    ");
-    $stUnlock->execute([':id_pag' => $id_pagamento]);
-    $destravadas = $stUnlock->rowCount();
-
-    // Restaurar registros_tempo marcados por este pagamento
-    $horasRestauradas = 0;
-    try {
-        $stRestore = $pdo->prepare("
-            UPDATE registros_tempo
-            SET id_pagamento = NULL
-            WHERE id_pagamento = :id_pag
-        ");
-        $stRestore->execute([':id_pag' => $id_pagamento]);
-        $horasRestauradas = $stRestore->rowCount();
-    } catch (Throwable $ignore) {
-        // Coluna id_pagamento pode não existir em bancos antigos
-    }
+    // Desvincular subtarefas e registros_tempo deste pagamento
+    $limpos = pagamento_desvincular($pdo, $id_pagamento);
 
     // Excluir pagamento
     $stD = $pdo->prepare("DELETE FROM Pagamentos WHERE id_pagamento = :id");
     $stD->execute([':id' => $id_pagamento]);
 
+    // Reprocessar pagamentos restantes do usuário para reavaliar cobertura
+    pagamento_reprocessar_todos($pdo, $id_usuario, $user_id);
+
     $pdo->commit();
 
-    responder_json(true, "Pagamento excluído. {$destravadas} tarefa(s) destravada(s). {$horasRestauradas} registro(s) de tempo restaurado(s).", [
+    responder_json(true, "Pagamento excluído. Vínculos reprocessados.", [
         'id_pagamento' => $id_pagamento,
-        'tarefas_destravadas' => $destravadas,
-        'horas_restauradas' => $horasRestauradas,
+        'tarefas_desvinculadas' => $limpos['subtarefas'],
+        'registros_desvinculados' => $limpos['registros'],
     ], 200);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {

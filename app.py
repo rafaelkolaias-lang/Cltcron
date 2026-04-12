@@ -217,6 +217,7 @@ class MonitorDeUso:
 
         self._id_sessao: int | None = None
         self._token_sessao: str = ""
+        self._referencia_data_sessao: date | None = None
 
         self._user_id: str = ""
         self._nome_exibicao: str = ""
@@ -762,6 +763,7 @@ class MonitorDeUso:
 
             self._id_sessao = int(dados.get("id_sessao") or 0)
             self._token_sessao = str(dados.get("token_sessao") or "").strip()
+            self._referencia_data_sessao = date.today()
             self._user_id = str(dados.get("user_id") or "").strip()
             self._nome_exibicao = (nome_exibicao_atual or "").strip() or str(dados.get("nome_exibicao") or "").strip()
             self._id_atividade = int(dados.get("id_atividade") or 0)
@@ -824,6 +826,7 @@ class MonitorDeUso:
                 """,
                 [self._user_id, self._token_sessao, maquina, sistema, VERSAO_APLICACAO, datetime.now()],
             )
+            self._referencia_data_sessao = date.today()
 
             self._mapa_intervalos_apps = {}
             self._ultimo_scan_apps_mono = 0.0
@@ -956,6 +959,7 @@ class MonitorDeUso:
             _seg_trab_snap = self._segundos_trabalhando_float
             _seg_ocio_snap = self._segundos_ocioso_float
             _seg_paus_snap = self._segundos_pausado_float
+            _ref_data_snap = self._referencia_data_sessao or date.today()
 
             self._sessao_carregada = False
             self._segundos_trabalhando_float = 0.0
@@ -967,8 +971,8 @@ class MonitorDeUso:
 
         try:
             self._inserir_evento("zerar", "pausado", 0, _id_snap, _uid_snap)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[zerar_sessao] Falha ao gravar evento 'zerar': {e}")
 
         try:
             self._banco.executar(
@@ -987,9 +991,9 @@ class MonitorDeUso:
                 """
                 INSERT INTO cronometro_relatorios
                     (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em)
+                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 [
                     _id_snap,
@@ -1001,6 +1005,7 @@ class MonitorDeUso:
                     converter_segundos_para_inteiro(_seg_ocio_snap),
                     converter_segundos_para_inteiro(_seg_paus_snap),
                     datetime.now(),
+                    _ref_data_snap,
                 ],
             )
         except Exception:
@@ -1053,9 +1058,9 @@ class MonitorDeUso:
             """
             INSERT INTO cronometro_relatorios
                 (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                 segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em)
+                 segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
             VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             [
                 self._id_sessao,
@@ -1067,6 +1072,7 @@ class MonitorDeUso:
                 converter_segundos_para_inteiro(self._segundos_ocioso_float),
                 converter_segundos_para_inteiro(self._segundos_pausado_float),
                 datetime.now(),
+                self._referencia_data_sessao or date.today(),
             ],
         )
 

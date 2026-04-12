@@ -382,10 +382,14 @@ try {
     }
 
     $parametros_relatorios = [
-        ':inicio_em' => $intervalo['inicio_em'],
+        ':data_inicio' => $intervalo['data_inicio'],
+        ':data_fim'    => $intervalo['data_fim'],
+        ':inicio_em'   => $intervalo['inicio_em'],
         ':fim_exclusivo_em' => $intervalo['fim_exclusivo_em'],
     ];
-    $where_relatorios = "cr.criado_em >= :inicio_em AND cr.criado_em < :fim_exclusivo_em";
+    // Usa referencia_data quando disponível (relatórios novos); fallback para criado_em (relatórios antigos sem a coluna)
+    $where_relatorios = "((cr.referencia_data IS NOT NULL AND cr.referencia_data BETWEEN :data_inicio AND :data_fim)
+        OR (cr.referencia_data IS NULL AND cr.criado_em >= :inicio_em AND cr.criado_em < :fim_exclusivo_em))";
 
     if (!empty($usuarios_filtro)) {
         $in = graficos_montar_in('usuario_relatorio', $usuarios_filtro, $parametros_relatorios);

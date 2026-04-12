@@ -330,7 +330,64 @@
           </div>
           <hr class="separador-sutil" style="margin-top:0">
           <div id="areaUsuarioSelecionadoGraficos">
-            <div class="texto-fraco">Selecione um membro para ver os detalhes.</div>
+            <div id="_chartsMsgVazio" class="texto-fraco">Selecione um membro para ver os detalhes.</div>
+
+            <!-- Header (compartilhado) -->
+            <div id="_chartsHeader" class="d-none">
+              <div class="perfil-usuario-header mb-3">
+                <div class="flex-grow-1">
+                  <h5 class="mb-1 fw-bold" id="_tituloSecao"></h5>
+                  <div class="texto-fraco small" id="_subtituloSecao"></div>
+                </div>
+              </div>
+              <hr class="separador-sutil">
+            </div>
+
+            <!-- Seção comparativo (só equipe) -->
+            <div id="_secaoComparativo" class="d-none mb-4">
+              <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Tempo por membro</div>
+              <div id="chartGlobalComparativo" class="grafico-container" style="height:200px"></div>
+            </div>
+
+            <!-- Seção apps: donut + legenda + barras (barras só individual) -->
+            <div id="_secaoApps" class="d-none mb-4">
+              <div class="row g-3">
+                <div id="_colDonut" class="col-12 col-xl-5">
+                  <div class="texto-fraco small fw-semibold mb-2" id="_tituloApps" style="text-transform:uppercase;letter-spacing:.3px"></div>
+                  <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
+                    <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:180px;height:300px"></div>
+                    <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
+                  </div>
+                </div>
+                <div id="_colBarras" class="col-12 col-xl-7 d-none">
+                  <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Todos os programas — foco vs 2.º plano</div>
+                  <div id="chartBarrasApps" class="grafico-container" style="height:300px"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Seção timeline (compartilhada) -->
+            <div id="_secaoTimeline" class="d-none mb-3">
+              <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="texto-fraco small fw-semibold" id="_tituloTimeline" style="text-transform:uppercase;letter-spacing:.3px"></div>
+                <div class="d-flex align-items-center gap-2">
+                  <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
+                  <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
+                  <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
+                </div>
+              </div>
+              <div id="_labelEmFoco" class="d-none texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>
+              <div class="chart-shimmer-wrapper" id="_shimmerTimeline">
+                <div id="chartGlobalTimeline" class="grafico-container" style="height:200px"></div>
+              </div>
+              <div id="_wrapperTimelineAbertos" class="d-none mt-3">
+                <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Todos os apps abertos (foco + 2.º plano)</div>
+                <div class="chart-shimmer-wrapper" id="_shimmerAbertos">
+                  <div id="chartTimelineAbertos" class="grafico-container" style="height:200px"></div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
 
@@ -381,7 +438,7 @@
       };
     }
 
-    // Sem filtro manual: busca últimos 7 dias (setas navegam), gráficos iniciam no dia de hoje
+    // Sem filtro manual: busca últimos 7 dias (setas navegam), gráficos iniciam mostrando hoje
     const hoje = obterDataHojeIso();
     return {
       data_inicio: subtrairDiasIso(hoje, 6),
@@ -1389,11 +1446,9 @@
     }, true);
   }
 
-  function _disposeCharts() {
-    ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps", "chartGlobalTimeline", "chartTimelineAbertos"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) { const inst = echarts.getInstanceByDom(el); if (inst) inst.dispose(); }
-    });
+  function _mostrarOcultar(id, mostrar) {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("d-none", !mostrar);
   }
 
   function montarVisaoGeralTodosUsuarios(dados) {
@@ -1402,98 +1457,63 @@
 
     const usuarios = dados.usuarios || [];
     if (!usuarios.length) {
-      _disposeCharts();
-      area.innerHTML = `<div class="texto-fraco">Sem dados para o período selecionado.</div>`;
+      const elMsg = document.getElementById("_chartsMsgVazio");
+      if (elMsg) elMsg.textContent = "Sem dados para o período selecionado.";
+      _mostrarOcultar("_chartsMsgVazio", true);
+      _mostrarOcultar("_chartsHeader", false);
+      _mostrarOcultar("_secaoComparativo", false);
+      _mostrarOcultar("_secaoApps", false);
+      _mostrarOcultar("_secaoTimeline", false);
+      const existente = document.getElementById("_resumoDetalhadoApps");
+      if (existente) existente.remove();
       _htmlModoAtual = null;
       return;
     }
 
-    const tituloSecao = usuarios.length === 1 ? `Visão Geral: ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Visão Geral da Equipe";
-    const tituloApps  = usuarios.length === 1 ? `Top apps de ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Top apps da equipe (foco agregado)";
-    const tituloTL    = usuarios.length === 1 ? `Timeline de ${usuarios[0].nome_exibicao || usuarios[0].user_id || "—"}` : "Timeline da equipe";
-
     const individual = usuarios.length === 1;
     const modo = individual ? "individual" : "equipe";
+    const nome = individual ? (usuarios[0].nome_exibicao || usuarios[0].user_id || "—") : "";
 
-    // Só reconstrói HTML se o modo mudou (individual ↔ equipe) — preserva instâncias ECharts
-    if (_htmlModoAtual !== modo) {
-      _disposeCharts();
+    const tituloSecao = individual ? `Visão Geral: ${nome}` : "Visão Geral da Equipe";
+    const tituloApps  = individual ? `Top apps de ${nome}` : "Top apps da equipe (foco agregado)";
+    const tituloTL    = individual ? `Timelines de atividade` : "Timeline da equipe";
 
-      area.innerHTML = `
-      <div class="perfil-usuario-header mb-3">
-        <div class="flex-grow-1">
-          <h5 class="mb-1 fw-bold" id="_tituloSecao"></h5>
-          <div class="texto-fraco small" id="_subtituloSecao"></div>
-        </div>
-      </div>
+    // Mostrar seções, ocultar mensagem vazia
+    _mostrarOcultar("_chartsMsgVazio", false);
+    _mostrarOcultar("_chartsHeader", true);
+    _mostrarOcultar("_secaoApps", true);
+    _mostrarOcultar("_secaoTimeline", true);
 
-      <hr class="separador-sutil">
+    // Toggle seções por modo (sem destruir DOM)
+    _mostrarOcultar("_secaoComparativo", !individual);
+    _mostrarOcultar("_colBarras", individual);
+    _mostrarOcultar("_labelEmFoco", individual);
+    _mostrarOcultar("_wrapperTimelineAbertos", individual);
 
-      ${individual ? `
-      <!-- Visão individual: donut foco + barras foco vs 2.º plano lado a lado -->
-      <div class="row g-3 mb-4">
-        <div class="col-12 col-xl-5">
-          <div class="texto-fraco small fw-semibold mb-2" id="_tituloApps" style="text-transform:uppercase;letter-spacing:.3px"></div>
-          <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
-            <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:180px;height:300px"></div>
-            <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
-          </div>
-        </div>
-        <div class="col-12 col-xl-7">
-          <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Todos os programas — foco vs 2.º plano</div>
-          <div id="chartBarrasApps" class="grafico-container" style="height:300px"></div>
-        </div>
-      </div>
-      ` : `
-      <!-- Visão equipe: barra comparativa + donut -->
-      <div class="mb-4">
-        <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Tempo por membro</div>
-        <div id="chartGlobalComparativo" class="grafico-container" style="height:${Math.max(160, usuarios.length * 40 + 60)}px"></div>
-      </div>
-      <div class="mb-4">
-        <div class="texto-fraco small fw-semibold mb-2" id="_tituloApps" style="text-transform:uppercase;letter-spacing:.3px"></div>
-        <div class="d-flex flex-wrap flex-md-nowrap gap-3 align-items-start">
-          <div id="chartGlobalApps" class="grafico-container" style="flex:1;min-width:200px;height:300px"></div>
-          <div id="legendaGlobalApps" class="legenda-lateral-apps"></div>
-        </div>
-      </div>
-      `}
-
-      <!-- Timeline: controle de data + chart(s) -->
-      <div class="mb-3">
-        <div class="d-flex align-items-center justify-content-between mb-${individual ? "3" : "2"}">
-          <div class="texto-fraco small fw-semibold" id="_tituloTimeline" style="text-transform:uppercase;letter-spacing:.3px"></div>
-          <div class="d-flex align-items-center gap-2">
-            <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
-            <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
-            <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
-          </div>
-        </div>
-        ${individual ? `<div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>` : ""}
-        <div class="chart-shimmer-wrapper ${individual ? "mb-3" : ""}">
-          <div id="chartGlobalTimeline" class="grafico-container" style="height:${Math.max(120, usuarios.length * 48 + 60)}px"></div>
-        </div>
-        ${individual ? `
-        <div class="texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Todos os apps abertos (foco + 2.º plano)</div>
-        <div class="chart-shimmer-wrapper">
-          <div id="chartTimelineAbertos" class="grafico-container" style="height:200px"></div>
-        </div>
-        ` : ""}
-      </div>
-      `;
-      _htmlModoAtual = modo;
+    // Ajustar colunas do donut: col-5 individual, col-12 equipe
+    const colDonut = document.getElementById("_colDonut");
+    if (colDonut) {
+      colDonut.classList.toggle("col-xl-5", individual);
+      colDonut.classList.toggle("col-xl-12", !individual);
     }
 
-    // Atualizar textos dinâmicos sem rebuild
+    // Ajustar altura do comparativo e timeline conforme quantidade de membros
+    const elComp = document.getElementById("chartGlobalComparativo");
+    if (elComp) elComp.style.height = Math.max(160, usuarios.length * 40 + 60) + "px";
+    const elTL = document.getElementById("chartGlobalTimeline");
+    if (elTL) elTL.style.height = Math.max(120, usuarios.length * 48 + 60) + "px";
+
+    // Atualizar textos dinâmicos
     const elTitulo = document.getElementById("_tituloSecao");
     const elSub = document.getElementById("_subtituloSecao");
     const elApps = document.getElementById("_tituloApps");
-    const elTL = document.getElementById("_tituloTimeline");
+    const elTLtitulo = document.getElementById("_tituloTimeline");
     if (elTitulo) elTitulo.textContent = tituloSecao;
     if (elSub) elSub.textContent = `${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""} no período`;
     if (elApps) elApps.textContent = tituloApps;
-    if (elTL) elTL.textContent = individual ? "Timelines de atividade" : tituloTL;
+    if (elTLtitulo) elTLtitulo.textContent = tituloTL;
 
+    _htmlModoAtual = modo;
     _teamTimelineUsuarios = usuarios;
     _modoTotalPeriodo = _filtroTemMultiplosDias();
     const hoje = obterDataHojeIso();
@@ -1539,6 +1559,9 @@
 
       // Remover shimmer após render
       document.querySelectorAll(".chart-shimmer-wrapper").forEach(el => el.classList.remove("chart-shimmer-wrapper"));
+
+      // Resize charts após render (colunas podem ter mudado de largura ao alternar modo)
+      setTimeout(() => resizarGraficos(), 80);
     }, 50);
   }
 
@@ -1552,7 +1575,7 @@
 
     const usuarios = dados.usuarios || [];
     if (!usuarios.length) {
-      area.innerHTML = `<div class="texto-fraco">Sem dados para o período selecionado.</div>`;
+      montarVisaoGeralTodosUsuarios(dados); // oculta seções e mostra mensagem vazia
       return;
     }
 
@@ -1642,12 +1665,12 @@
           try {
             // Buscar pagamentos de todos os usuários nos últimos 30 dias
             const r = await requisitarJson("./commands/usuarios/listar.php");
-            const users = Array.isArray(r.dados) ? r.dados : [];
+            const users = Array.isArray(r) ? r : (Array.isArray(r?.dados) ? r.dados : []);
             let totalPago = 0;
             for (const u of users) {
               try {
                 const rp = await requisitarJson(`./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(u.user_id)}`);
-                const pags = Array.isArray(rp.dados) ? rp.dados : [];
+                const pags = Array.isArray(rp) ? rp : (Array.isArray(rp?.dados) ? rp.dados : []);
                 pags.forEach(p => {
                   if (p.data_pagamento && p.data_pagamento >= inicio30 && p.data_pagamento <= hoje) {
                     totalPago += Number(p.valor || 0);
@@ -1671,9 +1694,9 @@
     if (!area) return;
     const periodo = dados.periodo ?? {};
     setTexto("declTotalHoras", dados.total_geral_horas ?? "—");
-    // Pendente = soma apenas das linhas NÃO pagas
-    const linhasAll = dados.linhas ?? [];
-    const valorPendente = linhasAll.filter(ln => !ln.pago).reduce((acc, ln) => acc + (ln.valor_estimado || 0), 0);
+    // Pendente = total geral - total pago (soma de todos os pagamentos)
+    const totalGeralValor = dados.total_geral_valor ?? 0;
+    const valorPendente = Math.max(0, totalGeralValor - (totalPago ?? 0));
     setTexto("declTotalValor", formatarRs(valorPendente));
     setTexto("declTotalPago", formatarRs(totalPago ?? 0));
     setTexto("declTotalEditores", String((dados.totais_por_usuario ?? []).length));
@@ -1710,7 +1733,7 @@
           <div class="d-flex gap-3 text-end">
             <div><div class="texto-fraco small">Dias</div><div class="fw-bold">${tot.dias_trabalhados}</div></div>
             <div><div class="texto-fraco small">Declarado</div><div class="fw-bold texto-mono">${escaparHtml(tot.horas_formatado)}</div></div>
-            ${temValor ? `<div><div class="texto-fraco small">A pagar</div><div class="fw-bold text-success">${formatarRs(tot.valor_estimado)}</div></div>` : ""}
+            ${temValor ? `<div><div class="texto-fraco small">A pagar</div><div class="fw-bold text-success">${formatarRs(tot.valor_pendente ?? tot.valor_estimado)}</div></div>` : ""}
           </div>
         </div>
         <div style="height:3px;background:rgba(255,255,255,.06);border-radius:2px" class="mb-3">

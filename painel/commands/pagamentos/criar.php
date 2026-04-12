@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/_aplicar_pagamento.php';
 
 function ler_json_entrada(): array
 {
@@ -161,79 +162,18 @@ try {
 
     $id_pagamento = (int)$pdo->lastInsertId();
 
-    // Travar subtarefas com referencia_data <= travado_ate_data para este membro
-    $stLock = $pdo->prepare("
-        UPDATE atividades_subtarefas
-        SET bloqueada_pagamento = 1,
-            id_pagamento = :id_pag,
-            bloqueada_em = NOW()
-        WHERE user_id = :user_id
-          AND referencia_data IS NOT NULL
-          AND referencia_data <= :travado_ate
-          AND bloqueada_pagamento = 0
-    ");
-    $stLock->execute([
-        ':id_pag'      => $id_pagamento,
-        ':user_id'     => $user_id,
-        ':travado_ate' => $travado_ate_data,
-    ]);
-    $travadas = $stLock->rowCount();
-
-    // Registrar no histórico de cada subtarefa travada
-    $stIds = $pdo->prepare("
-        SELECT id_subtarefa, user_id
-        FROM atividades_subtarefas
-        WHERE id_pagamento = :id_pag
-    ");
-    $stIds->execute([':id_pag' => $id_pagamento]);
-    $subtsTravadas = $stIds->fetchAll(PDO::FETCH_ASSOC);
-
-    if (count($subtsTravadas) > 0) {
-        $stH = $pdo->prepare("
-            INSERT INTO atividades_subtarefas_historico
-                (id_subtarefa, acao, user_id_alvo, user_id_executor, dados_antes, dados_depois)
-            VALUES
-                (:id_sub, 'bloqueio_pagamento', :user_alvo, :user_exec, :antes, :depois)
-        ");
-        foreach ($subtsTravadas as $sub) {
-            $stH->execute([
-                ':id_sub'     => $sub['id_subtarefa'],
-                ':user_alvo'  => $sub['user_id'],
-                ':user_exec'  => $sub['user_id'],
-                ':antes'      => json_encode(['bloqueada_pagamento' => false]),
-                ':depois'     => json_encode(['bloqueada_pagamento' => true, 'id_pagamento' => $id_pagamento]),
-            ]);
-        }
-    }
-
-    // Marcar registros_tempo anteriores à última declaração como pagos
-    $stUltDecl = $pdo->prepare("
-        SELECT MAX(concluida_em) AS ultima_declaracao
-        FROM atividades_subtarefas
-        WHERE user_id = :user_id
-          AND concluida = 1
-          AND concluida_em IS NOT NULL
-    ");
-    $stUltDecl->execute([':user_id' => $user_id]);
-    $linhaDecl = $stUltDecl->fetch(PDO::FETCH_ASSOC);
-    $ultimaDeclaracao = $linhaDecl['ultima_declaracao'] ?? null;
-
-    $horasMarcadas = 0;
-    if ($ultimaDeclaracao) {
-        $stMark = $pdo->prepare("
-            UPDATE registros_tempo
-            SET id_pagamento = :id_pag
-            WHERE user_id = :user_id
-              AND criado_em < :ultima_declaracao
-              AND id_pagamento IS NULL
-        ");
-        $stMark->execute([
-            ':id_pag' => $id_pagamento,
-            ':user_id' => $user_id,
-            ':ultima_declaracao' => $ultimaDeclaracao,
-        ]);
-        $horasMarcadas = $stMark->rowCount();
-    }
+    // Travar subtarefas e marcar registros_tempo por referencia_data (período do pagamento)
+    $resultado = pagamento_aplicar(
+        $pdo,
+        $id_pagamento,
+        $user_id,
+        $travado_ate_data,
+        $referencia_inicio,
+        $referencia_fim,
+        true
+    );
+    $travadas = $resultado['subtarefas'];
+    $horasMarcadas = $resultado['registros'];
 
     $pdo->commit();
 

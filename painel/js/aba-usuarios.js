@@ -485,16 +485,16 @@
     const elAPagar = document.getElementById("gestaoResumoAPagar");
 
     try {
-      // Buscar subtarefas não pagas do membro
       const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
-      const subs = (rSub.dados || []).filter(s => !s.bloqueada_pagamento);
+      const subs = rSub.dados || [];
+      const first = subs.length > 0 ? subs[0] : {};
 
-      // Totais não pagos (registros_tempo sem id_pagamento + subtarefas sem bloqueada_pagamento)
-      const trabalhado = subs.length > 0 ? (subs[0].segundos_trabalhados_total || 0) : 0;
-      const declarado = subs.length > 0 ? (subs[0].segundos_declarados_total || 0) : 0;
-
-      const naoDeclarado = Math.max(0, trabalhado - declarado);
-      const aPagar = declarado * (valorHora / 3600);
+      // Dados do cronômetro (cronometro_relatorios) + declarações + pagamentos
+      const declarado    = Number(first.segundos_declarados_total_geral || 0);
+      const naoDeclarado = Number(first.segundos_nao_declarado_total || 0);
+      const trabalhado   = declarado + naoDeclarado;
+      const totalPago    = Number(first.total_pago || 0);
+      const aPagar       = Math.max(0, (declarado * (valorHora / 3600)) - totalPago);
 
       if (elTrab) elTrab.textContent = formatarHm(trabalhado);
       if (elDecl) elDecl.textContent = formatarHm(declarado);

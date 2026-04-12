@@ -341,7 +341,7 @@ header('Content-Type: text/html; charset=utf-8');
                       </div>
                     </div>
                   </div>
-                  <div class="texto-fraco small mt-2">Apenas horas <strong>não pagas</strong> (subtarefas com <code>bloqueada_pagamento = 0</code>).</div>
+                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. A pagar = (declarado × R$/h) − pagamentos.</div>
                 </article>
               </div>
 

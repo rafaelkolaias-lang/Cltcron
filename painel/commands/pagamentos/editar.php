@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/_aplicar_pagamento.php';
 
 function ler_json_entrada(): array
 {
@@ -125,9 +126,37 @@ try {
     $params[':id'] = $id_pagamento;
     $sql = "UPDATE Pagamentos SET " . implode(', ', $campos) . " WHERE id_pagamento = :id";
 
+    // Verificar se campos de período/data mudaram (requer reprocessamento de travas)
+    $campos_periodo = ['referencia_inicio', 'referencia_fim', 'travado_ate_data', 'data_pagamento'];
+    $periodo_mudou = false;
+    foreach ($campos_periodo as $cp) {
+        if (array_key_exists($cp, $in)) {
+            $periodo_mudou = true;
+            break;
+        }
+    }
+
+    // Obter user_id textual do dono do pagamento
+    $stUser = $pdo->prepare("
+        SELECT u.user_id
+        FROM usuarios u
+        JOIN Pagamentos p ON p.id_usuario = u.id_usuario
+        WHERE p.id_pagamento = :id
+        LIMIT 1
+    ");
+    $stUser->execute([':id' => $id_pagamento]);
+    $linhaUser = $stUser->fetch(PDO::FETCH_ASSOC);
+    $user_id = $linhaUser['user_id'] ?? '';
+
     $pdo->beginTransaction();
     $st = $pdo->prepare($sql);
     $st->execute($params);
+
+    // Se campos de período mudaram, reprocessar todos os pagamentos do usuário
+    if ($periodo_mudou && $user_id !== '') {
+        pagamento_reprocessar_todos($pdo, (int)$existente['id_usuario'], $user_id);
+    }
+
     $pdo->commit();
 
     // Retornar pagamento atualizado

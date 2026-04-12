@@ -12,13 +12,14 @@ function obter_variavel_de_ambiente(string $chave, string $padrao = ''): string
     if ($valor === false || $valor === null || $valor === '') {
         return $padrao;
     }
-    return (string)$valor;
+    return (string) $valor;
 }
 
 function obter_conexao_pdo(): PDO
 {
     // Credenciais (com fallback para ENV)
     $host = obter_variavel_de_ambiente('DB_HOST', '76.13.112.108');
+    // Porta produção 3306 homologação 3307
     $porta = obter_variavel_de_ambiente('DB_PORT', '3306');
     $nome_banco = obter_variavel_de_ambiente('DB_NAME', 'dados');
     $usuario = obter_variavel_de_ambiente('DB_USER', 'kolaias');

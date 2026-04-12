@@ -41,6 +41,8 @@ agents/
 \!projeto.md
 CLAUDE.md
 AGENTS.md
+RULES.md
+temporary_rules.md
 
 # Schema SQL (contém estrutura sensível do banco)
 dados.sql

@@ -2568,8 +2568,7 @@ class App(tk.Tk):
         for linha in atividades:
             id_atividade = int(linha["id_atividade"])
             titulo = str(linha["titulo"] or "").strip()
-            status = str(linha["status"] or "").strip()
-            item = f"#{id_atividade} - {titulo} ({status})"
+            item = titulo  # apenas o nome do canal (sem #ID e sem status)
             valores.append(item)
             self._mapa_item_para_id[item] = id_atividade
 

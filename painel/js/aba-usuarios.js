@@ -471,6 +471,15 @@
     }
   }
 
+  // Limpa "#7 - Título (status)" → "Título"
+  function limparCanal(texto) {
+    if (!texto) return "";
+    return String(texto)
+      .replace(/^#\d+\s*-\s*/, "")
+      .replace(/\s*\([^)]*\)\s*$/, "")
+      .trim();
+  }
+
   function formatarHm(segundos) {
     const s = Math.max(0, Math.round(Number(segundos) || 0));
     const h = Math.floor(s / 3600);
@@ -576,7 +585,7 @@
     const elTotal = document.getElementById("textoGestaoTotalTarefas");
 
     try {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>`;
 
       const json = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
       const lista = Array.isArray(json.dados) ? json.dados : [];
@@ -587,7 +596,7 @@
       if (!tbody) return;
 
       if (!lista.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
         return;
       }
 
@@ -603,13 +612,12 @@
           : '<span class="texto-fraco">—</span>';
         return `<tr>
           <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
-          <td>${escapeHtmlSeguro(String(t.atividade_titulo || "—"))}</td>
+          <td>${escapeHtmlSeguro(limparCanal(t.canal_entrega) || "—")}</td>
           <td>${escapeHtmlSeguro(String(t.titulo || "—"))}</td>
           <td>${formatarHm(seg)}</td>
           <td class="text-center">${t.concluida
             ? '<span class="badge text-bg-success">Concluída</span>'
             : '<span class="badge text-bg-secondary">Aberta</span>'}</td>
-          <td>${escapeHtmlSeguro(String(t.canal_entrega || "—"))}</td>
           <td>${obsHtml}</td>
           <td class="text-end">${btnEditar}</td>
         </tr>`;

@@ -257,6 +257,16 @@ Pipeline GitHub Actions (`.github/workflows/ci.yml`) executado em push/PR para `
 
 ---
 
+### v8.2 — Gestão do Usuário: layout reorganizado + filtros + auto-zerar no update `[App+Web]` (2026-04-12)
+- **Layout da Gestão do Usuário reorganizado:** Resumo + Registrar pagamento + Histórico ficam na coluna direita (registrar/histórico lado a lado em XL); Tarefas declaradas movida para linha full-width abaixo, ganhando espaço horizontal.
+- **Filtros TUDO/30 DIAS no Resumo para pagamento:** botões no cabeçalho. Backend filtra `cronometro_relatorios.referencia_data`, `atividades_subtarefas.referencia_data` e `Pagamentos.data_pagamento` conforme o período.
+- **Card "Tempo Ocioso"** adicionado ao Resumo (cor amarela, vem de `cronometro_relatorios.segundos_ocioso`).
+- **Form de Registrar pagamento compacto:** Data + Valor lado a lado; Observação + botão Salvar lado a lado.
+- **Coluna "Observação"** adicionada em Tarefas declaradas (Gestão do Usuário e Gerenciar Tarefas) — texto truncado com `...` e tooltip do conteúdo completo.
+- **Auto-update zera sessão antes do reinício:** `_verificar_atualizacao()` chama `monitor.zerar_sessao()` antes de `subprocess.Popen` + `os._exit(0)`. Sem perda de horas trabalhadas durante atualizações automáticas.
+
+---
+
 ### v8.1 — Fix virada do dia + Dashboard hoje por padrão + resumo pagamento `[App+Web]` (2026-04-12)
 - **Fix virada do dia (Ocioso/Pausado contaminando hoje):** `cronometro_relatorios` agora tem coluna `referencia_data` com a data real da sessão. `app.py` grava `date.today()` da criação da sessão (não `datetime.now()` da finalização). `graficos.php` filtra por `referencia_data` com fallback para `criado_em` em registros antigos.
 - **Dashboard abre mostrando hoje:** sem filtro manual, API recebe 7 dias (para setas navegarem), mas gráficos iniciam em `_teamTimelineIdxDia = 0` (hoje). `Tempo Declarado` mantém seus 30 dias isolados.

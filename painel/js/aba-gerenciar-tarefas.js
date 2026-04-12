@@ -106,7 +106,7 @@
     _carregando = true;
 
     const tbody = el("tbodyGerenciarTarefas");
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="texto-fraco text-center py-3">Carregando…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco text-center py-3">Carregando…</td></tr>';
 
     const params = new URLSearchParams();
     const di = (el("gtDataInicio") || {}).value || "";
@@ -128,7 +128,7 @@
       _dados = j.dados || [];
     } catch (err) {
       _dados = [];
-      if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-danger text-center py-3">Erro: ${esc(err.message)}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-danger text-center py-3">Erro: ${esc(err.message)}</td></tr>`;
       _carregando = false;
       return;
     }
@@ -146,7 +146,7 @@
     if (total) total.textContent = `${_dados.length} registro(s)`;
 
     if (!_dados.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="texto-fraco text-center py-3">Nenhuma declaração encontrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco text-center py-3">Nenhuma declaração encontrada.</td></tr>';
       return;
     }
 
@@ -159,7 +159,11 @@
         ? '<span class="badge badge-suave text-danger ms-1" title="Bloqueada por pagamento">🔒</span>'
         : '';
       const tempo = t.segundos_gastos > 0 ? segundosParaHm(t.segundos_gastos) : '<span class="texto-fraco">—</span>';
-      const canal = t.canal_entrega ? esc(t.canal_entrega) : '<span class="texto-fraco">—</span>';
+      const canalLimpo = String(t.canal_entrega || "")
+        .replace(/^#\d+\s*-\s*/, "")
+        .replace(/\s*\([^)]*\)\s*$/, "")
+        .trim();
+      const canal = canalLimpo ? esc(canalLimpo) : '<span class="texto-fraco">—</span>';
       const obs = String(t.observacao || "").trim();
       const obsHtml = obs
         ? `<span title="${esc(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${esc(obs)}</span>`
@@ -172,10 +176,9 @@
         <tr>
           <td class="small">${esc(dataIsoBr(t.referencia_data))}</td>
           <td class="small">${esc(t.nome_exibicao || t.user_id)}</td>
-          <td class="small texto-fraco">${esc(t.atividade_titulo || "—")}</td>
+          <td class="small">${canal}</td>
           <td class="small">${esc(t.titulo)}${travaBadge}</td>
           <td class="small">${tempo}</td>
-          <td class="small">${canal}</td>
           <td class="small">${obsHtml}</td>
           <td class="text-center">${statusBadge}</td>
           <td class="text-end">${btnEditar}</td>

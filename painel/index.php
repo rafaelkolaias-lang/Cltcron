@@ -50,9 +50,9 @@ header('Content-Type: text/html; charset=utf-8');
             </ul>
           </li>
           <li class="nav-item nav-hover-submenu">
-            <a class="nav-link" href="#" data-aba="abaAtividades">Atividades</a>
+            <a class="nav-link" href="#" data-aba="abaAtividades">Canal</a>
             <ul class="submenu-nav">
-              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Nova Atividade</a></li>
+              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</a></li>
             </ul>
           </li>
           <li class="nav-item">
@@ -84,7 +84,7 @@ header('Content-Type: text/html; charset=utf-8');
             <!-- Ações rápidas -->
             <div class="d-flex flex-wrap gap-2 mb-3">
               <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</button>
-              <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Nova Atividade</button>
+              <button class="btn btn-sm btn-outline-light" type="button" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</button>
             </div>
 
             <div class="row g-3">
@@ -430,17 +430,16 @@ header('Content-Type: text/html; charset=utf-8');
                       <thead class="sticky-top" style="background:var(--cor-fundo);">
                         <tr class="texto-fraco small">
                           <th style="min-width:90px;">Data</th>
-                          <th style="min-width:140px;">Atividade</th>
+                          <th style="min-width:100px;">Canal</th>
                           <th style="min-width:200px;">Tarefa</th>
                           <th style="min-width:80px;">Tempo</th>
                           <th class="text-center" style="min-width:80px;">Status</th>
-                          <th style="min-width:100px;">Canal</th>
                           <th style="min-width:200px;">Observação</th>
                           <th class="text-end" style="min-width:80px;">Ações</th>
                         </tr>
                       </thead>
                       <tbody id="tbodyGestaoTarefas">
-                        <tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>
+                        <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -454,7 +453,7 @@ header('Content-Type: text/html; charset=utf-8');
 
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
-                  <h2 class="h6 mb-0">Atividades</h2>
+                  <h2 class="h6 mb-0">Canais</h2>
                   <span class="badge badge-suave">BANCO</span>
                 </div>
 
@@ -466,7 +465,7 @@ header('Content-Type: text/html; charset=utf-8');
                   </div>
 
                   <button class="btn btn-light botao-mini" type="button" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">
-                    + Nova atividade
+                    + Adicionar Canal
                   </button>
                 </div>
               </div>
@@ -475,7 +474,7 @@ header('Content-Type: text/html; charset=utf-8');
                 <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
                   <thead>
                     <tr class="texto-fraco small">
-                      <th style="min-width: 320px;">Atividade</th>
+                      <th style="min-width: 320px;">Canal</th>
                       <th class="text-center" style="min-width: 150px;">Dificuldade</th>
                       <th class="text-center" style="min-width: 160px;">Estimativa</th>
                       <th style="min-width: 320px;">Usuários</th>
@@ -551,17 +550,16 @@ header('Content-Type: text/html; charset=utf-8');
                     <tr class="texto-fraco small">
                       <th style="min-width:90px;">Data</th>
                       <th style="min-width:110px;">Membro</th>
-                      <th style="min-width:160px;">Atividade</th>
+                      <th style="min-width:120px;">Canal</th>
                       <th style="min-width:200px;">Tarefa</th>
                       <th style="min-width:80px;">Tempo</th>
-                      <th style="min-width:120px;">Canal</th>
                       <th style="min-width:200px;">Observação</th>
                       <th class="text-center" style="min-width:100px;">Status</th>
                       <th class="text-end" style="min-width:80px;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="tbodyGerenciarTarefas">
-                    <tr><td colspan="9" class="texto-fraco text-center py-3">Selecione os filtros e clique em Buscar.</td></tr>
+                    <tr><td colspan="8" class="texto-fraco text-center py-3">Selecione os filtros e clique em Buscar.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -719,7 +717,7 @@ header('Content-Type: text/html; charset=utf-8');
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
       <div class="modal-content bg-dark text-white border-secondary">
         <div class="modal-header border-secondary">
-          <h5 class="modal-title" id="tituloModalAtividade">Nova atividade</h5>
+          <h5 class="modal-title" id="tituloModalAtividade">Novo Canal</h5>
           <button type="button" class="btn btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">

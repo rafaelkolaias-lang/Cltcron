@@ -27,9 +27,20 @@ from declaracoes_dia import RepositorioDeclaracoesDia
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.3"
+VERSAO_APLICACAO = "v2.4"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v2.4",
+        "data": "12/04/2026",
+        "notas": [
+            "Campo obrigatório Nº do Vídeo ao declarar tarefa",
+            "Título salvo no formato: NUMERO - NOME DA TAREFA",
+            "Campo aceita apenas números inteiros (zeros à esquerda removidos)",
+            "Confirmação obrigatória de upload no Drive antes de salvar",
+            "Ajuda contextual (?) nos campos Nº do Vídeo, Tarefa e Canal",
+        ],
+    },
     {
         "versao": "v2.3",
         "data": "08/04/2026",
@@ -1658,14 +1669,26 @@ class JanelaSubtarefas(tk.Toplevel):
 
         janela = tk.Toplevel(self)
         janela.title("Declarar Tarefa")
-        janela.geometry("700x420")
+        janela.geometry("700x460")
         janela.resizable(False, False)
         janela.transient(self)
         janela.grab_set()
         janela.configure(bg="#111111")
 
         canal_inicial = (str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else self._titulo_atividade)
-        var_titulo = tk.StringVar(value=(str(getattr(subtarefa, "titulo", "") or "") if subtarefa else ""))
+
+        # Separa número e nome da tarefa ao editar (formato esperado: "NUMERO - NOME")
+        _titulo_completo = str(getattr(subtarefa, "titulo", "") or "") if subtarefa else ""
+        if subtarefa and " - " in _titulo_completo:
+            _partes = _titulo_completo.split(" - ", 1)
+            _numero_inicial = _partes[0]
+            _titulo_inicial = _partes[1]
+        else:
+            _numero_inicial = ""
+            _titulo_inicial = _titulo_completo
+
+        var_numero = tk.StringVar(value=_numero_inicial)
+        var_titulo = tk.StringVar(value=_titulo_inicial)
         var_canal = tk.StringVar(value=canal_inicial)
         var_observacao = tk.StringVar(value=(str(getattr(subtarefa, "observacao", "") or "") if subtarefa else ""))
         referencia_atual = getattr(subtarefa, "referencia_data", None) if subtarefa else self._referencia_data
@@ -1682,6 +1705,40 @@ class JanelaSubtarefas(tk.Toplevel):
         _D = "#6a6a6a"   # rótulos dimm
         _A = "#1b6ef3"   # accent azul
 
+        # ── tooltip simples ───────────────────────────────────
+        def _tooltip(widget: tk.Widget, texto: str) -> None:
+            tip: list[tk.Toplevel | None] = [None]
+
+            def _mostrar(event: tk.Event) -> None:  # type: ignore[type-arg]
+                if tip[0]:
+                    return
+                tw = tk.Toplevel(widget)
+                tw.wm_overrideredirect(True)
+                tw.wm_geometry(f"+{event.x_root + 12}+{event.y_root + 6}")
+                tk.Label(tw, text=texto, bg="#2a2a2a", fg="#e2e8f0",
+                         font=("Segoe UI", 9), padx=8, pady=5,
+                         wraplength=240, justify="left").pack()
+                tip[0] = tw
+
+            def _esconder(_event: tk.Event) -> None:  # type: ignore[type-arg]
+                if tip[0]:
+                    tip[0].destroy()
+                    tip[0] = None
+
+            widget.bind("<Enter>", _mostrar)
+            widget.bind("<Leave>", _esconder)
+
+        def _label_com_ajuda(parent: tk.Frame, texto_label: str, texto_ajuda: str) -> None:
+            """Renderiza label + ícone ? com tooltip lado a lado."""
+            row = tk.Frame(parent, bg=_C)
+            row.pack(anchor="w")
+            tk.Label(row, text=texto_label, bg=_C, fg=_D,
+                     font=("Segoe UI", 8, "bold")).pack(side="left")
+            btn_q = tk.Label(row, text=" ?", bg=_C, fg=_A,
+                             font=("Segoe UI", 8, "bold"), cursor="question_arrow")
+            btn_q.pack(side="left")
+            _tooltip(btn_q, texto_ajuda)
+
         # barra de acento no topo
         tk.Frame(janela, bg=_A, height=3).pack(fill="x")
 
@@ -1693,10 +1750,37 @@ class JanelaSubtarefas(tk.Toplevel):
         tk.Label(inner, text=titulo_janela, bg=_C, fg="#ffffff",
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 16))
 
-        # Tarefa
-        tk.Label(inner, text="TAREFA", bg=_C, fg=_D,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        ttk.Entry(inner, textvariable=var_titulo, width=82).pack(fill="x", pady=(3, 12))
+        # Nº do vídeo + Tarefa (lado a lado)
+        linha_tarefa = tk.Frame(inner, bg=_C)
+        linha_tarefa.pack(fill="x")
+        col_numero = tk.Frame(linha_tarefa, bg=_C)
+        col_numero.pack(side="left")
+        col_titulo = tk.Frame(linha_tarefa, bg=_C)
+        col_titulo.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        _label_com_ajuda(col_numero, "Nº DO VÍDEO",
+                         "Número da pasta do Drive.")
+        entry_numero = ttk.Entry(col_numero, textvariable=var_numero, width=10)
+        entry_numero.pack(fill="x", pady=(3, 12))
+
+        def _on_key_numero(event: tk.Event) -> str:  # type: ignore[type-arg]
+            if event.keysym in ("BackSpace", "Delete", "Left", "Right", "Tab", "ISO_Left_Tab"):
+                return ""
+            if not event.char.isdigit():
+                return "break"
+            return ""
+
+        def _normalizar_numero(*_args: object) -> None:
+            val = var_numero.get().lstrip("0") or ""
+            if val != var_numero.get():
+                var_numero.set(val)
+
+        entry_numero.bind("<Key>", _on_key_numero)
+        var_numero.trace_add("write", _normalizar_numero)
+
+        _label_com_ajuda(col_titulo, "TAREFA",
+                         "Nome/Tema do vídeo ou tarefa.")
+        ttk.Entry(col_titulo, textvariable=var_titulo, width=60).pack(fill="x", pady=(3, 12))
 
         # Canal + Data (lado a lado)
         linha_superior = tk.Frame(inner, bg=_C)
@@ -1706,8 +1790,8 @@ class JanelaSubtarefas(tk.Toplevel):
         coluna_direita = tk.Frame(linha_superior, bg=_C)
         coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
 
-        tk.Label(coluna_esquerda, text="CANAL", bg=_C, fg=_D,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        _label_com_ajuda(coluna_esquerda, "CANAL",
+                         "Escolha o canal correspondente ao trabalho declarado.")
         combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="readonly")
         combo_canal.pack(fill="x", pady=(3, 10))
 
@@ -1749,6 +1833,15 @@ class JanelaSubtarefas(tk.Toplevel):
             return "break"
 
         entry_tempo.bind("<Key>", _on_key_tempo)
+
+        # Confirmação de upload no Drive (sempre desmarcada ao abrir)
+        var_drive = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            inner, text="Declaro que já subi os arquivos no drive",
+            variable=var_drive, bg=_C, fg="#e2e8f0", selectcolor="#111111",
+            activebackground=_C, activeforeground="#ffffff",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(8, 0))
 
         # separador + rodapé
         tk.Frame(janela, bg="#282828", height=1).pack(fill="x")
@@ -1795,7 +1888,35 @@ class JanelaSubtarefas(tk.Toplevel):
 
             user_id = self._usuario_id()
             id_atividade = self._id_atividade
-            titulo = var_titulo.get()
+            if not var_drive.get():
+                _atualizar_texto_botao()
+                btn_salvar.configure(state="normal")
+                btn_cancelar.configure(state="normal")
+                messagebox.showwarning(
+                    "Atenção",
+                    "Confirme que já subiu os arquivos no Drive antes de salvar.",
+                    parent=janela,
+                )
+                return
+
+            numero_video = var_numero.get().strip()
+            titulo_nome = var_titulo.get().strip()
+
+            if not numero_video:
+                _atualizar_texto_botao()
+                btn_salvar.configure(state="normal")
+                btn_cancelar.configure(state="normal")
+                messagebox.showwarning("Atenção", "Informe o número do vídeo.", parent=janela)
+                return
+
+            if not titulo_nome:
+                _atualizar_texto_botao()
+                btn_salvar.configure(state="normal")
+                btn_cancelar.configure(state="normal")
+                messagebox.showwarning("Atenção", "Informe o nome da tarefa.", parent=janela)
+                return
+
+            titulo = f"{numero_video} - {titulo_nome}"
             canal = var_canal.get()
             observacao = var_observacao.get()
             segundos_trabalhando = self._segundos_trabalhando

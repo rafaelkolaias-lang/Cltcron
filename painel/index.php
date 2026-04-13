@@ -946,6 +946,18 @@ header('Content-Type: text/html; charset=utf-8');
           <div class="texto-fraco small mt-2">
             O valor não será exibido de volta depois de salvo — só a máscara parcial.
           </div>
+
+          <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="checkAplicarTodos">
+            <label class="form-check-label" for="checkAplicarTodos">
+              Adicionar essa credencial a <strong>todos os usuários</strong>
+            </label>
+            <div class="texto-fraco small">
+              Sobrescreve o valor atual de todos os usuários ativos para este serviço.
+              Útil para APIs globais (ex.: Assembly) usadas por toda a equipe.
+            </div>
+          </div>
+
           <input type="hidden" id="subUserId" value="">
           <input type="hidden" id="subIdModelo" value="0">
         </div>

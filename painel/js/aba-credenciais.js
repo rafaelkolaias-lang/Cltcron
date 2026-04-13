@@ -255,6 +255,9 @@
     document.getElementById('textoModalSubUsuario').textContent = userId;
     document.getElementById('textoModalSubServico').textContent = nomeServico;
     document.getElementById('entradaNovoValor').value = '';
+    // Sempre desmarcado ao abrir
+    const chk = document.getElementById('checkAplicarTodos');
+    if (chk) chk.checked = false;
     const m = new bootstrap.Modal(document.getElementById('modalSubstituirValor'));
     m.show();
   }
@@ -263,14 +266,37 @@
     const user_id = document.getElementById('subUserId').value;
     const id_modelo = parseInt(document.getElementById('subIdModelo').value || '0', 10);
     const valor = document.getElementById('entradaNovoValor').value;
-    if (!user_id || id_modelo <= 0) { alert('Dados inválidos.'); return; }
+    const aplicar_todos = !!document.getElementById('checkAplicarTodos')?.checked;
+
+    if (id_modelo <= 0) { alert('Dados inválidos.'); return; }
+    if (!aplicar_todos && !user_id) { alert('Usuário inválido.'); return; }
     if (!valor.trim()) { alert('Informe o valor.'); return; }
+
+    // Confirmação extra em modo global
+    if (aplicar_todos) {
+      const ok = confirm(
+        'Isso vai SOBRESCREVER o valor desta credencial em TODOS os usuários ativos.\n\n' +
+        'Usuários que já tinham outra chave perderão a atual.\n\n' +
+        'Continuar?'
+      );
+      if (!ok) return;
+    }
+
     try {
-      await requisitar(API + 'salvar_valor.php', 'POST', { user_id, id_modelo, valor });
+      const resp = await requisitar(API + 'salvar_valor.php', 'POST', {
+        user_id, id_modelo, valor, aplicar_todos,
+      });
       document.getElementById('entradaNovoValor').value = '';
       bootstrap.Modal.getInstance(document.getElementById('modalSubstituirValor')).hide();
-      if (estado.userSelecionadoAba === user_id) carregarCredenciaisAba();
-      if (obterUserIdGestao() === user_id) carregarCredenciaisGestao(user_id);
+
+      if (aplicar_todos && resp && resp.usuarios_afetados != null) {
+        alert(`Credencial aplicada a ${resp.usuarios_afetados} usuário(s).`);
+      }
+
+      // Recarrega grades independentemente (no modo global todos mudaram)
+      if (estado.userSelecionadoAba) carregarCredenciaisAba();
+      const userG = obterUserIdGestao();
+      if (userG) carregarCredenciaisGestao(userG);
     } catch (e) {
       alert('Erro ao salvar valor: ' + e.message);
     }

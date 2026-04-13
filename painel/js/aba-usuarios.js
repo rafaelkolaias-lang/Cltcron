@@ -573,6 +573,9 @@
       carregarTarefasDoUsuario(uid),
     ]);
 
+    const abaGestaoEl = document.getElementById("abaGestaoUsuario");
+    if (abaGestaoEl) abaGestaoEl.setAttribute("data-user-id", uid);
+
     if (typeof window.PainelNucleo_trocarAba === "function") {
       window.PainelNucleo_trocarAba("abaGestaoUsuario");
     }

@@ -173,7 +173,7 @@
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio"];
+    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio", "abaCredenciais"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -191,6 +191,7 @@
       abaAtividades: "Atividades · atribuições",
       abaGerenciarTarefas: "Gerenciar Tarefas · declarações",
       abaRelatorio: "Relatório · tempo trabalhado declarado",
+      abaCredenciais: "Credenciais e APIs · segredos por usuário",
     }[idAba] || "";
 
     const elSub = document.getElementById("textoSubtitulo");
@@ -219,6 +220,11 @@
 
     if (idAba === "abaRelatorio") {
       window.PainelAbaRelatorio?.renderizarAbaRelatorio?.();
+      return;
+    }
+
+    if (idAba === "abaCredenciais") {
+      // aba-credenciais.js observa mudanças em #abaCredenciais e carrega sozinho
       return;
     }
 

@@ -46,3 +46,16 @@ temporary_rules.md
 
 # Schema SQL (contém estrutura sensível do banco)
 dados.sql
+
+# Manual de credenciais (contém chave fixa de descriptografia dos apps)
+\!manual-credenciais.md
+
+# Arquivo de ambiente com APP_SECRETS_MASTER_KEY
+.env
+painel/.env
+
+# Contexto interno do Claude Code (pode conter histórico/decisões)
+.claude/
+
+# Memória persistente / projetos do Claude
+.anthropic/

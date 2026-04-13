@@ -1836,12 +1836,18 @@ class JanelaSubtarefas(tk.Toplevel):
 
         # Confirmação de upload no Drive (sempre desmarcada ao abrir)
         var_drive = tk.BooleanVar(value=False)
-        tk.Checkbutton(
+        chk_drive = tk.Checkbutton(
             inner, text="Declaro que já subi os arquivos no drive",
-            variable=var_drive, bg=_C, fg="#e2e8f0", selectcolor="#111111",
+            variable=var_drive, bg=_C, fg="#e55555", selectcolor="#111111",
             activebackground=_C, activeforeground="#ffffff",
             font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(8, 0))
+        )
+        chk_drive.pack(anchor="w", pady=(8, 0))
+
+        def _atualizar_cor_drive(*_args: object) -> None:
+            chk_drive.configure(fg="#4ade80" if var_drive.get() else "#e55555")
+
+        var_drive.trace_add("write", _atualizar_cor_drive)
 
         # separador + rodapé
         tk.Frame(janela, bg="#282828", height=1).pack(fill="x")

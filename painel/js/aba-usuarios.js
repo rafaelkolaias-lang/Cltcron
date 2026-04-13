@@ -40,8 +40,12 @@
     }
 
     if (!resp.ok) {
-      const msg = (json && json.mensagem) ? json.mensagem : `HTTP ${resp.status}`;
-      throw new Error(msg);
+      const base = (json && json.mensagem) ? json.mensagem : `HTTP ${resp.status}`;
+      const d = json && json.dados;
+      const detalhe = (d && typeof d === "object")
+        ? [d.erro, d.arquivo && `@${d.arquivo}:${d.linha || "?"}`].filter(Boolean).join(" ")
+        : "";
+      throw new Error(detalhe ? `${base} — ${detalhe}` : base);
     }
 
     if (!json || typeof json.ok !== "boolean") {

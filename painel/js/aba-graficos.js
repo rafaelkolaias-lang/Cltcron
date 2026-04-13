@@ -149,8 +149,17 @@
       body: JSON.stringify(corpo || {}),
       cache: "no-store",
     });
-    const json = await resp.json();
-    if (!resp.ok || !json || json.ok !== true) throw new Error(json?.mensagem || "Falha ao buscar dados.");
+    let json = null;
+    try { json = await resp.json(); } catch (_) {}
+    if (!resp.ok || !json || json.ok !== true) {
+      const base = json?.mensagem || `HTTP ${resp.status}`;
+      // inclui detalhe do backend quando disponível (dados.erro, dados.arquivo, dados.linha)
+      const d = json?.dados;
+      const detalhe = (d && typeof d === "object")
+        ? [d.erro, d.arquivo && `@${d.arquivo}:${d.linha || "?"}`].filter(Boolean).join(" ")
+        : "";
+      throw new Error(detalhe ? `${base} — ${detalhe}` : base);
+    }
     return json.dados;
   }
 

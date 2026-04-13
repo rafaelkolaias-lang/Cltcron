@@ -28,7 +28,6 @@ painel/logs/ratelimit/
 # Credenciais e dados sensíveis
 
 # Tokens e tentativas de login (gerados em runtime)
-painel/commands/conexao/conexao.php
 painel/commands/_comum/.tokens.json
 painel/commands/_comum/.tentativas.json
 

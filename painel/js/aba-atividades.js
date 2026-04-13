@@ -122,7 +122,12 @@
       throw new Error("Resposta inválida do servidor.");
     }
     if (!resp.ok || json.ok === false) {
-      throw new Error(json.mensagem || "Falha na requisição.");
+      const base = json.mensagem || "Falha na requisição.";
+      const d = json.dados;
+      const detalhe = (d && typeof d === "object")
+        ? [d.erro, d.arquivo && `@${d.arquivo}:${d.linha || "?"}`].filter(Boolean).join(" ")
+        : "";
+      throw new Error(detalhe ? `${base} — ${detalhe}` : base);
     }
     return json;
   }

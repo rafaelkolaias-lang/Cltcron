@@ -108,9 +108,17 @@
     let json = null;
     try { json = await resp.json(); } catch { json = null; }
 
+    const _formatarErro = (j, status) => {
+      const base = (j && j.mensagem) ? j.mensagem : `HTTP ${status}`;
+      const d = j && j.dados;
+      const detalhe = (d && typeof d === "object")
+        ? [d.erro, d.arquivo && `@${d.arquivo}:${d.linha || "?"}`].filter(Boolean).join(" ")
+        : "";
+      return detalhe ? `${base} — ${detalhe}` : base;
+    };
+
     if (!resp.ok) {
-      const msg = (json && json.mensagem) ? json.mensagem : `HTTP ${resp.status}`;
-      throw new Error(msg);
+      throw new Error(_formatarErro(json, resp.status));
     }
 
     if (!json || typeof json.ok !== "boolean") {

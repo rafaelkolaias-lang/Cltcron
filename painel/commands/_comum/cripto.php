@@ -35,6 +35,36 @@ function obter_chave_mestra_secreta(): string
 }
 
 /**
+ * Chave fixa compartilhada com os apps consumidores.
+ * Usada para recifrar o payload entregue pelo endpoint de consumo (Fase 2).
+ */
+function obter_chave_cliente_fixa(): string
+{
+    $bruto = getenv('APP_CLIENT_DECRYPT_KEY');
+    if ($bruto === false || $bruto === '') {
+        throw new RuntimeException('APP_CLIENT_DECRYPT_KEY ausente no ambiente (.env).');
+    }
+    $chave = base64_decode((string)$bruto, true);
+    if ($chave === false || strlen($chave) !== SODIUM_CRYPTO_SECRETBOX_KEYBYTES) {
+        throw new RuntimeException('APP_CLIENT_DECRYPT_KEY inválida — deve ser 32 bytes em base64.');
+    }
+    return $chave;
+}
+
+/**
+ * Cifra um texto puro com a chave FIXA DO CLIENTE (não a mestra).
+ * Usar apenas no endpoint de consumo: decifrar do banco com mestra → recifrar com cliente → entregar.
+ */
+function cifrar_para_cliente(string $valor_puro): array
+{
+    $chave = obter_chave_cliente_fixa();
+    $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
+    $cipher = sodium_crypto_secretbox($valor_puro, $nonce, $chave);
+    sodium_memzero($chave);
+    return ['cipher' => $cipher, 'nonce' => $nonce, 'versao' => 1];
+}
+
+/**
  * Cifra um texto puro com a chave mestra.
  * Retorna ['cipher' => <bytes>, 'nonce' => <bytes>, 'versao' => 1].
  */

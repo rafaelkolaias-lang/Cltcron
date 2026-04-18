@@ -161,6 +161,12 @@ INTERVALO_SCAN_APPS_SEGUNDOS = 10.0
 # quase em tempo real sem esperar o fechamento da sessão.
 INTERVALO_UPSERT_RELATORIO_SEGUNDOS = 300.0  # 5 minutos
 
+# Verificação periódica de atualização após o login (apenas avisa, não aplica).
+# Só roda quando executado como .exe (PyInstaller). Se achar update, abre modal
+# informativo; se o usuário ignorar, o aviso reaparece no próximo ciclo enquanto
+# houver atualização disponível.
+INTERVALO_VERIFICAR_UPDATE_MS = 10 * 60 * 1000  # 10 minutos
+
 ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"
 ARQUIVO_FILA_OFFLINE = Path.home() / ".cronometro_leve_fila_offline.json"
@@ -2682,6 +2688,9 @@ class App(tk.Tk):
         self._var_tempo_regressiva_fixado = tk.StringVar(value="00:00:00")
         self._regressiva_carregar_do_disco()
 
+        # T25: modal de aviso de update evita empilhamento quando o user ignora
+        self._modal_update_aberto: bool = False
+
         self._ultimo_segundo_renderizado = -1
         self._ultimo_status_renderizado = ""
 
@@ -2887,6 +2896,7 @@ class App(tk.Tk):
             def _na_ui() -> None:
                 self._usuario = usuario
                 self._verificar_atualizacao()
+                self._agendar_verificacao_periodica_update()
                 self._montar_tela_principal()
             self.after(0, _na_ui)
         threading.Thread(target=_em_thread, daemon=True).start()
@@ -3184,6 +3194,77 @@ class App(tk.Tk):
 
         threading.Thread(target=_em_thread, daemon=True).start()
 
+    def _agendar_verificacao_periodica_update(self) -> None:
+        """Agenda próximo ciclo de checagem de update (apenas avisa — não auto-aplica).
+        T25: a cada 10 min, se houver update disponível, abre modal informativo.
+        """
+        try:
+            self.after(INTERVALO_VERIFICAR_UPDATE_MS, self._verificar_atualizacao_periodica)
+        except tk.TclError:
+            pass
+
+    def _verificar_atualizacao_periodica(self) -> None:
+        """Check em background do tamanho do .exe remoto vs local.
+        Se diferente, dispara modal informativo. Sempre reagenda o próximo ciclo.
+        Só roda em .exe (PyInstaller). Em modo script, nem entra.
+        """
+        if not getattr(sys, "frozen", False):
+            return
+
+        def _em_thread() -> None:
+            try:
+                caminho_atual = Path(sys.executable).resolve()
+                tamanho_local = caminho_atual.stat().st_size
+
+                req = urllib.request.Request(URL_ATUALIZACAO, method="HEAD")
+                req.add_header("User-Agent", "CronometroLeve-Updater/1.0")
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    tamanho_remoto = int(resp.headers.get("Content-Length", 0))
+
+                if tamanho_remoto > 0 and tamanho_remoto != tamanho_local:
+                    self.after(0, self._mostrar_aviso_update_disponivel)
+            except Exception:
+                pass
+            finally:
+                # Sempre reagenda — mantém o ciclo de 10 min rodando
+                self.after(0, self._agendar_verificacao_periodica_update)
+
+        threading.Thread(target=_em_thread, daemon=True).start()
+
+    def _mostrar_aviso_update_disponivel(self) -> None:
+        """Modal informativo. Não aplica a atualização — só pede reinício.
+        Se o usuário só clica OK e ignora, o próximo ciclo (10 min depois) reabre
+        enquanto a atualização continuar disponível.
+        """
+        if getattr(self, "_modal_update_aberto", False):
+            return  # evita empilhar
+
+        dlg = tk.Toplevel(self)
+        self._modal_update_aberto = True
+        dlg.title("Atualização disponível")
+        dlg.geometry("400x170")
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.transient(self)
+        dlg.configure(bg="#111111")
+
+        ttk.Label(dlg, text="⟳ Atualização disponível", font=("Segoe UI", 14, "bold")).pack(pady=(16, 6))
+        ttk.Label(
+            dlg,
+            text="Uma nova versão do cronômetro está disponível.\nReinicie o programa para aplicar.",
+            wraplength=360, justify="center",
+        ).pack(padx=14)
+
+        def _fechar() -> None:
+            self._modal_update_aberto = False
+            try: dlg.destroy()
+            except Exception: pass
+
+        dlg.protocol("WM_DELETE_WINDOW", _fechar)
+        ttk.Button(dlg, text="OK", style="Verde.TButton", command=_fechar).pack(pady=12)
+        dlg.bind("<Return>", lambda _e: _fechar())
+        dlg.bind("<Escape>", lambda _e: _fechar())
+
     def _logar(self) -> None:
         user_id = (self._var_user.get() or "").strip()
         chave = (self._var_chave.get() or "").strip()
@@ -3212,6 +3293,7 @@ class App(tk.Tk):
                 self._var_status.set("Login OK.")
                 self.unbind("<Return>")
                 self._verificar_atualizacao()
+                self._agendar_verificacao_periodica_update()
                 self._montar_tela_principal()
 
             self.after(0, _na_ui)

@@ -510,7 +510,15 @@ class RepositorioDeclaracoesDia:
             """
             parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
             if referencia_data is not None:
-                sql += " AND DATE(criado_em) = %s"
+                # Usa referencia_data (data real trabalhada). Fallback para DATE(criado_em)
+                # apenas em relatórios legados que ainda não tenham referencia_data preenchida.
+                sql += """
+                    AND (
+                        (referencia_data IS NOT NULL AND referencia_data = %s)
+                        OR (referencia_data IS NULL AND DATE(criado_em) = %s)
+                    )
+                """
+                parametros.append(referencia_data)
                 parametros.append(referencia_data)
 
             linha = self._banco.consultar_um(sql, parametros)

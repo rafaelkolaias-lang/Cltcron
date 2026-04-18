@@ -1223,21 +1223,10 @@
     if (!chart) return;
     if (!usuarios.length) { chart.clear(); return; }
 
-    // Calcular tempo por membro a partir dos periodos_foco clipados no dia/período
-    let cIniMs, cFimMs;
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
-      cIniMs = new Date(ini + "T00:00:00").getTime();
-      cFimMs = new Date(fim + "T23:59:59.999").getTime();
-    } else {
-      const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
-      cIniMs = new Date(dia + "T00:00:00").getTime();
-      cFimMs = new Date(dia + "T23:59:59.999").getTime();
-    }
-
     const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
-    const trabalhando = usuarios.map(u => _segundosFocoMesclados(u.periodos_foco || [], cIniMs, cFimMs)).reverse();
+    // Trabalhado líquido vem de cronometro_relatorios.segundos_trabalhando no recorte atual
+    // (mesma fonte de Ocioso/Pausado) para manter a decomposição coerente: T + O + P = tempo cronometrado.
+    const trabalhando = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_trabalhando).reverse();
     const ocioso = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_ocioso).reverse();
     const pausado = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_pausado).reverse();
 

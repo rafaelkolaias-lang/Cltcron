@@ -91,6 +91,18 @@ class BancoDados:
             except Exception:
                 return 0
 
+    def executar_e_contar(self, sql: str, parametros: list[Any] | None = None) -> int:
+        """Como executar(), mas retorna rowcount (linhas afetadas) — útil para UPDATE/DELETE."""
+        conexao = self._obter_conexao_da_thread()
+        parametros = parametros or []
+        with conexao.cursor() as cursor:
+            self._log(sql)
+            cursor.execute(sql, parametros)
+            try:
+                return int(cursor.rowcount or 0)
+            except Exception:
+                return 0
+
     def consultar_um(self, sql: str, parametros: list[Any] | None = None) -> dict | None:
         conexao = self._obter_conexao_da_thread()
         parametros = parametros or []

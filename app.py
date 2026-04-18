@@ -25,11 +25,85 @@ from banco import BancoDados
 from declaracoes_dia import RepositorioDeclaracoesDia
 
 # =========================
+# MODO SCRIPT (dev) vs EXE (produção)
+# =========================
+# MODO_SCRIPT=True quando rodando via `python app.py` (não compilado).
+# PyInstaller define sys.frozen=True no .exe final.
+MODO_SCRIPT = not getattr(sys, "frozen", False)
+
+
+class LogTecnico:
+    """Log técnico em memória + arquivo. Thread-safe. Usado para depurar o cronômetro em modo script."""
+
+    def __init__(self, caminho_arquivo: Path, max_memoria: int = 2000) -> None:
+        self._caminho = caminho_arquivo
+        self._max = max_memoria
+        self._lock = threading.Lock()
+        self._memoria: list[str] = []
+        try:
+            self._caminho.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+    def log(self, categoria: str, mensagem: str, detalhes: object = None) -> None:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        linha = f"[{ts}] [{categoria:14}] {mensagem}"
+        if detalhes is not None:
+            try:
+                linha += f" :: {json.dumps(detalhes, ensure_ascii=False, default=str)}"
+            except Exception:
+                linha += f" :: {detalhes}"
+        with self._lock:
+            self._memoria.append(linha)
+            if len(self._memoria) > self._max:
+                del self._memoria[: len(self._memoria) - self._max]
+            try:
+                with open(self._caminho, "a", encoding="utf-8") as f:
+                    f.write(linha + "\n")
+            except Exception:
+                pass
+
+    def linhas(self) -> list[str]:
+        with self._lock:
+            return list(self._memoria)
+
+    def limpar(self) -> None:
+        with self._lock:
+            self._memoria.clear()
+        try:
+            if self._caminho.exists():
+                self._caminho.write_text("", encoding="utf-8")
+        except Exception:
+            pass
+
+
+ARQUIVO_LOG_TECNICO = Path.home() / ".cronometro_leve_log_tecnico.txt"
+LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
+
+
+# =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.4"
+VERSAO_APLICACAO = "v2.5"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v2.5",
+        "data": "18/04/2026",
+        "notas": [
+            "Contagem regressiva visual (ex.: jornada de 8h) com pausa automática e alerta obrigatório ao zerar",
+            "Janela fixada mostra regressiva e cronômetro juntos; bug de abertura sem tempo corrigido",
+            "Totais de trabalhado/ocioso/pausado aparecem no painel web quase em tempo real (atualização a cada 5 min e ao pausar)",
+            "Gráficos do painel com Top Apps e barras foco/2.º plano precisos por dia (sem rateio proporcional)",
+            "Exclusão automática de trechos ociosos nos gráficos de foco (trabalho líquido)",
+            "Status 'TRABALHANDO' muda de cor: verde (online) / amarelo (offline)",
+            "Mensagens de sincronização (fila re-enviada) aparecem em verde e somem sozinhas após 10s",
+            "Reenvio offline robusto: itens de sessão inválida são descartados sem travar a fila",
+            "Saneamento automático de registros pendurados ao iniciar/restaurar sessão",
+            "Nome do usuário movido para o título da janela; botões do topo centralizados (Fixar / Regressiva / Sair)",
+            "Log técnico detalhado com categorias de conexão (só modo desenvolvedor)",
+        ],
+    },
     {
         "versao": "v2.4",
         "data": "12/04/2026",
@@ -71,7 +145,7 @@ URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/
 INTERVALO_LOOP_SEGUNDOS = 0.20
 INTERVALO_UI_MILISSEGUNDOS = 80
 INTERVALO_HEARTBEAT_SEGUNDOS = 60.0
-INTERVALO_STATUS_BANCO_SEGUNDOS = 5.0
+INTERVALO_STATUS_BANCO_SEGUNDOS = 10.0
 
 LIMITE_OCIOSO_SEGUNDOS = 5 * 60
 
@@ -80,11 +154,17 @@ LIMITE_HORAS_MAXIMO = 30 * 3600      # 30h — para de computar
 
 CAPTURAR_TITULO_JANELA = False
 
-INTERVALO_SCAN_APPS_SEGUNDOS = 15.0
+INTERVALO_SCAN_APPS_SEGUNDOS = 10.0
+
+# Persistência parcial de cronometro_relatorios — grava/atualiza a cada N segundos
+# na mesma linha (id_sessao, referencia_data), para o painel web enxergar totais
+# quase em tempo real sem esperar o fechamento da sessão.
+INTERVALO_UPSERT_RELATORIO_SEGUNDOS = 300.0  # 5 minutos
 
 ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"
 ARQUIVO_FILA_OFFLINE = Path.home() / ".cronometro_leve_fila_offline.json"
+ARQUIVO_REGRESSIVA = Path.home() / ".cronometro_leve_regressiva.json"
 
 TOLERANCIA_VALIDACAO_SEGUNDOS = 1
 
@@ -268,6 +348,9 @@ class EstadoMonitor:
     segundos_ocioso: int
     segundos_pausado: int
     ultimo_erro: str
+    # T24: feedback visual rico na UI
+    offline: bool = False          # True quando a app está em modo offline
+    mensagem_sucesso: str = ""     # mensagem transitória (auto-expira; ex.: "fila re-enviada")
 
 
 class MonitorDeUso:
@@ -303,16 +386,27 @@ class MonitorDeUso:
         self._ultimo_sync_status_mono: float = 0.0
         self._ultimo_flush_fila_mono: float = 0.0
         self._ultimo_marco_mono: float = 0.0
+        self._ultimo_upsert_relatorio_mono: float = 0.0
         self._ultimo_erro: str = ""
         self._offline_notificado: bool = False
+        # T24: mensagem transitória de sucesso (auto-expira no snapshot após ~10s)
+        self._mensagem_sucesso: str = ""
+        self._mensagem_sucesso_expira_mono: float = 0.0
 
         self._mapa_intervalos_apps: dict[str, dict] = {}
         self._ultimo_scan_apps_mono: float = 0.0
         self._ultimo_save_estado_mono: float = 0.0
         self._inicio_sessao_cache: datetime | None = None
+        # Cache de sessões já validadas no banco — evita repetir SELECT por item no flush offline.
+        self._cache_sessoes_validas: dict[int, bool] = {}
 
     def _registrar_erro_locked(self, mensagem: str) -> None:
         self._ultimo_erro = (mensagem or "").strip()[:240]
+
+    def _registrar_sucesso_locked(self, mensagem: str, segundos: float = 10.0) -> None:
+        """Mensagem transitória de sucesso — auto-expira após `segundos` via snapshot."""
+        self._mensagem_sucesso = (mensagem or "").strip()[:240]
+        self._mensagem_sucesso_expira_mono = time.monotonic() + max(0.0, segundos)
 
     def _snapshot_locked(self) -> EstadoMonitor:
         trabalhando = self._segundos_trabalhando_float
@@ -331,6 +425,12 @@ class MonitorDeUso:
                 else:
                     trabalhando += delta
 
+        # Expira mensagem transitória de sucesso após o tempo configurado.
+        msg_sucesso = self._mensagem_sucesso
+        if msg_sucesso and time.monotonic() >= self._mensagem_sucesso_expira_mono:
+            self._mensagem_sucesso = ""
+            msg_sucesso = ""
+
         return EstadoMonitor(
             rodando=self._rodando,
             situacao=self._situacao_calculada,
@@ -338,6 +438,8 @@ class MonitorDeUso:
             segundos_ocioso=converter_segundos_para_inteiro(ocioso),
             segundos_pausado=converter_segundos_para_inteiro(pausado),
             ultimo_erro=self._ultimo_erro,
+            offline=self._offline_notificado,
+            mensagem_sucesso=msg_sucesso,
         )
 
     def obter_estado(self) -> EstadoMonitor:
@@ -423,14 +525,21 @@ class MonitorDeUso:
         if _id is None or not _uid:
             return
 
-        self._banco.executar(
-            """
-            INSERT INTO cronometro_eventos_status
-                (id_sessao, user_id, tipo_evento, situacao, ocorrido_em, idle_segundos)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            [_id, _uid, tipo_evento, situacao, ocorrido_em or datetime.now(), int(idle_segundos)],
-        )
+        try:
+            self._banco.executar(
+                """
+                INSERT INTO cronometro_eventos_status
+                    (id_sessao, user_id, tipo_evento, situacao, ocorrido_em, idle_segundos)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                [_id, _uid, tipo_evento, situacao, ocorrido_em or datetime.now(), int(idle_segundos)],
+            )
+            LOG_TEC.log("evento", f"{tipo_evento} -> {situacao}", {
+                "id_sessao": _id, "user_id": _uid, "idle": int(idle_segundos),
+            })
+        except Exception as erro:
+            LOG_TEC.log("evento_erro", f"falha ao inserir {tipo_evento}", {"erro": str(erro)})
+            raise
 
     # --- Fila offline ---
 
@@ -459,23 +568,99 @@ class MonitorDeUso:
         ocorrido_em: datetime | None = None,
     ) -> None:
         fila = self._carregar_fila_offline()
+        tam_antes = len(fila)
+        ocorrido_iso = (ocorrido_em or datetime.now()).isoformat()
         fila.append({
             "tipo_evento": tipo_evento,
             "situacao": situacao,
             "idle_segundos": idle_segundos,
             "id_sessao": self._id_sessao,
             "user_id": self._user_id,
-            "ocorrido_em": (ocorrido_em or datetime.now()).isoformat(),
+            "ocorrido_em": ocorrido_iso,
         })
         self._salvar_fila_offline(fila)
+        LOG_TEC.log("offline_fila", f"+{tipo_evento}", {
+            "tipo_evento": tipo_evento,
+            "situacao": situacao,
+            "idle": int(idle_segundos),
+            "id_sessao": self._id_sessao,
+            "user_id": self._user_id,
+            "ocorrido_em": ocorrido_iso,
+            "fila_antes": tam_antes,
+            "fila_depois": len(fila),
+        })
+
+    def _sessao_valida_para_replay(self, id_sessao) -> bool | None:
+        """Verifica se `id_sessao` existe em `cronometro_sessoes`.
+        Retorna True/False se conseguiu consultar, ou None se o banco estiver inacessível
+        (nesse caso o caller deve manter o item na fila, não descartar).
+        Usa cache local para evitar SELECT repetido por item.
+        """
+        try:
+            ids = int(id_sessao)
+        except (TypeError, ValueError):
+            return False
+        if ids <= 0:
+            return False
+        if ids in self._cache_sessoes_validas:
+            return self._cache_sessoes_validas[ids]
+        try:
+            linha = self._banco.consultar_um(
+                "SELECT 1 AS ok FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
+                [ids],
+            )
+        except Exception:
+            return None  # banco indisponível
+        valido = linha is not None
+        self._cache_sessoes_validas[ids] = valido
+        return valido
 
     def _tentar_flush_fila_offline(self) -> None:
-        """Re-envia eventos pendentes da fila offline. Para ao primeiro erro."""
+        """Re-envia eventos pendentes. Descarta itens órfãos (sessão inexistente / FK violation)
+        em vez de travar a fila. Preserva itens válidos e retoma no próximo tick em caso de
+        erro genuíno de conexão.
+        """
         fila = self._carregar_fila_offline()
         if not fila:
             return
+        tam_inicial = len(fila)
+        inicio_flush = datetime.now()
+        LOG_TEC.log("offline_flush_inicio", f"tentando reenviar {tam_inicial}", {
+            "fila_tam": tam_inicial,
+            "iniciado_em": inicio_flush.isoformat(),
+        })
+
+        nova_fila: list[dict] = []
         enviados = 0
-        for item in fila:
+        descartados = 0
+        falhou_conexao = False
+        falhou_em: dict | None = None
+
+        for idx, item in enumerate(fila):
+            if falhou_conexao:
+                # Preserva restante; a fila retoma no próximo flush.
+                nova_fila.append(item)
+                continue
+
+            id_sessao_item = item.get("id_sessao")
+            # Primeiro valida a sessão. None = banco indisponível → aborta flush preservando item.
+            validade = self._sessao_valida_para_replay(id_sessao_item)
+            if validade is None:
+                falhou_em = {"tipo_evento": item.get("tipo_evento"), "indice": idx, "erro": "banco_indisponivel"}
+                LOG_TEC.log("offline_flush_item", f"FALHA_CONEXAO {item.get('tipo_evento','')}", falhou_em)
+                nova_fila.append(item)
+                falhou_conexao = True
+                continue
+            if validade is False:
+                LOG_TEC.log("offline_flush_item", f"DESCARTADO_ORFAO {item.get('tipo_evento','')}", {
+                    "tipo_evento": item.get("tipo_evento"),
+                    "id_sessao": id_sessao_item,
+                    "motivo": "sessao_inexistente",
+                    "indice": idx,
+                })
+                descartados += 1
+                continue
+
             try:
                 ocorrido = datetime.fromisoformat(item["ocorrido_em"])
                 self._banco.executar(
@@ -493,20 +678,77 @@ class MonitorDeUso:
                         int(item["idle_segundos"]),
                     ],
                 )
+                LOG_TEC.log("offline_flush_item", f"OK {item.get('tipo_evento', '')}", {
+                    "tipo_evento": item.get("tipo_evento"),
+                    "situacao": item.get("situacao"),
+                    "id_sessao": item.get("id_sessao"),
+                    "user_id": item.get("user_id"),
+                    "ocorrido_em": item.get("ocorrido_em"),
+                    "indice": idx,
+                })
                 enviados += 1
-            except Exception:
-                break
-        if enviados > 0:
-            self._salvar_fila_offline(fila[enviados:])
-            pendentes = len(fila) - enviados
-            if pendentes == 0 and self._offline_notificado:
-                self._offline_notificado = False
-                self._notificar_conexao_restaurada(enviados)
+            except Exception as erro:
+                msg_erro = str(erro).lower()
+                # FK violation ou sessão sumiu entre validação e INSERT → descarta, não bloqueia.
+                if "foreign key" in msg_erro or "1452" in msg_erro or "fk" in msg_erro:
+                    LOG_TEC.log("offline_flush_item", f"DESCARTADO_FK {item.get('tipo_evento','')}", {
+                        "tipo_evento": item.get("tipo_evento"),
+                        "id_sessao": id_sessao_item,
+                        "motivo": "fk_violation",
+                        "erro": str(erro),
+                        "indice": idx,
+                    })
+                    descartados += 1
+                    # Invalida a sessão no cache para os próximos itens
+                    try: self._cache_sessoes_validas[int(id_sessao_item)] = False
+                    except Exception: pass
+                else:
+                    falhou_em = {"tipo_evento": item.get("tipo_evento"), "indice": idx, "erro": str(erro)}
+                    LOG_TEC.log("offline_flush_item", f"FALHA {item.get('tipo_evento','')}", falhou_em)
+                    nova_fila.append(item)
+                    falhou_conexao = True
+
+        pendentes = len(nova_fila)
+        # Sempre persiste — para remover itens descartados mesmo quando nada foi enviado.
+        self._salvar_fila_offline(nova_fila)
+
+        conexao_saiu_do_offline = False
+        if (enviados > 0 or descartados > 0) and pendentes == 0 and self._offline_notificado:
+            self._offline_notificado = False
+            self._notificar_conexao_restaurada(enviados)
+            conexao_saiu_do_offline = True
+            LOG_TEC.log("conexao_restaurada", f"fila limpa — enviados={enviados} descartados={descartados}", {
+                "reenviados": enviados,
+                "descartados": descartados,
+            })
+
+        if enviados > 0 or descartados > 0:
             msg = (
                 f"Fila offline: {enviados} eventos re-enviados"
+                + (f", {descartados} descartados" if descartados else "")
                 + (f", {pendentes} ainda pendentes" if pendentes else " (fila limpa)")
             )
-            self._registrar_erro_locked(msg)
+            # Mensagem transitória (auto-some em ~10s). Não usa _registrar_erro_locked para
+            # não ficar com aparência de erro persistente na UI.
+            self._registrar_sucesso_locked(msg, 10.0)
+
+        LOG_TEC.log("offline_flush_fim", f"enviados={enviados} descartados={descartados} pendentes={pendentes}", {
+            "tam_inicial": tam_inicial,
+            "enviados": enviados,
+            "descartados": descartados,
+            "pendentes": pendentes,
+            "duracao_seg": (datetime.now() - inicio_flush).total_seconds(),
+            "falhou_em": falhou_em,
+        })
+
+        # Consolida tempos parciais imediatamente ao sair do offline — o painel web
+        # enxerga o período offline sem depender de replay evento a evento.
+        if conexao_saiu_do_offline:
+            try:
+                self._upsert_relatorio_parcial()
+                LOG_TEC.log("conexao_restaurada", "relatorio parcial consolidado apos reconexao")
+            except Exception as erro:
+                LOG_TEC.log("conexao_erro", "falha ao consolidar parcial pos-reconexao", {"erro": str(erro)})
 
     def _notificar_sem_conexao(self) -> None:
         """Popup Windows não-bloqueante avisando sobre queda de conexão."""
@@ -533,6 +775,45 @@ class MonitorDeUso:
             )
         threading.Thread(target=_popup, daemon=True).start()
 
+    def _sanear_registros_abertos_do_usuario(self, user_id: str) -> None:
+        """Fecha registros antigos com fim_em IS NULL, aplicando caps de sanidade:
+        - cronometro_foco_janela: teto de 3h por período (foco contínuo acima disso é fantasma)
+        - cronometro_apps_intervalos: teto de 20h por período (app aberto acima disso é fantasma)
+        Roda antes de iniciar/restaurar sessão para não deixar lixo legado poluindo gráficos.
+        """
+        uid = (user_id or "").strip()
+        if not uid:
+            return
+        try:
+            linhas_foco = self._banco.executar_e_contar(
+                """
+                UPDATE cronometro_foco_janela
+                   SET fim_em = DATE_ADD(inicio_em, INTERVAL 3 HOUR)
+                 WHERE user_id = %s
+                   AND fim_em IS NULL
+                   AND inicio_em < NOW() - INTERVAL 3 HOUR
+                """,
+                [uid],
+            )
+            linhas_apps = self._banco.executar_e_contar(
+                """
+                UPDATE cronometro_apps_intervalos
+                   SET fim_em = DATE_ADD(inicio_em, INTERVAL 20 HOUR)
+                 WHERE user_id = %s
+                   AND fim_em IS NULL
+                   AND inicio_em < NOW() - INTERVAL 20 HOUR
+                """,
+                [uid],
+            )
+            # Só loga se houve limpeza real — evita poluir o log com "nada fechado" em cada iniciar/restaurar.
+            if linhas_foco > 0 or linhas_apps > 0:
+                LOG_TEC.log("saneamento", f"user={uid}", {
+                    "foco_fechados": linhas_foco,
+                    "apps_fechados": linhas_apps,
+                })
+        except Exception as erro:
+            LOG_TEC.log("saneamento_erro", f"user={uid}", {"erro": str(erro)})
+
     def _abrir_foco(self, nome_app: str, titulo: str) -> None:
         if self._id_sessao is None:
             return
@@ -545,6 +826,7 @@ class MonitorDeUso:
             """,
             [self._id_sessao, self._user_id, nome_app, (titulo or None), datetime.now()],
         )
+        LOG_TEC.log("foco", f"abrir {nome_app}", {"titulo": titulo or "", "id_foco": self._id_foco_aberto})
 
     def _fechar_foco(self) -> None:
         if self._id_foco_aberto is None:
@@ -554,6 +836,7 @@ class MonitorDeUso:
             "UPDATE cronometro_foco_janela SET fim_em = %s WHERE id_foco = %s",
             [datetime.now(), self._id_foco_aberto],
         )
+        LOG_TEC.log("foco", "fechar", {"id_foco": self._id_foco_aberto})
         self._id_foco_aberto = None
 
     def _abrir_intervalo_app_locked(self, nome_app: str) -> int | None:
@@ -711,21 +994,29 @@ class MonitorDeUso:
         agora = datetime.now()
         segundos_pausado = int(self._segundos_pausado_float)
 
-        self._banco.executar(
-            """
-            INSERT INTO usuarios_status_atual
-                (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-                situacao = VALUES(situacao),
-                atividade = VALUES(atividade),
-                inicio_em = VALUES(inicio_em),
-                ultimo_em = VALUES(ultimo_em),
-                segundos_pausado = VALUES(segundos_pausado),
-                apps_json = VALUES(apps_json)
-            """,
-            [self._user_id, situacao, atividade, inicio_em, agora, segundos_pausado, apps_json],
-        )
+        try:
+            self._banco.executar(
+                """
+                INSERT INTO usuarios_status_atual
+                    (user_id, situacao, atividade, inicio_em, ultimo_em, segundos_pausado, apps_json)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    situacao = VALUES(situacao),
+                    atividade = VALUES(atividade),
+                    inicio_em = VALUES(inicio_em),
+                    ultimo_em = VALUES(ultimo_em),
+                    segundos_pausado = VALUES(segundos_pausado),
+                    apps_json = VALUES(apps_json)
+                """,
+                [self._user_id, situacao, atividade, inicio_em, agora, segundos_pausado, apps_json],
+            )
+            LOG_TEC.log("status_banco", f"upsert user={self._user_id} sit={situacao}", {
+                "segundos_pausado": segundos_pausado,
+                "apps_json_tam": len(apps_json or ""),
+            })
+        except Exception as erro:
+            LOG_TEC.log("status_erro", f"falha upsert user={self._user_id}", {"erro": str(erro)})
+            raise
 
     def _limpar_status_atual(self) -> None:
         if not self._user_id:
@@ -835,6 +1126,8 @@ class MonitorDeUso:
         return dados
 
     def restaurar_sessao(self, dados: dict, nome_exibicao_atual: str) -> None:
+        # Fecha registros antigos pendurados antes de restaurar — evita lixo legado nos gráficos.
+        self._sanear_registros_abertos_do_usuario(str(dados.get("user_id") or "").strip())
         with self._trava:
             if self._thread_loop and self._thread_loop.is_alive():
                 raise RuntimeError("Já existe uma sessão em execução.")
@@ -867,12 +1160,18 @@ class MonitorDeUso:
             self._ultimo_marco_mono = agora
             self._ultimo_heartbeat_mono = agora
             self._ultimo_sync_status_mono = agora
+            self._ultimo_upsert_relatorio_mono = agora
             self._ultimo_erro = ""
 
             self._salvar_estado_local_locked(sessao_em_aberto=True)
             self._atualizar_status_atual_locked()
 
     def iniciar(self, user_id: str, nome_exibicao: str, id_atividade: int, titulo_atividade: str) -> None:
+        LOG_TEC.log("sessao", "iniciar()", {
+            "user_id": user_id, "id_atividade": id_atividade, "titulo": titulo_atividade,
+        })
+        # Fecha registros antigos pendurados antes de abrir novos — evita lixo legado nos gráficos.
+        self._sanear_registros_abertos_do_usuario(user_id)
         with self._trava:
             if self._sessao_carregada:
                 raise RuntimeError("Já existe uma sessão carregada. Finalize ou retome a atual.")
@@ -913,6 +1212,7 @@ class MonitorDeUso:
             self._ultimo_marco_mono = agora
             self._ultimo_heartbeat_mono = agora
             self._ultimo_sync_status_mono = agora
+            self._ultimo_upsert_relatorio_mono = agora
             self._ultimo_erro = ""
 
             self._inserir_evento("inicio", "trabalhando", 0)
@@ -930,6 +1230,7 @@ class MonitorDeUso:
             self._thread_loop.start()
 
     def pausar(self) -> None:
+        LOG_TEC.log("sessao", "pausar()")
         with self._trava:
             if not self._sessao_carregada:
                 return
@@ -965,7 +1266,14 @@ class MonitorDeUso:
         except Exception:
             pass
 
+        # Persiste totais parciais imediatamente ao pausar — o painel web passa a enxergar o bloco concluído.
+        try:
+            self._upsert_relatorio_parcial()
+        except Exception:
+            pass
+
     def retomar(self) -> None:
+        LOG_TEC.log("sessao", "retomar()")
         with self._trava:
             if not self._sessao_carregada:
                 return
@@ -1008,8 +1316,143 @@ class MonitorDeUso:
     def pausar_e_preservar_sessao(self) -> None:
         self.pausar()
 
+    # -------------------- Relatório parcial (upsert) --------------------
+    def _upsert_relatorio_com_snapshots(
+        self,
+        id_sessao: int,
+        user_id: str,
+        id_atividade: int,
+        seg_trab_float: float,
+        seg_oci_float: float,
+        seg_pau_float: float,
+        ref_data_fallback: date,
+        texto_relatorio: str,
+        com_fechamento: bool,
+    ) -> None:
+        """Grava/atualiza `cronometro_relatorios` por (id_sessao, referencia_data).
+        Usa SELECT + UPDATE/INSERT para não depender de UNIQUE KEY (evita ALTER no banco).
+        Divide totais por dia quando a sessão cruza meia-noite.
+        """
+        if id_sessao is None or not user_id:
+            return
+        try:
+            fim_em_agora = datetime.now()
+            inicio_em = None
+            try:
+                linha_sessao = self._banco.consultar_um(
+                    "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
+                    [id_sessao],
+                )
+                if linha_sessao and linha_sessao.get("iniciado_em"):
+                    inicio_em = linha_sessao["iniciado_em"]
+            except Exception:
+                inicio_em = None
+            if not isinstance(inicio_em, datetime):
+                inicio_em = datetime.combine(ref_data_fallback, datetime.min.time())
+
+            fatias = dividir_tempos_por_dia(
+                inicio_em,
+                fim_em_agora,
+                converter_segundos_para_inteiro(seg_trab_float),
+                converter_segundos_para_inteiro(seg_oci_float),
+                converter_segundos_para_inteiro(seg_pau_float),
+            )
+
+            texto_efetivo = (texto_relatorio or "").strip() or "Sessão em andamento (parcial)"
+
+            for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
+                segundos_total_dia = seg_trab_dia + seg_oci_dia
+                existente = None
+                try:
+                    existente = self._banco.consultar_um(
+                        "SELECT id_relatorio FROM cronometro_relatorios WHERE id_sessao = %s AND referencia_data = %s LIMIT 1",
+                        [id_sessao, dia],
+                    )
+                except Exception:
+                    existente = None
+
+                if existente and existente.get("id_relatorio"):
+                    self._banco.executar(
+                        """
+                        UPDATE cronometro_relatorios
+                           SET id_atividade = %s,
+                               relatorio = %s,
+                               segundos_total = %s,
+                               segundos_trabalhando = %s,
+                               segundos_ocioso = %s,
+                               segundos_pausado = %s,
+                               criado_em = %s
+                         WHERE id_relatorio = %s
+                        """,
+                        [
+                            int(id_atividade) if id_atividade else None,
+                            texto_efetivo,
+                            int(segundos_total_dia),
+                            int(seg_trab_dia),
+                            int(seg_oci_dia),
+                            int(seg_pau_dia),
+                            fim_em_agora,
+                            int(existente["id_relatorio"]),
+                        ],
+                    )
+                    LOG_TEC.log("relatorio", f"UPDATE dia={dia}", {
+                        "id_relatorio": existente["id_relatorio"],
+                        "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
+                        "fechamento": com_fechamento,
+                    })
+                else:
+                    self._banco.executar(
+                        """
+                        INSERT INTO cronometro_relatorios
+                            (id_sessao, user_id, id_atividade, relatorio, segundos_total,
+                             segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        [
+                            id_sessao,
+                            user_id,
+                            int(id_atividade) if id_atividade else None,
+                            texto_efetivo,
+                            int(segundos_total_dia),
+                            int(seg_trab_dia),
+                            int(seg_oci_dia),
+                            int(seg_pau_dia),
+                            fim_em_agora,
+                            dia,
+                        ],
+                    )
+                    LOG_TEC.log("relatorio", f"INSERT dia={dia}", {
+                        "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
+                        "fechamento": com_fechamento,
+                    })
+        except Exception as erro:
+            LOG_TEC.log("relatorio_erro", "upsert falhou", {"erro": str(erro)})
+
+    def _upsert_relatorio_parcial(self) -> None:
+        """Wrapper do upsert que coleta snapshots do state atual sob lock e chama o worker fora.
+        Atualiza acumuladores com `_acumular_tempo_ate_agora_locked` antes do snapshot.
+        """
+        with self._trava:
+            if self._id_sessao is None or not self._user_id:
+                return
+            self._acumular_tempo_ate_agora_locked(time.monotonic())
+            id_sessao_snap = self._id_sessao
+            user_id_snap = self._user_id
+            id_ativ_snap = int(self._id_atividade) if self._id_atividade else 0
+            seg_trab_snap = self._segundos_trabalhando_float
+            seg_oci_snap = self._segundos_ocioso_float
+            seg_pau_snap = self._segundos_pausado_float
+            ref_data_snap = self._referencia_data_sessao or date.today()
+
+        self._upsert_relatorio_com_snapshots(
+            id_sessao_snap, user_id_snap, id_ativ_snap,
+            seg_trab_snap, seg_oci_snap, seg_pau_snap,
+            ref_data_snap, texto_relatorio="", com_fechamento=False,
+        )
+
     def zerar_sessao(self) -> None:
         """Para o cronômetro, salva relatório da sessão zerada e descarta o estado local."""
+        LOG_TEC.log("sessao", "zerar_sessao()")
         with self._trava:
             if not self._sessao_carregada or self._id_sessao is None:
                 return
@@ -1060,55 +1503,14 @@ class MonitorDeUso:
         except Exception:
             pass
 
-        # Inserir relatório para que o tempo fique disponível para declaração de tarefas.
-        # Sessões que cruzam a meia-noite são divididas em múltiplas linhas por referencia_data.
+        # Consolida na mesma linha parcial já criada ao longo da sessão (ou insere se não existir).
+        # Sessões que cruzam meia-noite continuam sendo divididas em múltiplas linhas por referencia_data.
         try:
-            fim_em_agora = datetime.now()
-            inicio_em_sessao = None
-            try:
-                linha_sessao = self._banco.consultar_um(
-                    "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
-                    [_id_snap],
-                )
-                if linha_sessao and linha_sessao.get("iniciado_em"):
-                    inicio_em_sessao = linha_sessao["iniciado_em"]
-            except Exception:
-                inicio_em_sessao = None
-
-            if not isinstance(inicio_em_sessao, datetime):
-                inicio_em_sessao = datetime.combine(_ref_data_snap, datetime.min.time())
-
-            fatias = dividir_tempos_por_dia(
-                inicio_em_sessao,
-                fim_em_agora,
-                converter_segundos_para_inteiro(_seg_trab_snap),
-                converter_segundos_para_inteiro(_seg_ocio_snap),
-                converter_segundos_para_inteiro(_seg_paus_snap),
+            self._upsert_relatorio_com_snapshots(
+                _id_snap, _uid_snap, int(_id_ativ_snap) if _id_ativ_snap else 0,
+                _seg_trab_snap, _seg_ocio_snap, _seg_paus_snap,
+                _ref_data_snap, texto_relatorio="Sessão zerada", com_fechamento=True,
             )
-
-            for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
-                segundos_total_dia = seg_trab_dia + seg_oci_dia
-                self._banco.executar(
-                    """
-                    INSERT INTO cronometro_relatorios
-                        (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                         segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-                    VALUES
-                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    [
-                        _id_snap,
-                        _uid_snap,
-                        int(_id_ativ_snap) if _id_ativ_snap else None,
-                        "Sessão zerada",
-                        int(segundos_total_dia),
-                        int(seg_trab_dia),
-                        int(seg_oci_dia),
-                        int(seg_pau_dia),
-                        fim_em_agora,
-                        dia,
-                    ],
-                )
         except Exception:
             pass
 
@@ -1118,6 +1520,7 @@ class MonitorDeUso:
             pass
 
     def finalizar(self, relatorio: str) -> None:
+        LOG_TEC.log("sessao", "finalizar()", {"relatorio_tam": len(relatorio or "")})
         with self._trava:
             if not self._sessao_carregada or self._id_sessao is None or not self._user_id:
                 raise RuntimeError("Você precisa clicar em INICIAR antes de FINALIZAR.")
@@ -1151,55 +1554,18 @@ class MonitorDeUso:
         except Exception:
             pass
 
-        # Sessões que cruzam a meia-noite são divididas em múltiplas linhas por referencia_data.
-        fim_em_agora = datetime.now()
-        inicio_em_sessao = None
-        try:
-            linha_sessao = self._banco.consultar_um(
-                "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
-                [self._id_sessao],
-            )
-            if linha_sessao and linha_sessao.get("iniciado_em"):
-                inicio_em_sessao = linha_sessao["iniciado_em"]
-        except Exception:
-            inicio_em_sessao = None
-
+        # Consolida na mesma linha parcial já criada ao longo da sessão (ou insere se não existir).
+        # Sessões que cruzam meia-noite continuam sendo divididas em múltiplas linhas por referencia_data.
         ref_data_fallback = self._referencia_data_sessao or date.today()
-        if not isinstance(inicio_em_sessao, datetime):
-            inicio_em_sessao = datetime.combine(ref_data_fallback, datetime.min.time())
-
-        fatias = dividir_tempos_por_dia(
-            inicio_em_sessao,
-            fim_em_agora,
-            converter_segundos_para_inteiro(self._segundos_trabalhando_float),
-            converter_segundos_para_inteiro(self._segundos_ocioso_float),
-            converter_segundos_para_inteiro(self._segundos_pausado_float),
-        )
-
         texto_relatorio = (relatorio or "").strip()
-        for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
-            segundos_total_dia = seg_trab_dia + seg_oci_dia
-            self._banco.executar(
-                """
-                INSERT INTO cronometro_relatorios
-                    (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-                VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                [
-                    self._id_sessao,
-                    self._user_id,
-                    int(self._id_atividade),
-                    texto_relatorio,
-                    int(segundos_total_dia),
-                    int(seg_trab_dia),
-                    int(seg_oci_dia),
-                    int(seg_pau_dia),
-                    fim_em_agora,
-                    dia,
-                ],
+        try:
+            self._upsert_relatorio_com_snapshots(
+                self._id_sessao, self._user_id, int(self._id_atividade),
+                self._segundos_trabalhando_float, self._segundos_ocioso_float, self._segundos_pausado_float,
+                ref_data_fallback, texto_relatorio=texto_relatorio, com_fechamento=True,
             )
+        except Exception:
+            pass
 
         with self._trava:
             self._sessao_carregada = False
@@ -1248,6 +1614,7 @@ class MonitorDeUso:
                 _fazer_flush      = False
                 _fazer_status     = False
                 _salvar_local     = False
+                _fazer_upsert_relatorio = False
 
                 try:
                     with self._trava:
@@ -1290,6 +1657,10 @@ class MonitorDeUso:
                             self._ultimo_save_estado_mono = mono_agora
                             _salvar_local = True
 
+                        if (mono_agora - self._ultimo_upsert_relatorio_mono) >= INTERVALO_UPSERT_RELATORIO_SEGUNDOS:
+                            self._ultimo_upsert_relatorio_mono = mono_agora
+                            _fazer_upsert_relatorio = True
+
                 except Exception as e:
                     with self._trava:
                         self._registrar_erro_locked(f"Falha loop: {e}")
@@ -1324,19 +1695,36 @@ class MonitorDeUso:
                 if _evt_situacao:
                     try:
                         self._inserir_evento(*_evt_situacao)
-                    except Exception:
+                    except Exception as e:
+                        LOG_TEC.log("conexao_erro", f"inserir_evento falhou: {_evt_situacao[0]}", {
+                            "operacao": "inserir_evento",
+                            "tipo_evento": _evt_situacao[0],
+                            "situacao": _evt_situacao[1] if len(_evt_situacao) > 1 else None,
+                            "erro": str(e),
+                            "offline_antes": self._offline_notificado,
+                        })
                         self._adicionar_a_fila_offline(*_evt_situacao)
 
                 if _fazer_flush:
                     try:
                         self._tentar_flush_fila_offline()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        LOG_TEC.log("conexao_erro", "flush_fila_offline falhou", {
+                            "operacao": "flush_fila_offline",
+                            "erro": str(e),
+                        })
 
                 if _fazer_heartbeat:
                     try:
                         self._inserir_evento("heartbeat", _hb_situacao, _hb_idle)
                     except Exception as e:
+                        LOG_TEC.log("conexao_erro", "heartbeat falhou", {
+                            "operacao": "heartbeat",
+                            "situacao": _hb_situacao,
+                            "idle": _hb_idle,
+                            "erro": str(e),
+                            "entrou_offline": not self._offline_notificado,
+                        })
                         with self._trava:
                             self._registrar_erro_locked(f"Falha heartbeat: {e}")
                             if not self._offline_notificado:
@@ -1346,17 +1734,33 @@ class MonitorDeUso:
 
                 if _fazer_status:
                     try:
+                        estava_offline = self._offline_notificado
                         self._atualizar_status_atual_locked()
                         with self._trava:
                             if self._offline_notificado:
                                 self._offline_notificado = False
                                 self._registrar_erro_locked("")
+                        if estava_offline:
+                            LOG_TEC.log("status_restaurado", "usuarios_status_atual voltou a aceitar upsert", {
+                                "operacao": "atualizar_status_atual",
+                            })
                     except Exception as e:
+                        LOG_TEC.log("conexao_erro", "status_atual falhou", {
+                            "operacao": "atualizar_status_atual",
+                            "erro": str(e),
+                            "entrou_offline": not self._offline_notificado,
+                        })
                         with self._trava:
                             self._registrar_erro_locked(f"Falha status atual: {e}")
                             if not self._offline_notificado:
                                 self._offline_notificado = True
                                 self._notificar_sem_conexao()
+
+                if _fazer_upsert_relatorio:
+                    try:
+                        self._upsert_relatorio_parcial()
+                    except Exception:
+                        pass
 
         finally:
             try:
@@ -2267,6 +2671,17 @@ class App(tk.Tk):
         self._var_tempo_fixado = tk.StringVar(value="00:00:00")
         self._var_status_fixado = tk.StringVar(value="")
 
+        # Contagem regressiva visual — roda por cima do cronômetro progressivo sem alterar dados reais.
+        # Progresso medido em segundos_trabalhando (conta só trabalho líquido, não decrementa em pausa/ocioso).
+        self._regressiva_alvo_seg: int = 0
+        self._regressiva_trab_inicio: int = 0
+        self._regressiva_ativa: bool = False
+        self._regressiva_modal_mostrado: bool = False
+        self._regressiva_dialogo: tk.Toplevel | None = None
+        self._var_tempo_regressiva = tk.StringVar(value="00:00:00")
+        self._var_tempo_regressiva_fixado = tk.StringVar(value="00:00:00")
+        self._regressiva_carregar_do_disco()
+
         self._ultimo_segundo_renderizado = -1
         self._ultimo_status_renderizado = ""
 
@@ -2484,6 +2899,7 @@ class App(tk.Tk):
 
     def _montar_tela_login(self) -> None:
         self.geometry("480x520")
+        self.title(f"Cronômetro {VERSAO_APLICACAO}")
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -2600,7 +3016,7 @@ class App(tk.Tk):
         ttk.Button(janela, text="Fechar", command=janela.destroy).pack(pady=(8, 10))
 
     def _montar_tela_principal(self) -> None:
-        self.geometry("660x340")
+        self.geometry("560x300")
         for widget in self.winfo_children():
             widget.destroy()
 
@@ -2611,9 +3027,17 @@ class App(tk.Tk):
         topo.pack(fill="x")
 
         nome = self._usuario["nome_exibicao"] if self._usuario else ""
-        ttk.Label(topo, text=f"Usuário: {nome}", font=("Segoe UI", 11, "bold")).pack(side="left")
-        ttk.Button(topo, text="Fixar", command=self._alternar_fixar).pack(side="right", padx=(6, 0))
-        ttk.Button(topo, text="Sair", command=self._sair).pack(side="right")
+        # Nome do usuário migrou para o título da janela (ao lado da versão)
+        self.title(f"Cronômetro {VERSAO_APLICACAO} — {nome}" if nome else f"Cronômetro {VERSAO_APLICACAO}")
+
+        # Botões centralizados no topo. Log só em modo script (.py) — não aparece no .exe.
+        botoes_topo = ttk.Frame(topo)
+        botoes_topo.pack(anchor="center")
+        ttk.Button(botoes_topo, text="Fixar", command=self._alternar_fixar).pack(side="left", padx=4)
+        ttk.Button(botoes_topo, text="⏱ Regressiva", command=self._abrir_modal_regressiva).pack(side="left", padx=4)
+        ttk.Button(botoes_topo, text="Sair", command=self._sair).pack(side="left", padx=4)
+        if MODO_SCRIPT:
+            ttk.Button(botoes_topo, text="🐞 Log", command=self._abrir_janela_log).pack(side="left", padx=4)
 
         # combo oculto — mantém a lógica de seleção de atividade sem exibir na tela
         self._combo = ttk.Combobox(self, textvariable=self._var_atividade, state="readonly", width=58, values=[])
@@ -2621,10 +3045,31 @@ class App(tk.Tk):
         painel = ttk.Frame(quadro)
         painel.pack(fill="both", expand=True, pady=(14, 0))
 
-        ttk.Label(painel, textvariable=self._var_tempo, font=("Segoe UI", 44, "bold"), foreground="#ffffff").pack(anchor="center")
-        ttk.Label(painel, textvariable=self._var_status, font=("Segoe UI", 10, "bold"), foreground="#aaaaaa").pack(anchor="center", pady=(6, 0))
-        ttk.Label(painel, textvariable=self._var_erro, foreground="#f0a500",
-                  font=("Segoe UI", 8), wraplength=380, justify="center").pack(anchor="center", pady=(2, 0))
+        # Dois labels — só um visível por vez (controlado por _aplicar_modo_regressiva).
+        # Quando regressiva ativa: lbl_regressiva grande (foco) + lbl_tempo pequeno (progressivo abaixo).
+        # Quando inativa: só lbl_tempo grande (comportamento original).
+        self._lbl_regressiva_principal = ttk.Label(
+            painel, textvariable=self._var_tempo_regressiva,
+            font=("Segoe UI", 44, "bold"), foreground="#ff6b1f",
+        )
+        self._lbl_tempo_principal = ttk.Label(
+            painel, textvariable=self._var_tempo,
+            font=("Segoe UI", 44, "bold"), foreground="#ffffff",
+        )
+        self._aplicar_modo_regressiva()
+        # Label de status (TRABALHANDO / OCIOSO / ...) — cor trocada dinamicamente em _tick_ui
+        # conforme conectividade (verde online / amarelo offline).
+        self._lbl_status_principal = ttk.Label(
+            painel, textvariable=self._var_status,
+            font=("Segoe UI", 10, "bold"), foreground="#aaaaaa",
+        )
+        self._lbl_status_principal.pack(anchor="center", pady=(6, 0))
+        # Label de mensagens: erro persistente (laranja) ou sucesso transitório (verde)
+        self._lbl_erro_principal = ttk.Label(
+            painel, textvariable=self._var_erro, foreground="#f0a500",
+            font=("Segoe UI", 8), wraplength=380, justify="center",
+        )
+        self._lbl_erro_principal.pack(anchor="center", pady=(2, 0))
 
         self._var_texto_btn_principal = tk.StringVar(value="Iniciar")
 
@@ -2930,21 +3375,363 @@ class App(tk.Tk):
             return
         self._abrir_fixado()
 
+    # -------------------- Contagem regressiva (visual) --------------------
+    def _regressiva_carregar_do_disco(self) -> None:
+        try:
+            if ARQUIVO_REGRESSIVA.exists():
+                d = json.loads(ARQUIVO_REGRESSIVA.read_text(encoding="utf-8"))
+                self._regressiva_alvo_seg = int(d.get("alvo_seg") or 0)
+                self._regressiva_trab_inicio = int(d.get("trab_inicio") or 0)
+                self._regressiva_ativa = bool(d.get("ativa") or False)
+        except Exception:
+            pass
+
+    def _regressiva_salvar_no_disco(self) -> None:
+        try:
+            ARQUIVO_REGRESSIVA.write_text(
+                json.dumps({
+                    "alvo_seg": int(self._regressiva_alvo_seg),
+                    "trab_inicio": int(self._regressiva_trab_inicio),
+                    "ativa": bool(self._regressiva_ativa),
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _regressiva_parse_tempo(texto: str) -> int | None:
+        """Aceita '8h', '8h30m', '8:00', '8:00:00', '30m', '45' (minutos). Retorna segundos ou None."""
+        t = (texto or "").strip().lower().replace(" ", "")
+        if not t:
+            return None
+        # HH:MM:SS ou HH:MM
+        if ":" in t:
+            partes = t.split(":")
+            try:
+                nums = [int(p) for p in partes]
+            except ValueError:
+                return None
+            if len(nums) == 2:
+                h, m = nums; s = 0
+            elif len(nums) == 3:
+                h, m, s = nums
+            else:
+                return None
+            total = h * 3600 + m * 60 + s
+            return total if total > 0 else None
+        # Formatos com sufixo h/m/s (ex: 8h, 8h30m, 90m, 45s, 1h15m30s)
+        if any(c in t for c in "hms"):
+            horas = minutos = segundos = 0
+            buf = ""
+            for ch in t:
+                if ch.isdigit():
+                    buf += ch
+                elif ch in "hms":
+                    if not buf:
+                        return None
+                    n = int(buf); buf = ""
+                    if ch == "h": horas = n
+                    elif ch == "m": minutos = n
+                    elif ch == "s": segundos = n
+                else:
+                    return None
+            if buf:  # lixo ao fim
+                return None
+            total = horas * 3600 + minutos * 60 + segundos
+            return total if total > 0 else None
+        # Só número → assume minutos
+        try:
+            n = int(t)
+            return n * 60 if n > 0 else None
+        except ValueError:
+            return None
+
+    def _abrir_modal_regressiva(self) -> None:
+        dlg = tk.Toplevel(self)
+        dlg.title("Contagem regressiva")
+        dlg.geometry("360x220")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.configure(bg="#111111")
+
+        ttk.Label(
+            dlg, text="Duração da contagem regressiva",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(pady=(14, 4), padx=14, anchor="w")
+        ttk.Label(
+            dlg, text="Digite só números. Cada dígito empurra da direita (HH MM SS).",
+            font=("Segoe UI", 9), foreground="#888888",
+        ).pack(padx=14, anchor="w")
+
+        # Buffer de até 6 dígitos; renderiza sempre como HH:MM:SS com zeros à esquerda.
+        # Ex.: buffer="1" -> "00:00:01"; buffer="12" -> "00:00:12"; buffer="123456" -> "12:34:56".
+        buffer = [""]
+        if self._regressiva_ativa and self._regressiva_alvo_seg > 0:
+            total = int(self._regressiva_alvo_seg)
+            h, m, s = total // 3600, (total % 3600) // 60, total % 60
+            buffer[0] = f"{h:02d}{m:02d}{s:02d}".lstrip("0")
+
+        var_tempo = tk.StringVar(value="00:00:00")
+        entrada = ttk.Entry(
+            dlg, textvariable=var_tempo, font=("Consolas", 18, "bold"),
+            justify="center",
+        )
+        entrada.pack(padx=14, pady=8, fill="x")
+        entrada.focus_set()
+
+        lbl_erro = ttk.Label(dlg, text="", foreground="#f0a500", font=("Segoe UI", 9))
+        lbl_erro.pack(padx=14, anchor="w")
+
+        def _renderizar() -> None:
+            d = buffer[0].zfill(6)
+            var_tempo.set(f"{d[0:2]}h {d[2:4]}m {d[4:6]}s")
+            # Cursor sempre no fim (não selecionado); usuário não edita manualmente.
+            try:
+                entrada.icursor("end")
+                entrada.selection_clear()
+            except Exception:
+                pass
+
+        def _on_key(event: tk.Event) -> str | None:
+            if event.keysym in ("Return", "Escape", "Tab"):
+                return None  # deixa propagar
+            if event.keysym == "BackSpace":
+                buffer[0] = buffer[0][:-1]
+                _renderizar()
+                return "break"
+            if event.char and event.char.isdigit():
+                buffer[0] = (buffer[0] + event.char)[-6:]
+                _renderizar()
+                return "break"
+            # Qualquer outra tecla: bloqueia edição (preserva a máscara)
+            return "break"
+
+        entrada.bind("<Key>", _on_key)
+        _renderizar()
+
+        botoes = ttk.Frame(dlg)
+        botoes.pack(side="bottom", fill="x", padx=14, pady=12)
+
+        def _ativar() -> None:
+            d = buffer[0].zfill(6)
+            h, m, s = int(d[0:2]), int(d[2:4]), int(d[4:6])
+            segundos = h * 3600 + m * 60 + s
+            if segundos <= 0:
+                lbl_erro.config(text="Defina uma duração maior que zero.")
+                return
+            self._regressiva_alvo_seg = int(segundos)
+            self._regressiva_trab_inicio = int(self._monitor.obter_segundos_trabalhando())
+            self._regressiva_ativa = True
+            self._regressiva_modal_mostrado = False
+            self._regressiva_salvar_no_disco()
+            self._aplicar_modo_regressiva()
+            try: dlg.destroy()
+            except Exception: pass
+
+        def _desativar() -> None:
+            self._regressiva_ativa = False
+            self._regressiva_modal_mostrado = False
+            self._regressiva_alvo_seg = 0
+            self._regressiva_trab_inicio = 0
+            self._regressiva_salvar_no_disco()
+            self._aplicar_modo_regressiva()
+            try: dlg.destroy()
+            except Exception: pass
+
+        ttk.Button(botoes, text="Cancelar", command=dlg.destroy).pack(side="right", padx=(6, 0))
+        if self._regressiva_ativa:
+            ttk.Button(botoes, text="Desativar", command=_desativar).pack(side="right", padx=(6, 0))
+        ttk.Button(botoes, text="Ativar", style="Verde.TButton", command=_ativar).pack(side="right")
+
+        dlg.bind("<Return>", lambda _e: _ativar())
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+
+    def _aplicar_modo_regressiva(self) -> None:
+        """Re-empacota labels da tela principal e da fixada conforme a regressiva esteja ativa ou não."""
+        # Tela principal
+        if hasattr(self, "_lbl_regressiva_principal") and hasattr(self, "_lbl_tempo_principal"):
+            for w in (self._lbl_regressiva_principal, self._lbl_tempo_principal):
+                try: w.pack_forget()
+                except Exception: pass
+            if self._regressiva_ativa:
+                self._lbl_regressiva_principal.configure(font=("Segoe UI", 44, "bold"))
+                self._lbl_tempo_principal.configure(font=("Segoe UI", 16, "bold"), foreground="#888888")
+                self._lbl_regressiva_principal.pack(anchor="center")
+                self._lbl_tempo_principal.pack(anchor="center", pady=(2, 0))
+            else:
+                self._lbl_tempo_principal.configure(font=("Segoe UI", 44, "bold"), foreground="#ffffff")
+                self._lbl_tempo_principal.pack(anchor="center")
+
+        # Fixada (se aberta)
+        if hasattr(self, "_lbl_regressiva_fixado") and hasattr(self, "_lbl_tempo_fixado"):
+            try:
+                if self._janela_fixada and self._janela_fixada.winfo_exists():
+                    for w in (self._lbl_regressiva_fixado, self._lbl_tempo_fixado):
+                        try: w.pack_forget()
+                        except Exception: pass
+                    if self._regressiva_ativa:
+                        self._lbl_regressiva_fixado.configure(font=("Segoe UI", 26, "bold"))
+                        self._lbl_tempo_fixado.configure(font=("Segoe UI", 12), foreground="#888888")
+                        self._lbl_regressiva_fixado.pack(anchor="center")
+                        self._lbl_tempo_fixado.pack(anchor="center")
+                    else:
+                        self._lbl_tempo_fixado.configure(font=("Segoe UI", 26, "bold"), foreground="#ffffff")
+                        self._lbl_tempo_fixado.pack(anchor="center")
+            except Exception:
+                pass
+
+    def _disparar_fim_regressiva(self) -> None:
+        """Pausa o cronômetro e mostra modal obrigatório, sempre topmost."""
+        # Pausa em background (evita bloquear a UI)
+        threading.Thread(target=self._monitor.pausar, daemon=True).start()
+
+        # Reusa se já tem um diálogo aberto (evita empilhar)
+        if self._regressiva_dialogo and self._regressiva_dialogo.winfo_exists():
+            try: self._regressiva_dialogo.lift(); self._regressiva_dialogo.focus_force()
+            except Exception: pass
+            return
+
+        alvo_formatado = formatar_hhmmss(self._regressiva_alvo_seg)
+        dlg = tk.Toplevel(self)
+        self._regressiva_dialogo = dlg
+        dlg.title("Tempo encerrado")
+        dlg.geometry("380x160")
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.configure(bg="#111111")
+        dlg.protocol("WM_DELETE_WINDOW", lambda: None)  # Só fecha no OK
+
+        ttk.Label(dlg, text="⏰ Tempo zerou!", font=("Segoe UI", 14, "bold")).pack(pady=(16, 6))
+        ttk.Label(
+            dlg,
+            text=f"A contagem regressiva de {alvo_formatado} terminou.\nO cronômetro foi pausado automaticamente.",
+            wraplength=340, justify="center",
+        ).pack(padx=14)
+
+        def _ok() -> None:
+            self._regressiva_ativa = False
+            self._regressiva_modal_mostrado = False
+            self._regressiva_alvo_seg = 0
+            self._regressiva_trab_inicio = 0
+            self._regressiva_salvar_no_disco()
+            self._aplicar_modo_regressiva()
+            try: dlg.destroy()
+            except Exception: pass
+            self._regressiva_dialogo = None
+
+        ttk.Button(dlg, text="OK", style="Verde.TButton", command=_ok).pack(pady=12)
+        dlg.bind("<Return>", lambda _e: _ok())
+
+        # Reforço: re-elevar o diálogo periodicamente enquanto estiver aberto
+        def _manter_frente() -> None:
+            try:
+                if dlg.winfo_exists():
+                    dlg.lift(); dlg.attributes("-topmost", True)
+                    dlg.after(600, _manter_frente)
+            except Exception:
+                pass
+        dlg.after(600, _manter_frente)
+
+    def _abrir_janela_log(self) -> None:
+        # Só disponível em modo script (dev); no .exe nem o botão é renderizado.
+        if not MODO_SCRIPT:
+            return
+        from tkinter.scrolledtext import ScrolledText
+
+        janela = tk.Toplevel(self)
+        janela.title(f"Log técnico — cronômetro {VERSAO_APLICACAO}")
+        janela.geometry("960x520")
+        janela.configure(bg="#0f0f12")
+
+        texto = ScrolledText(
+            janela, wrap="none", font=("Consolas", 9),
+            bg="#0f0f12", fg="#e2e8f0", insertbackground="#e2e8f0",
+        )
+        texto.pack(fill="both", expand=True)
+
+        barra = ttk.Frame(janela)
+        barra.pack(fill="x")
+
+        var_auto = tk.BooleanVar(value=True)
+
+        def _redesenhar() -> None:
+            try:
+                texto.config(state="normal")
+                texto.delete("1.0", "end")
+                for linha in LOG_TEC.linhas():
+                    texto.insert("end", linha + "\n")
+                if var_auto.get():
+                    texto.see("end")
+                texto.config(state="disabled")
+            except Exception:
+                pass
+
+        def _copiar() -> None:
+            try:
+                janela.clipboard_clear()
+                janela.clipboard_append("\n".join(LOG_TEC.linhas()))
+            except Exception:
+                pass
+
+        def _limpar() -> None:
+            LOG_TEC.limpar()
+            _redesenhar()
+
+        ttk.Checkbutton(barra, text="Auto-scroll", variable=var_auto).pack(side="left", padx=6, pady=4)
+        ttk.Button(barra, text="Atualizar", command=_redesenhar).pack(side="left", padx=4)
+        ttk.Button(barra, text="Copiar tudo", command=_copiar).pack(side="left", padx=4)
+        ttk.Button(barra, text="Limpar", command=_limpar).pack(side="left", padx=4)
+        ttk.Label(barra, text=f"Arquivo: {ARQUIVO_LOG_TECNICO}", foreground="#888").pack(side="right", padx=6)
+
+        _redesenhar()
+
+        def _loop_refresh() -> None:
+            try:
+                if not janela.winfo_exists():
+                    return
+                _redesenhar()
+                janela.after(800, _loop_refresh)
+            except Exception:
+                pass
+
+        janela.after(800, _loop_refresh)
+
     def _abrir_fixado(self) -> None:
         if self._janela_fixada and self._janela_fixada.winfo_exists():
             return
 
         janela = tk.Toplevel(self)
         janela.title("Cronômetro (Fixado)")
-        janela.geometry("230x95")
+        janela.geometry("230x110")
         janela.resizable(False, False)
         janela.attributes("-topmost", True)
         janela.configure(bg="#111111", padx=10, pady=10)
 
-        ttk.Label(janela, textvariable=self._var_tempo_fixado, font=("Segoe UI", 26, "bold")).pack(anchor="center")
-        ttk.Label(janela, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold")).pack(anchor="center", pady=(2, 0))
+        # Mesmo padrão da tela principal: dois labels, _aplicar_modo_regressiva escolhe o que mostra.
+        self._lbl_regressiva_fixado = ttk.Label(
+            janela, textvariable=self._var_tempo_regressiva_fixado,
+            font=("Segoe UI", 26, "bold"), foreground="#ff6b1f",
+        )
+        self._lbl_tempo_fixado = ttk.Label(
+            janela, textvariable=self._var_tempo_fixado,
+            font=("Segoe UI", 26, "bold"),
+        )
+        # Status precisa ser criado antes do `_janela_fixada = janela` para ficar no pack order correto.
+        self._lbl_status_fixado = ttk.Label(
+            janela, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold"),
+        )
+        self._lbl_status_fixado.pack(side="bottom", anchor="center", pady=(2, 0))
+
+        # IMPORTANTE: definir _janela_fixada ANTES de _aplicar_modo_regressiva() — senão
+        # _aplicar_modo_regressiva() ainda vê janela=None e não empacota os labels do fixado
+        # (bug antigo: fixada abria só com status, sem o tempo).
         janela.protocol("WM_DELETE_WINDOW", self._fechar_fixado)
         self._janela_fixada = janela
+        self._aplicar_modo_regressiva()
 
     def _fechar_fixado(self) -> None:
         try:
@@ -3042,10 +3829,35 @@ class App(tk.Tk):
             self._var_tempo_fixado.set(tempo_formatado)
             self._ultimo_segundo_renderizado = segundos_cronometro
 
+        # Contagem regressiva (puramente visual — não altera trab/ocioso/pausado reais).
+        if self._regressiva_ativa and self._regressiva_alvo_seg > 0:
+            seg_trab = self._monitor.obter_segundos_trabalhando()
+            decorridos = max(0, seg_trab - self._regressiva_trab_inicio)
+            restante = max(0, self._regressiva_alvo_seg - decorridos)
+            fmt_restante = formatar_hhmmss(restante)
+            self._var_tempo_regressiva.set(fmt_restante)
+            self._var_tempo_regressiva_fixado.set(fmt_restante)
+            if restante <= 0 and not self._regressiva_modal_mostrado and tem_sessao and estado.rodando:
+                self._regressiva_modal_mostrado = True
+                self._disparar_fim_regressiva()
+
         if status_texto != self._ultimo_status_renderizado:
             self._var_status.set(status_texto)
             self._var_status_fixado.set(status_texto if tem_sessao or estado.rodando else "")
             self._ultimo_status_renderizado = status_texto
+
+        # T24: cor do status reflete conectividade.
+        # - verde quando conectado ao servidor
+        # - amarelo quando em modo offline
+        cor_status = "#facc15" if estado.offline else "#4ade80"
+        for _lbl_attr in ("_lbl_status_principal", "_lbl_status_fixado"):
+            _lbl = getattr(self, _lbl_attr, None)
+            if _lbl is not None:
+                try:
+                    if _lbl.winfo_exists():
+                        _lbl.configure(foreground=cor_status)
+                except (AttributeError, tk.TclError):
+                    pass
 
         if hasattr(self, "_var_texto_btn_principal"):
             if not tem_sessao:
@@ -3062,20 +3874,32 @@ class App(tk.Tk):
             except (AttributeError, tk.TclError):
                 pass
 
+        # T24: separa visualmente "erro persistente" de "mensagem transitória de sucesso".
+        # Erro/offline em amarelo-laranja; sucesso (fila re-enviada etc.) em verde e auto-expira.
         if estado.ultimo_erro:
-            offline = getattr(self._monitor, "_offline_notificado", False)
-            if offline:
+            if estado.offline:
                 self._var_erro.set("⚠ Perdemos a conexão com o servidor, provavelmente você está sem internet.")
             else:
                 self._var_erro.set(f"⚠ {estado.ultimo_erro}")
+            try:
+                if self._lbl_erro_principal.winfo_exists():
+                    self._lbl_erro_principal.configure(foreground="#f0a500")
+            except (AttributeError, tk.TclError):
+                pass
+        elif estado.mensagem_sucesso:
+            self._var_erro.set(f"✓ {estado.mensagem_sucesso}")
+            try:
+                if self._lbl_erro_principal.winfo_exists():
+                    self._lbl_erro_principal.configure(foreground="#4ade80")
+            except (AttributeError, tk.TclError):
+                pass
         else:
             self._var_erro.set("")
 
         if hasattr(self, "_btn_tarefas"):
             try:
                 if self._btn_tarefas.winfo_exists():
-                    offline = getattr(self._monitor, "_offline_notificado", False)
-                    self._btn_tarefas.configure(state="disabled" if offline else "normal")
+                    self._btn_tarefas.configure(state="disabled" if estado.offline else "normal")
             except Exception:
                 pass
 

@@ -67,22 +67,29 @@ try {
     }
     if ($segundos !== null) {
         // Validar: total declarado ACUMULADO (excluindo esta tarefa) + novo valor não pode exceder total trabalhado
-        try {
-            $stTrab = $pdo->prepare("
-                SELECT COALESCE(SUM(segundos), 0)
-                FROM registros_tempo
-                WHERE user_id = :uid AND situacao = 'trabalhando' AND id_pagamento IS NULL
-            ");
-            $stTrab->execute([':uid' => $atual['user_id']]);
-        } catch (Throwable $_) {
-            $stTrab = $pdo->prepare("
-                SELECT COALESCE(SUM(segundos), 0)
-                FROM registros_tempo
-                WHERE user_id = :uid AND situacao = 'trabalhando'
-            ");
-            $stTrab->execute([':uid' => $atual['user_id']]);
-        }
+        // Fonte primária: cronometro_relatorios.segundos_trabalhando filtrado por referencia_data (trabalho líquido real)
+        $stTrab = $pdo->prepare("
+            SELECT COALESCE(SUM(segundos_trabalhando), 0)
+            FROM cronometro_relatorios
+            WHERE user_id = :uid AND referencia_data IS NOT NULL
+        ");
+        $stTrab->execute([':uid' => $atual['user_id']]);
         $trabalhado_total = (int)$stTrab->fetchColumn();
+
+        // Fallback para bases antigas que ainda não tenham registros em cronometro_relatorios
+        if ($trabalhado_total === 0) {
+            try {
+                $stTrab = $pdo->prepare("
+                    SELECT COALESCE(SUM(segundos), 0)
+                    FROM registros_tempo
+                    WHERE user_id = :uid AND situacao = 'trabalhando' AND id_pagamento IS NULL
+                ");
+                $stTrab->execute([':uid' => $atual['user_id']]);
+                $trabalhado_total = (int)$stTrab->fetchColumn();
+            } catch (Throwable $_) {
+                $trabalhado_total = 0;
+            }
+        }
 
         $stDecl = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)

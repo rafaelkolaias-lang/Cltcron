@@ -234,6 +234,73 @@ function graficos_obter_mapa_tempos_relatorio(PDO $conexao_banco, string $where_
     return $mapa;
 }
 
+// Emparelha ocioso_inicio com o próximo terminador (ocioso_fim / pausa / retorno / finalizar / zerar / inicio)
+// e retorna intervalos de ociosidade por usuário — usados para extrair "trabalho líquido" dos períodos_foco no frontend.
+function graficos_obter_periodos_ociosos(PDO $pdo, array $usuarios_filtro, string $inicio_em, string $fim_exclusivo_em): array
+{
+    $parametros = [
+        ':inicio_em' => $inicio_em,
+        ':fim_exclusivo_em' => $fim_exclusivo_em,
+    ];
+    $where_usr = '';
+    if (!empty($usuarios_filtro)) {
+        $in = graficos_montar_in('usuario_ocioso', $usuarios_filtro, $parametros);
+        $where_usr = " AND user_id IN {$in}";
+    }
+
+    try {
+        $sql = "
+            SELECT user_id, criado_em, tipo_evento
+            FROM cronometro_eventos_status
+            WHERE criado_em < :fim_exclusivo_em
+              AND criado_em >= DATE_SUB(:inicio_em, INTERVAL 1 DAY)
+              AND tipo_evento IN ('ocioso_inicio','ocioso_fim','pausa','retorno','finalizar','zerar','inicio')
+              {$where_usr}
+            ORDER BY user_id ASC, criado_em ASC
+        ";
+        $cmd = $pdo->prepare($sql);
+        $cmd->execute($parametros);
+        $linhas = $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $_) {
+        return [];
+    }
+
+    $porUsuario = [];
+    $abertosPorUsuario = [];
+    foreach ($linhas as $linha) {
+        $uid = (string)($linha['user_id'] ?? '');
+        $tipo = (string)($linha['tipo_evento'] ?? '');
+        $dt = (string)($linha['criado_em'] ?? '');
+        if ($uid === '' || $dt === '') {
+            continue;
+        }
+        if ($tipo === 'ocioso_inicio') {
+            $abertosPorUsuario[$uid] = $dt;
+            continue;
+        }
+        if (isset($abertosPorUsuario[$uid])) {
+            if (!isset($porUsuario[$uid])) {
+                $porUsuario[$uid] = [];
+            }
+            $porUsuario[$uid][] = [
+                'inicio_em' => $abertosPorUsuario[$uid],
+                'fim_em'    => $dt,
+            ];
+            unset($abertosPorUsuario[$uid]);
+        }
+    }
+    foreach ($abertosPorUsuario as $uid => $ini) {
+        if (!isset($porUsuario[$uid])) {
+            $porUsuario[$uid] = [];
+        }
+        $porUsuario[$uid][] = [
+            'inicio_em' => $ini,
+            'fim_em'    => '',
+        ];
+    }
+    return $porUsuario;
+}
+
 function graficos_obter_mapa_tempos_por_dia(PDO $conexao_banco, string $where_relatorios, array $parametros_relatorios): array
 {
     $sql = "
@@ -326,6 +393,7 @@ function graficos_garantir_usuario(array &$usuarios, string $user_id, array $lin
             'apps_resumo' => [],
             'periodos_foco' => [],
             'periodos_abertos' => [],
+            'periodos_ociosos' => [],
             'segundos_total_apps' => 0,
             'segundos_total_foco' => 0,
             'segundos_total_segundo_plano' => 0,
@@ -441,6 +509,12 @@ try {
     $mapa_tempos = graficos_obter_mapa_tempos_relatorio($conexao_banco, $where_relatorios, $parametros_relatorios);
     $mapa_tempos_por_dia = graficos_obter_mapa_tempos_por_dia($conexao_banco, $where_relatorios, $parametros_relatorios);
     $linhas_status_atuais = graficos_obter_status_atuais($conexao_banco, $usuarios_filtro);
+    $mapa_periodos_ociosos = graficos_obter_periodos_ociosos(
+        $conexao_banco,
+        $usuarios_filtro,
+        $intervalo['inicio_em'],
+        $intervalo['fim_exclusivo_em']
+    );
 
     $usuarios = [];
 
@@ -553,6 +627,8 @@ try {
         $usuarios[$user_id]['segundos_total_segundo_plano'] += $segundos_segundo_plano;
     }
 
+    // Cap defensivo: foco acima de 3h é tratado como fantasma — LEAST corta no (inicio_em + 3h).
+    // Protege contra registros antigos pendurados que estariam esticando até NOW().
     $sqlPeriodos = "
         SELECT
             fj.id_foco,
@@ -562,23 +638,29 @@ try {
             fj.nome_app,
             fj.titulo_janela,
             fj.inicio_em,
-            CASE
-                WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
-                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
-                ELSE NULL
-            END AS fim_em,
+            LEAST(
+                CASE
+                    WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
+                    ELSE NOW()
+                END,
+                fj.inicio_em + INTERVAL 3 HOUR
+            ) AS fim_em,
             TIMESTAMPDIFF(
                 SECOND,
                 fj.inicio_em,
-                CASE
-                    WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
-                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
-                    ELSE NOW()
-                END
+                LEAST(
+                    CASE
+                        WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                        WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
+                        ELSE NOW()
+                    END,
+                    fj.inicio_em + INTERVAL 3 HOUR
+                )
             ) AS segundos_periodo,
             CASE
                 WHEN fj.fim_em IS NOT NULL THEN 0
-                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN 0
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN 0
                 ELSE 1
             END AS aberto_agora
         FROM cronometro_foco_janela fj
@@ -613,17 +695,21 @@ try {
     }
 
     // ── Períodos de todos os apps abertos (foco + 2.º plano) ──────────────────
+    // Cap defensivo: app aberto acima de 20h é tratado como fantasma — LEAST corta no (inicio_em + 20h).
     $sqlPeriodosAbertos = "
         SELECT
             ai.user_id,
             ai.nome_app,
             ai.inicio_em,
-            CASE
-                WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
-                WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
-                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 5 MINUTE THEN s.ultimo_em
-                ELSE NOW()
-            END AS fim_em,
+            LEAST(
+                CASE
+                    WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
+                    WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
+                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
+                    ELSE NOW()
+                END,
+                ai.inicio_em + INTERVAL 20 HOUR
+            ) AS fim_em,
             ai.segundos_em_foco,
             ai.segundos_segundo_plano,
             (ai.segundos_em_foco + ai.segundos_segundo_plano) AS segundos_total
@@ -706,6 +792,7 @@ try {
 
     foreach ($usuarios as $user_id_iter => $_ignored) {
         $usuarios[$user_id_iter]['tempos_por_dia'] = $mapa_tempos_por_dia[$user_id_iter] ?? [];
+        $usuarios[$user_id_iter]['periodos_ociosos'] = $mapa_periodos_ociosos[$user_id_iter] ?? [];
     }
 
     foreach ($usuarios as &$usuario) {

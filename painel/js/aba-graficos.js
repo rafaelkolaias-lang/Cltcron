@@ -116,6 +116,33 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
 
+  // Caps defensivos (espelham os tetos aplicados no backend/app). Última camada contra
+  // registros legados pendurados que ainda cheguem sem fim_em ou com duração absurda.
+  const MAX_FOCO_MS   = 3  * 3600 * 1000;   // foco contínuo > 3h é fantasma
+  const MAX_ABERTO_MS = 20 * 3600 * 1000;   // app aberto > 20h é fantasma
+
+  function _capPeriodosDoPayload(usuarios) {
+    const _fmt = (ms) => new Date(ms).toISOString().replace("T", " ").slice(0, 19);
+    (usuarios || []).forEach(u => {
+      (u.periodos_foco || []).forEach(p => {
+        if (!p.inicio_em) return;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        if (!isNaN(ini) && fim - ini > MAX_FOCO_MS) {
+          p.fim_em = _fmt(ini + MAX_FOCO_MS);
+        }
+      });
+      (u.periodos_abertos || []).forEach(p => {
+        if (!p.inicio_em) return;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        if (!isNaN(ini) && fim - ini > MAX_ABERTO_MS) {
+          p.fim_em = _fmt(ini + MAX_ABERTO_MS);
+        }
+      });
+    });
+  }
+
   function subtrairDiasIso(iso, n) {
     const p = String(iso).split("-");
     if (p.length !== 3) return iso;
@@ -561,12 +588,16 @@
       return;
     }
 
+    const [tIniMs, tFimMs] = _obterJanelaRecorteMs();
     tbody.innerHTML = usuarios.map(u => {
       const nome = escaparHtml(u.nome_exibicao || u.user_id || "—");
       const uid = escaparHtml(u.user_id || "");
       const status = u.status_atual || "sem_status";
       const ativ = escaparHtml(String(u.atividade_atual || "").trim() || "—");
-      const app = escaparHtml(u.app_principal || "—");
+      // App principal e quantidade recalculados com o recorte atual (não total bruto do payload)
+      const appsRec = _calcularAppsNoRecorte(u, tIniMs, tFimMs);
+      const app = escaparHtml(appsRec[0]?.nome_app || "—");
+      const qtdApps = appsRec.length;
       const tu = _temposUsuarioNoRecorte(u);
 
       return `<tr>
@@ -586,7 +617,7 @@
         <td class="text-end fw-semibold" style="font-size:.85rem">R$ ${Number(u.valor_hora || 0).toFixed(2).replace(".",",")}</td>
         <td class="text-end texto-mono text-success" style="font-size:.85rem">${hhmmss(tu.segundos_trabalhando)}</td>
         <td class="text-end texto-mono text-warning" style="font-size:.85rem">${hhmmss(tu.segundos_ocioso)}</td>
-        <td class="text-end">${Number(u.quantidade_apps_usados || 0)}</td>
+        <td class="text-end">${qtdApps}</td>
         <td class="text-end"><button class="btn btn-sm btn-outline-light" type="button" data-gestao-uid="${uid}">Gestão</button></td>
       </tr>`;
     }).join("");
@@ -613,42 +644,13 @@
     const chart = criarOuObterChart("chartBarrasApps", 260);
     if (!chart) return;
 
-    // Calcular a partir de periodos_abertos clipados no dia/período
-    let bIniMs, bFimMs;
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
-      bIniMs = new Date(ini + "T00:00:00").getTime();
-      bFimMs = new Date(fim + "T23:59:59.999").getTime();
-    } else {
-      const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
-      bIniMs = new Date(dia + "T00:00:00").getTime();
-      bFimMs = new Date(dia + "T23:59:59.999").getTime();
-    }
-
-    const mapaFoco = {};
-    const mapaBg = {};
-    (usuario.periodos_abertos || []).forEach(p => {
-      if (!p.inicio_em) return;
-      const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-      const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-      if (ini > bFimMs || fim < bIniMs) return;
-      const nome = p.nome_app || "—";
-      const clipIni = Math.max(ini, bIniMs);
-      const clipFim = Math.min(fim, bFimMs);
-      const durTotal = Math.max(1, fim - ini);
-      const fator = Math.max(0, Math.min(1, (clipFim - clipIni) / durTotal));
-      const segFoco = Math.max(0, Math.round((p.segundos_em_foco || 0) * fator));
-      const segBg   = Math.max(0, Math.round((p.segundos_segundo_plano || 0) * fator));
-      mapaFoco[nome] = (mapaFoco[nome] || 0) + segFoco;
-      mapaBg[nome]   = (mapaBg[nome]   || 0) + segBg;
-    });
-
-    const apps = Object.keys(mapaFoco).map(nome => ({
-      nome_app: nome,
-      segundos_em_foco: mapaFoco[nome] || 0,
-      segundos_segundo_plano: mapaBg[nome] || 0,
-    })).sort((a, b) => (b.segundos_em_foco + b.segundos_segundo_plano) - (a.segundos_em_foco + a.segundos_segundo_plano)).slice(0, 10);
+    // Recalcula foco / 2º plano a partir dos períodos reais clipados ao recorte atual.
+    // Evita o rateio proporcional antigo (assumia distribuição uniforme) e evita usar
+    // apps_resumo bruto do backend (somado para o período inteiro, inflacionado em dias).
+    const [bIniMs, bFimMs] = _obterJanelaRecorteMs();
+    const apps = _calcularAppsNoRecorte(usuario, bIniMs, bFimMs)
+      .sort((a, b) => (b.segundos_em_foco + b.segundos_segundo_plano) - (a.segundos_em_foco + a.segundos_segundo_plano))
+      .slice(0, 10);
 
     if (!apps.length) { chart.clear(); return; }
 
@@ -756,6 +758,11 @@
         clips.push([Math.max(ini, cIniMs), Math.min(fim, cFimMs)]);
       }
     });
+    return _somarClipsMesclados(clips);
+  }
+
+  // Soma segundos de clipes [ini,fim] já em milissegundos, mesclando sobreposições.
+  function _somarClipsMesclados(clips) {
     clips.sort((a, b) => a[0] - b[0]);
     let total = 0, curEnd = 0;
     clips.forEach(([s, e]) => {
@@ -763,6 +770,105 @@
       else if (e > curEnd) { total += e - curEnd; curEnd = e; }
     });
     return Math.max(0, Math.round(total / 1000));
+  }
+
+  // Retorna clipes de ociosidade do usuário dentro da janela (em ms).
+  function _ociosoClipsNoRecorte(usuario, cIniMs, cFimMs) {
+    const ociosos = [];
+    (usuario.periodos_ociosos || []).forEach(o => {
+      if (!o.inicio_em) return;
+      const oi = new Date(String(o.inicio_em).replace(" ", "T")).getTime();
+      const of = o.fim_em ? new Date(String(o.fim_em).replace(" ", "T")).getTime() : Date.now();
+      if (oi > cFimMs || of < cIniMs) return;
+      ociosos.push([Math.max(oi, cIniMs), Math.min(of, cFimMs)]);
+    });
+    return ociosos;
+  }
+
+  // Subtrai intervalos ociosos de uma lista de clipes [ini, fim] em ms.
+  // Converte "foco bruto" em "trabalho líquido" (o foco de uma janela não conta como trabalho quando o cronômetro estava ocioso).
+  function _subtrairOcioso(clips, ociosos) {
+    if (!ociosos.length) return clips;
+    let atual = clips.slice();
+    ociosos.forEach(([oi, of]) => {
+      const novo = [];
+      atual.forEach(([ci, cf]) => {
+        if (of <= ci || oi >= cf) { novo.push([ci, cf]); return; }
+        if (oi > ci) novo.push([ci, Math.min(oi, cf)]);
+        if (of < cf) novo.push([Math.max(of, ci), cf]);
+      });
+      atual = novo;
+    });
+    return atual;
+  }
+
+  // Recalcula apps (foco / 2º plano / total aberto) a partir dos períodos reais clipados à janela.
+  // Substitui o uso de apps_resumo bruto (que vem do backend somado para o período inteiro)
+  // e o rateio proporcional (assumia distribuição uniforme de foco/bg no período).
+  // O foco é "trabalho líquido": subtrai trechos ociosos registrados em cronometro_eventos_status.
+  function _calcularAppsNoRecorte(usuario, cIniMs, cFimMs) {
+    const ociosos = _ociosoClipsNoRecorte(usuario, cIniMs, cFimMs);
+    const focoClipsPorApp = {};
+    _limparPeriodosFantasma(usuario.periodos_foco || []).forEach(p => {
+      if (!p.inicio_em) return;
+      const pi = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+      const pf = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+      if (pi > cFimMs || pf < cIniMs) return;
+      const ci = Math.max(pi, cIniMs), cf = Math.min(pf, cFimMs);
+      if (cf <= ci) return;
+      const nome = p.nome_app || "—";
+      const semOcioso = _subtrairOcioso([[ci, cf]], ociosos);
+      if (semOcioso.length) {
+        (focoClipsPorApp[nome] = focoClipsPorApp[nome] || []).push(...semOcioso);
+      }
+    });
+
+    const abertoClipsPorApp = {};
+    const primeiroUsoPorApp = {};
+    const ultimoUsoPorApp = {};
+    (usuario.periodos_abertos || []).forEach(p => {
+      if (!p.inicio_em) return;
+      const pi = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+      const pf = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+      if (pi > cFimMs || pf < cIniMs) return;
+      const ci = Math.max(pi, cIniMs), cf = Math.min(pf, cFimMs);
+      if (cf <= ci) return;
+      const nome = p.nome_app || "—";
+      (abertoClipsPorApp[nome] = abertoClipsPorApp[nome] || []).push([ci, cf]);
+      if (primeiroUsoPorApp[nome] === undefined || ci < primeiroUsoPorApp[nome]) primeiroUsoPorApp[nome] = ci;
+      if (ultimoUsoPorApp[nome] === undefined || cf > ultimoUsoPorApp[nome])    ultimoUsoPorApp[nome]   = cf;
+    });
+
+    const nomes = new Set([...Object.keys(focoClipsPorApp), ...Object.keys(abertoClipsPorApp)]);
+    const lista = [];
+    nomes.forEach(nome => {
+      const foco = focoClipsPorApp[nome] ? _somarClipsMesclados(focoClipsPorApp[nome]) : 0;
+      const aberto = abertoClipsPorApp[nome] ? _somarClipsMesclados(abertoClipsPorApp[nome]) : 0;
+      const total = Math.max(foco, aberto);
+      const bg = Math.max(0, total - foco);
+      const iniMs = primeiroUsoPorApp[nome];
+      const fimMs = ultimoUsoPorApp[nome];
+      lista.push({
+        nome_app: nome,
+        segundos_em_foco: foco,
+        segundos_segundo_plano: bg,
+        segundos_total_aberto: total,
+        primeiro_uso_em: iniMs ? new Date(iniMs).toISOString().replace("T", " ").slice(0, 19) : "",
+        ultimo_uso_em:   fimMs ? new Date(fimMs).toISOString().replace("T", " ").slice(0, 19) : "",
+      });
+    });
+    return lista.sort((a, b) => b.segundos_total_aberto - a.segundos_total_aberto);
+  }
+
+  // Retorna a janela [iniMs, fimMs] atual baseada em _modoTotalPeriodo e _teamTimelineDias.
+  function _obterJanelaRecorteMs() {
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
+      return [new Date(ini + "T00:00:00").getTime(), new Date(fim + "T23:59:59.999").getTime()];
+    }
+    const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
+    return [new Date(dia + "T00:00:00").getTime(), new Date(dia + "T23:59:59.999").getTime()];
   }
 
   function _cliparSobreposicoes(dados) {
@@ -980,33 +1086,14 @@
     const chart = criarOuObterChart("chartGlobalApps", 300);
     if (!chart) return;
 
-    // Usa periodos_foco filtrado pelo dia/período atual
-    let gIniMs, gFimMs;
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
-      gIniMs = new Date(ini + "T00:00:00").getTime();
-      gFimMs = new Date(fim + "T23:59:59.999").getTime();
-    } else {
-      const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
-      gIniMs = new Date(diaSelecionado + "T00:00:00").getTime();
-      gFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
-    }
+    // Top Apps agregado por equipe no recorte, usando foco líquido (sem trechos ociosos).
+    const [gIniMs, gFimMs] = _obterJanelaRecorteMs();
     const mapaApps = {};
     usuarios.forEach(u => {
-      _limparPeriodosFantasma(u.periodos_foco || [])
-        .filter(p => {
-          if (!p.inicio_em) return false;
-          const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-          const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-          return ini <= gFimMs && fim >= gIniMs;
-        })
-        .forEach(p => {
-          const nome = p.nome_app || "—";
-          const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), gIniMs);
-          const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), gFimMs);
-          mapaApps[nome] = (mapaApps[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
-        });
+      _calcularAppsNoRecorte(u, gIniMs, gFimMs).forEach(a => {
+        if (!a.segundos_em_foco) return;
+        mapaApps[a.nome_app] = (mapaApps[a.nome_app] || 0) + a.segundos_em_foco;
+      });
     });
 
     const todosApps = Object.entries(mapaApps)
@@ -1352,7 +1439,7 @@
           </div>
           <hr class="separador-sutil">
           <div class="texto-fraco small fw-semibold mb-2" style="text-transform:uppercase;letter-spacing:.3px">Resumo detalhado por app</div>
-          ${montarTabelaApps(u.apps_resumo || [])}`;
+          ${montarTabelaApps(_calcularAppsNoRecorte(u, ..._obterJanelaRecorteMs()))}`;
         a.appendChild(wrapper);
       }, 120);
     }
@@ -1561,6 +1648,7 @@
       ]);
 
       _dadosPainelAtual = dadosPainel;
+      _capPeriodosDoPayload(dadosPainel.usuarios || []);
       setTexto("textoGraficosUltimaAtualizacao", dataHoraCurta(dadosPainel.atualizado_em));
       _recalcularTeamTimelineDias(dadosPainel, filtros.usuario_detalhe);
       montarResumo(dadosPainel);

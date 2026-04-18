@@ -609,86 +609,6 @@
     return echarts.init(el, null, { renderer: "canvas" });
   }
 
-  function renderizarDonutApps(usuario) {
-    const chart = criarOuObterChart("chartDonutApps", 300);
-    if (!chart) return;
-
-    // Calcular a partir de periodos_foco clipados no dia/período
-    let dIniMs, dFimMs;
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
-      dIniMs = new Date(ini + "T00:00:00").getTime();
-      dFimMs = new Date(fim + "T23:59:59.999").getTime();
-    } else {
-      const dia = _timelineDias[_timelineIdxDia] || obterDataHojeIso();
-      dIniMs = new Date(dia + "T00:00:00").getTime();
-      dFimMs = new Date(dia + "T23:59:59.999").getTime();
-    }
-    const mapa = {};
-    _limparPeriodosFantasma(usuario.periodos_foco || [])
-      .filter(p => {
-        if (!p.inicio_em) return false;
-        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-        return ini <= dFimMs && fim >= dIniMs;
-      })
-      .forEach(p => {
-        const nome = p.nome_app || "—";
-        const ini = Math.max(new Date(String(p.inicio_em).replace(" ", "T")).getTime(), dIniMs);
-        const fim = Math.min(p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now(), dFimMs);
-        mapa[nome] = (mapa[nome] || 0) + Math.max(0, Math.round((fim - ini) / 1000));
-      });
-    const todosApps = Object.entries(mapa)
-      .map(([nome, seg]) => ({ nome_app: nome, segundos_em_foco: seg }))
-      .sort((a, b) => b.segundos_em_foco - a.segundos_em_foco)
-      .slice(0, 12);
-
-    if (!todosApps.length) { chart.clear(); return; }
-
-    // Filtra apenas o dado do gráfico; a legenda sempre exibe todos
-    const appsGrafico = FILTROS_APPS_ATIVOS.length > 0
-      ? todosApps.filter(a => FILTROS_APPS_ATIVOS.includes(a.nome_app || "—"))
-      : todosApps;
-
-    const dados = appsGrafico.map((a) => ({
-      name: a.nome_app || "—",
-      value: a.segundos_em_foco || 0,
-      itemStyle: { color: _obterCorApp(a.nome_app) },
-    }));
-
-    chart.setOption({
-      tooltip: {
-        trigger: "item",
-        backgroundColor: "rgba(15,20,35,.92)",
-        borderColor: "rgba(255,255,255,.1)",
-        textStyle: { color: "#e2e8f0", fontSize: 13 },
-        formatter: (p) => `<strong>${escaparHtml(p.name)}</strong><br/>Foco: ${hhmm(p.value)}<br/>${p.percent?.toFixed(1)}%`,
-      },
-      legend: { show: false },
-      series: [{
-        type: "pie",
-        radius: ["48%", "74%"],
-        center: ["50%", "50%"],
-        avoidLabelOverlap: true,
-        padAngle: 2,
-        itemStyle: { borderRadius: 6, borderColor: "rgba(11,18,32,.8)", borderWidth: 2 },
-        label: { show: false },
-        emphasis: {
-          label: { show: true, fontSize: 14, fontWeight: "bold", color: "#fff" },
-          itemStyle: { shadowBlur: 20, shadowColor: "rgba(99,102,241,.4)" },
-        },
-        data: dados,
-      }],
-    }, true);
-
-    chart.off("click");
-    chart.on("click", (params) => { if (params.name) alternarFiltroApp(params.name); });
-
-    // Legenda usa todosApps (todos os apps, não só os filtrados)
-    _renderizarLegendaLateral(todosApps.map(a => ({ nome: a.nome_app || "—" })), "legendaDonutApps");
-  }
-
   function renderizarBarrasApps(usuario) {
     const chart = criarOuObterChart("chartBarrasApps", 260);
     if (!chart) return;
@@ -716,11 +636,12 @@
       const nome = p.nome_app || "—";
       const clipIni = Math.max(ini, bIniMs);
       const clipFim = Math.min(fim, bFimMs);
-      const segs = Math.max(0, Math.round((clipFim - clipIni) / 1000));
-      const segFoco = Math.min(p.segundos_em_foco || 0, segs);
-      const segBg = Math.max(0, segs - segFoco);
+      const durTotal = Math.max(1, fim - ini);
+      const fator = Math.max(0, Math.min(1, (clipFim - clipIni) / durTotal));
+      const segFoco = Math.max(0, Math.round((p.segundos_em_foco || 0) * fator));
+      const segBg   = Math.max(0, Math.round((p.segundos_segundo_plano || 0) * fator));
       mapaFoco[nome] = (mapaFoco[nome] || 0) + segFoco;
-      mapaBg[nome] = (mapaBg[nome] || 0) + segBg;
+      mapaBg[nome]   = (mapaBg[nome]   || 0) + segBg;
     });
 
     const apps = Object.keys(mapaFoco).map(nome => ({
@@ -771,11 +692,6 @@
   let foiAplicadoManualmente = false;
   let FILTROS_APPS_ATIVOS = [];
 
-  // Estado da navegação dia a dia na timeline (detalhe individual)
-  let _timelineDias = [];
-  let _timelineIdxDia = 0;
-  let _timelineUsuarioAtual = null;
-
   // Estado da team timeline (visão global)
   let _teamTimelineDias = [];
   let _teamTimelineIdxDia = 0;
@@ -803,28 +719,6 @@
   }
 
   let _modoTotalPeriodo = false; // true quando filtro tem múltiplos dias
-
-  function _atualizarLabelDia() {
-    const label = document.getElementById("timelineDiaLabel");
-    const btnAnt = document.getElementById("btnTimelineDiaAnterior");
-    const btnProx = document.getElementById("btnTimelineDiaProximo");
-
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
-      if (label) label.textContent = `${_formatarDiaBr(ini)} → ${_formatarDiaBr(fim)}`;
-      if (btnAnt) btnAnt.disabled = true;
-      if (btnProx) btnProx.disabled = true;
-      return;
-    }
-
-    if (!label || !_timelineDias.length) return;
-    const diaAtual = _timelineDias[_timelineIdxDia] || "";
-    label.textContent = _formatarDiaBr(diaAtual);
-    if (btnAnt) btnAnt.disabled = _timelineIdxDia >= _timelineDias.length - 1;
-    // Não permite avançar além de hoje
-    if (btnProx) btnProx.disabled = _timelineIdxDia <= 0 || diaAtual >= obterDataHojeIso();
-  }
 
   // Clipa sobreposições: dentro de cada lane (value[0]), ordena por início e corta
   // cada período onde o seguinte começa — sem sobreposição, sem redundância.
@@ -892,150 +786,6 @@
     return resultado;
   }
 
-  function renderizarTimelineDoDia() {
-    const chart = criarOuObterChart("chartTimelineApps", 200);
-    if (!chart || !_timelineUsuarioAtual) return;
-
-    let diaInicioMs, diaFimMs, periodos;
-
-    if (_modoTotalPeriodo) {
-      // Modo período: mostra TODOS os períodos sem filtrar por dia
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || obterDataHojeIso();
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
-      diaInicioMs = new Date(ini + "T00:00:00").getTime();
-      diaFimMs = new Date(fim + "T23:59:59.999").getTime();
-
-      periodos = _limparPeriodosFantasma(_timelineUsuarioAtual.periodos_foco || [])
-        .filter(p => {
-          if (!p.inicio_em) return false;
-          const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-          const pFim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-          return pIni <= diaFimMs && pFim >= diaInicioMs;
-        })
-        .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
-    } else {
-      // Modo dia único
-      const diaSelecionado = _timelineDias[_timelineIdxDia];
-      if (!diaSelecionado) { chart.clear(); return; }
-
-      diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
-      diaFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
-
-      periodos = _limparPeriodosFantasma(_timelineUsuarioAtual.periodos_foco || [])
-        .filter(p => {
-          if (!p.inicio_em) return false;
-          const pIni = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-          const pFim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-          return pIni <= diaFimMs && pFim >= diaInicioMs;
-        })
-        .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
-    }
-
-    if (!periodos.length) {
-      chart.clear();
-      chart.setOption({ title: { text: "Sem atividade neste dia", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
-      return;
-    }
-
-    const appsUnicos = [...new Set(periodos.map(p => p.nome_app || "—"))];
-
-    const dados = _cliparSobreposicoes(
-      periodos
-        .filter(p => p.inicio_em)
-        .map(p => {
-          const app = p.nome_app || "—";
-          let inicio = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
-          let fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
-          // Clipar nos limites do dia (máximo 24h)
-          inicio = Math.max(inicio, diaInicioMs);
-          fim = Math.min(fim, diaFimMs);
-          const segs = Math.round((fim - inicio) / 1000);
-          return {
-            name: app,
-            value: [app, inicio, fim, segs],
-            itemStyle: { color: _obterCorApp(app) },
-          };
-        })
-        .filter(d => !isNaN(d.value[1]) && d.value[2] > d.value[1])
-    );
-
-    if (!dados.length) { chart.clear(); return; }
-
-    // Eixo X fixo nos limites do dia/período — cobre 00:00:00 até 23:59:59 mesmo sem dados
-    const xMin = diaInicioMs;
-    const xMax = diaFimMs;
-
-    const alturaChart = Math.max(120, Math.min(350, appsUnicos.length * 36 + 60));
-    const el = document.getElementById("chartTimelineApps");
-    if (el) el.style.height = alturaChart + "px";
-    chart.resize();
-
-    // Linhas de meia-noite no modo período
-    const markLinesInd = [];
-    if (_modoTotalPeriodo) {
-      const dIni = new Date(diaInicioMs);
-      const dFim = new Date(diaFimMs);
-      const cursor = new Date(dIni.getFullYear(), dIni.getMonth(), dIni.getDate() + 1);
-      while (cursor <= dFim) {
-        markLinesInd.push({
-          xAxis: cursor.getTime(),
-          label: { formatter: cursor.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }), color: "rgba(255,255,255,.5)", fontSize: 10, position: "start" },
-          lineStyle: { color: "rgba(255,255,255,.15)", type: "dashed", width: 1 },
-        });
-        cursor.setDate(cursor.getDate() + 1);
-      }
-    }
-
-    const xLabelFmtInd = _modoTotalPeriodo
-      ? (v) => new Date(v).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-      : (v) => new Date(v).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-    const xIntervalInd = _modoTotalPeriodo ? 6 * 3600 * 1000 : 2 * 3600 * 1000;
-
-    chart.setOption({
-      tooltip: {
-        backgroundColor: "rgba(15,20,35,.92)",
-        borderColor: "rgba(255,255,255,.1)",
-        textStyle: { color: "#e2e8f0", fontSize: 12 },
-        formatter: (p) => {
-          if (p.componentType === "markLine") return "";
-          const v = p.value;
-          const dtFmt = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
-          const ini = new Date(v[1]).toLocaleString("pt-BR", dtFmt);
-          const f = new Date(v[2]).toLocaleString("pt-BR", dtFmt);
-          return `<strong>${escaparHtml(v[0])}</strong><br/>${ini} → ${f}<br/>Duração: ${hhmm(v[3])}`;
-        },
-      },
-      grid: { left: 8, right: 16, top: 8, bottom: 36, containLabel: true },
-      xAxis: {
-        type: "time",
-        min: xMin, max: xMax,
-        minInterval: _modoTotalPeriodo ? 3600 * 1000 : 15 * 60 * 1000,
-        maxInterval: xIntervalInd,
-        axisLabel: { color: "rgba(255,255,255,.4)", fontSize: 10, formatter: xLabelFmtInd, rotate: _modoTotalPeriodo ? 30 : 0 },
-        splitLine: { lineStyle: { color: "rgba(255,255,255,.04)" } },
-      },
-      yAxis: { type: "category", data: appsUnicos, axisLabel: { color: "rgba(255,255,255,.7)", fontSize: 11, width: 100, overflow: "truncate" }, axisTick: { show: false }, axisLine: { show: false } },
-      series: [{
-        type: "custom",
-        renderItem: (params, api) => {
-          const catIdx = api.value(0);
-          const inicio = api.coord([api.value(1), catIdx]);
-          const fim = api.coord([api.value(2), catIdx]);
-          const bandH = Math.min(api.size([0, 1])[1] * 0.6, 18);
-          return {
-            type: "rect",
-            shape: { x: inicio[0], y: inicio[1] - bandH / 2, width: Math.max(fim[0] - inicio[0], 2), height: bandH },
-            style: { ...api.style(), fill: api.visual("color") },
-            styleEmphasis: { ...api.style(), opacity: 1 },
-          };
-        },
-        encode: { x: [1, 2], y: 0 },
-        data: dados,
-        markLine: markLinesInd.length > 0 ? { silent: true, symbol: "none", data: markLinesInd } : undefined,
-      }],
-    }, true);
-  }
-
   function _extrairDiasAbrangidos(inicioStr, fimStr) {
     // Retorna todos os dias (YYYY-MM-DD) que um período toca
     const dias = [];
@@ -1064,40 +814,6 @@
       d.setDate(d.getDate() + 1);
     }
     return dias;
-  }
-
-  function renderizarTimelineApps(usuario) {
-    _timelineUsuarioAtual = usuario;
-    _modoTotalPeriodo = _filtroTemMultiplosDias();
-
-    const periodos = usuario.periodos_foco || [];
-    const hoje = obterDataHojeIso();
-
-    if (_modoTotalPeriodo) {
-      // Modo período: todos os dias do filtro
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje;
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || hoje;
-      _timelineDias = _gerarDiasContiguos(ini, fim).reverse();
-    } else {
-      // Modo navegação: extrair dias com dados + preencher lacunas até hoje
-      const diasSet = new Set();
-      periodos.forEach(p => {
-        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-      });
-      // Se tem dados, gerar range contíguo do mais antigo até hoje
-      if (diasSet.size > 0) {
-        const todos = [...diasSet].sort();
-        const maisAntigo = todos[0];
-        const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
-        _timelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
-      } else {
-        _timelineDias = [hoje];
-      }
-    }
-    _timelineIdxDia = 0;
-
-    _atualizarLabelDia();
-    renderizarTimelineDoDia();
   }
 
   // ─── Visão Global (todos os usuários) ─────────────────────
@@ -1567,41 +1283,8 @@
 
     _htmlModoAtual = modo;
     _teamTimelineUsuarios = usuarios;
-    _modoTotalPeriodo = _filtroTemMultiplosDias();
-    const hoje = obterDataHojeIso();
-
-    if (_modoTotalPeriodo) {
-      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje;
-      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || hoje;
-      _teamTimelineDias = _gerarDiasContiguos(ini, fim).reverse();
-    } else {
-      const diasSet = new Set();
-      usuarios.forEach(u => {
-        (u.periodos_foco || []).forEach(p => {
-          _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-        });
-        if (individual) {
-          (u.periodos_abertos || []).forEach(p => {
-            _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-          });
-        }
-      });
-      if (diasSet.size > 0) {
-        const todos = [...diasSet].sort();
-        const maisAntigo = todos[0];
-        const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
-        _teamTimelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
-      } else {
-        _teamTimelineDias = [hoje];
-      }
-    }
-    _teamTimelineIdxDia = 0;
-
-    // Recorte da timeline definido agora — re-renderiza resumo e tabela para refletir o dia atual
-    if (_dadosPainelAtual) {
-      montarResumo(_dadosPainelAtual);
-      montarTabelaUsuarios(_dadosPainelAtual);
-    }
+    // _teamTimelineDias / _teamTimelineIdxDia / _modoTotalPeriodo já foram recalculados
+    // antes de montarResumo/montarTabelaUsuarios no atualizarGraficos — não refazer aqui.
 
     setTimeout(() => {
       if (individual) {
@@ -1816,6 +1499,47 @@
     area.innerHTML = html;
   }
 
+  // Recalcula _teamTimelineDias / _teamTimelineIdxDia / _modoTotalPeriodo a partir do payload.
+  // Deve rodar ANTES de montarResumo/montarTabelaUsuarios para evitar flash de valores do recorte anterior.
+  function _recalcularTeamTimelineDias(dados, usuarioDetalheId) {
+    const usuarios = (dados && dados.usuarios) || [];
+    const hoje = obterDataHojeIso();
+    _modoTotalPeriodo = _filtroTemMultiplosDias();
+
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || hoje;
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || hoje;
+      _teamTimelineDias = _gerarDiasContiguos(ini, fim).reverse();
+      _teamTimelineIdxDia = 0;
+      return;
+    }
+
+    const individual = !!usuarioDetalheId && usuarios.length === 1;
+    const diasSet = new Set();
+    usuarios.forEach(u => {
+      (u.periodos_foco || []).forEach(p => {
+        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
+      });
+      if (individual) {
+        (u.periodos_abertos || []).forEach(p => {
+          _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
+        });
+      }
+    });
+
+    if (diasSet.size > 0) {
+      const todos = [...diasSet].sort();
+      const maisAntigo = todos[0];
+      const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
+      _teamTimelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
+    } else {
+      // Sem dados: se o usuário aplicou uma data manual, respeitar o dia do filtro; caso contrário, hoje
+      const fimFiltro = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
+      _teamTimelineDias = [foiAplicadoManualmente && fimFiltro ? fimFiltro : hoje];
+    }
+    _teamTimelineIdxDia = 0;
+  }
+
   // ─── Fluxo principal ──────────────────────────────────────
   async function atualizarGraficos() {
     if (!abaGraficosEstaVisivel()) return;
@@ -1838,6 +1562,7 @@
 
       _dadosPainelAtual = dadosPainel;
       setTexto("textoGraficosUltimaAtualizacao", dataHoraCurta(dadosPainel.atualizado_em));
+      _recalcularTeamTimelineDias(dadosPainel, filtros.usuario_detalhe);
       montarResumo(dadosPainel);
       montarTabelaUsuarios(dadosPainel);
       montarDetalheUsuario(dadosPainel, filtros.usuario_detalhe);
@@ -1855,8 +1580,8 @@
     FILTROS_APPS_ATIVOS = [];
     const ini = document.getElementById("filtroGraficosDataInicio");
     const fim = document.getElementById("filtroGraficosDataFim");
-    if (ini) ini.value = "";
-    if (fim) fim.value = "";
+    if (ini) { ini.value = ""; ini.classList.remove("filtro-pendente"); }
+    if (fim) { fim.value = ""; fim.classList.remove("filtro-pendente"); }
     _atualizarLabelTeamTimeline();
   }
 
@@ -1875,9 +1600,22 @@
     });
 
     document.addEventListener("click", (ev) => {
-      if (ev.target?.id === "botaoAplicarFiltrosGraficos") { foiAplicadoManualmente = true; atualizarGraficos(); }
+      if (ev.target?.id === "botaoAplicarFiltrosGraficos") {
+        foiAplicadoManualmente = true;
+        document.getElementById("filtroGraficosDataInicio")?.classList.remove("filtro-pendente");
+        document.getElementById("filtroGraficosDataFim")?.classList.remove("filtro-pendente");
+        atualizarGraficos();
+      }
       if (ev.target?.id === "botaoLimparFiltrosGraficos") { limparFiltros(); atualizarGraficos(); }
       if (ev.target?.id === "botaoAbrirModalCores") _abrirModalCores();
+    });
+
+    // Destaca inputs de data alterados até o usuário clicar em "Aplicar"
+    document.addEventListener("input", (ev) => {
+      const id = ev.target?.id;
+      if (id === "filtroGraficosDataInicio" || id === "filtroGraficosDataFim") {
+        ev.target.classList.add("filtro-pendente");
+      }
     });
 
     document.addEventListener("change", (ev) => {
@@ -1886,23 +1624,6 @@
 
     // Navegação dia a dia na timeline (event delegation — registra 1 vez)
     document.addEventListener("click", (ev) => {
-      if (ev.target?.id === "btnTimelineDiaAnterior") {
-        if (_timelineIdxDia < _timelineDias.length - 1) {
-          _timelineIdxDia++;
-          _atualizarLabelDia();
-          renderizarTimelineDoDia();
-          // donut sincroniza com o dia selecionado
-          if (_timelineUsuarioAtual) renderizarDonutApps(_timelineUsuarioAtual);
-        }
-      }
-      if (ev.target?.id === "btnTimelineDiaProximo") {
-        if (_timelineIdxDia > 0) {
-          _timelineIdxDia--;
-          _atualizarLabelDia();
-          renderizarTimelineDoDia();
-          if (_timelineUsuarioAtual) renderizarDonutApps(_timelineUsuarioAtual);
-        }
-      }
       if (ev.target?.id === "btnTeamTimelineDiaAnterior") {
         if (_teamTimelineIdxDia < _teamTimelineDias.length - 1) {
           _teamTimelineIdxDia++;
@@ -2021,8 +1742,8 @@
   }
 
   function resizarGraficos() {
-    ["chartDonutApps", "chartBarrasApps", "chartTimelineApps",
-     "chartGlobalComparativo", "chartGlobalApps", "chartGlobalTimeline", "chartTimelineAbertos"].forEach((id) => {
+    ["chartBarrasApps", "chartGlobalComparativo", "chartGlobalApps",
+     "chartGlobalTimeline", "chartTimelineAbertos"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) echarts.getInstanceByDom(el)?.resize();
     });
@@ -2044,13 +1765,7 @@
     configurarGatilhos();
 
     // Resize listener único — redimensiona todos os charts ECharts de uma vez
-    window.addEventListener("resize", () => {
-      ["chartGlobalComparativo", "chartGlobalApps", "chartBarrasApps",
-       "chartGlobalTimeline", "chartTimelineAbertos", "chartTimelineApps"].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) echarts.getInstanceByDom(el)?.resize();
-      });
-    });
+    window.addEventListener("resize", resizarGraficos);
 
     if (abaGraficosEstaVisivel()) atualizarGraficos();
   });

@@ -340,6 +340,11 @@ body{
   color: var(--cor-texto-fraco);
   margin-bottom: 4px;
 }
+.filtros-compactos .filtro-pendente{
+  border-color: #ffd600 !important;
+  box-shadow: 0 0 0 1px rgba(255,214,0,.35);
+  background-color: rgba(255,214,0,.06) !important;
+}
 
 .separador-sutil{
   border: 0;

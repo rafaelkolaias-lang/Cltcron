@@ -105,9 +105,7 @@ function graficos_obter_intervalo_datas(array $entrada): array
     }
 
     if (!$data_inicio) {
-        $inicio = new DateTime($data_fim . ' 00:00:00');
-        $inicio->modify('-6 days');
-        $data_inicio = $inicio->format('Y-m-d');
+        $data_inicio = $data_fim;
     }
 
     $inicio_em = new DateTime($data_inicio . ' 00:00:00');
@@ -588,7 +586,7 @@ try {
         LEFT JOIN usuarios_status_atual s ON s.user_id = fj.user_id
         WHERE {$where_foco}
         ORDER BY u.nome_exibicao ASC, fj.inicio_em DESC
-        LIMIT 50000
+        LIMIT 50000 -- Corta períodos antigos em consultas multi-dia muito longas; seguro em janelas curtas (hoje).
     ";
     $cmdPeriodos = $conexao_banco->prepare($sqlPeriodos);
     $cmdPeriodos->execute($parametros_foco);
@@ -634,7 +632,7 @@ try {
         LEFT JOIN usuarios_status_atual s ON s.user_id = ai.user_id
         WHERE {$where_intervalos}
         ORDER BY ai.user_id ASC, ai.inicio_em DESC
-        LIMIT 50000
+        LIMIT 50000 -- Corta períodos antigos em consultas multi-dia muito longas; seguro em janelas curtas (hoje).
     ";
     $cmdPeriodosAbertos = $conexao_banco->prepare($sqlPeriodosAbertos);
     $cmdPeriodosAbertos->execute($parametros_intervalos);

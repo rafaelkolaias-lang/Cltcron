@@ -236,6 +236,44 @@ function graficos_obter_mapa_tempos_relatorio(PDO $conexao_banco, string $where_
     return $mapa;
 }
 
+function graficos_obter_mapa_tempos_por_dia(PDO $conexao_banco, string $where_relatorios, array $parametros_relatorios): array
+{
+    $sql = "
+        SELECT
+            cr.user_id,
+            COALESCE(cr.referencia_data, DATE(cr.criado_em)) AS dia,
+            SUM(cr.segundos_trabalhando) AS segundos_trabalhando,
+            SUM(cr.segundos_ocioso) AS segundos_ocioso,
+            SUM(cr.segundos_pausado) AS segundos_pausado
+        FROM cronometro_relatorios cr
+        WHERE {$where_relatorios}
+        GROUP BY cr.user_id, dia
+    ";
+
+    $cmd = $conexao_banco->prepare($sql);
+    $cmd->execute($parametros_relatorios);
+    $linhas = $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    $mapa = [];
+    foreach ($linhas as $linha) {
+        $uid = (string)($linha['user_id'] ?? '');
+        $dia = (string)($linha['dia'] ?? '');
+        if ($uid === '' || $dia === '') {
+            continue;
+        }
+        if (!isset($mapa[$uid])) {
+            $mapa[$uid] = [];
+        }
+        $mapa[$uid][$dia] = [
+            'segundos_trabalhando' => (int)($linha['segundos_trabalhando'] ?? 0),
+            'segundos_ocioso' => (int)($linha['segundos_ocioso'] ?? 0),
+            'segundos_pausado' => (int)($linha['segundos_pausado'] ?? 0),
+        ];
+    }
+
+    return $mapa;
+}
+
 function graficos_obter_usuarios_base(PDO $conexao_banco, array $usuarios_filtro): array
 {
     $parametros = [];
@@ -285,6 +323,7 @@ function graficos_garantir_usuario(array &$usuarios, string $user_id, array $lin
             'segundos_trabalhando_total' => (int)($tempos['segundos_trabalhando'] ?? 0),
             'segundos_ocioso_total' => (int)($tempos['segundos_ocioso'] ?? 0),
             'segundos_pausado_total' => (int)($tempos['segundos_pausado'] ?? 0),
+            'tempos_por_dia' => [],
             'apps_abertos_agora' => [],
             'apps_resumo' => [],
             'periodos_foco' => [],
@@ -353,7 +392,9 @@ try {
         ':inicio_em' => $intervalo['inicio_em'],
         ':fim_exclusivo_em' => $intervalo['fim_exclusivo_em'],
     ];
-    $where_intervalos = "ai.inicio_em >= :inicio_em AND ai.inicio_em < :fim_exclusivo_em";
+    // Sobreposição com a janela: inclui intervalos que começaram antes da janela e terminam dentro dela
+    $where_intervalos = "ai.inicio_em < :fim_exclusivo_em
+        AND (ai.fim_em IS NULL OR ai.fim_em > :inicio_em)";
 
     if (!empty($usuarios_filtro)) {
         $in = graficos_montar_in('usuario_intervalo', $usuarios_filtro, $parametros_intervalos);
@@ -369,7 +410,9 @@ try {
         ':inicio_em' => $intervalo['inicio_em'],
         ':fim_exclusivo_em' => $intervalo['fim_exclusivo_em'],
     ];
-    $where_foco = "fj.inicio_em >= :inicio_em AND fj.inicio_em < :fim_exclusivo_em";
+    // Sobreposição com a janela: inclui períodos de foco que começaram antes mas terminam dentro dela
+    $where_foco = "fj.inicio_em < :fim_exclusivo_em
+        AND (fj.fim_em IS NULL OR fj.fim_em > :inicio_em)";
 
     if (!empty($usuarios_filtro)) {
         $in = graficos_montar_in('usuario_foco', $usuarios_filtro, $parametros_foco);
@@ -398,6 +441,7 @@ try {
 
     $usuarios_base = graficos_obter_usuarios_base($conexao_banco, $usuarios_filtro);
     $mapa_tempos = graficos_obter_mapa_tempos_relatorio($conexao_banco, $where_relatorios, $parametros_relatorios);
+    $mapa_tempos_por_dia = graficos_obter_mapa_tempos_por_dia($conexao_banco, $where_relatorios, $parametros_relatorios);
     $linhas_status_atuais = graficos_obter_status_atuais($conexao_banco, $usuarios_filtro);
 
     $usuarios = [];
@@ -662,6 +706,10 @@ try {
         'sem_status' => 0,
     ];
 
+    foreach ($usuarios as $user_id_iter => $_ignored) {
+        $usuarios[$user_id_iter]['tempos_por_dia'] = $mapa_tempos_por_dia[$user_id_iter] ?? [];
+    }
+
     foreach ($usuarios as &$usuario) {
         $apps_abertos_normalizados = [];
         $assinaturas = [];
@@ -707,6 +755,22 @@ try {
         return strcmp((string)$a['nome_exibicao'], (string)$b['nome_exibicao']);
     });
 
+    $tempos_por_dia_total = [];
+    foreach ($usuarios as $usuario_item) {
+        foreach (($usuario_item['tempos_por_dia'] ?? []) as $dia => $tempos_dia) {
+            if (!isset($tempos_por_dia_total[$dia])) {
+                $tempos_por_dia_total[$dia] = [
+                    'segundos_trabalhando' => 0,
+                    'segundos_ocioso' => 0,
+                    'segundos_pausado' => 0,
+                ];
+            }
+            $tempos_por_dia_total[$dia]['segundos_trabalhando'] += (int)($tempos_dia['segundos_trabalhando'] ?? 0);
+            $tempos_por_dia_total[$dia]['segundos_ocioso'] += (int)($tempos_dia['segundos_ocioso'] ?? 0);
+            $tempos_por_dia_total[$dia]['segundos_pausado'] += (int)($tempos_dia['segundos_pausado'] ?? 0);
+        }
+    }
+
     $resumo_geral = [
         'usuarios_com_dados' => count($usuarios),
         'apps_abertos_agora_total' => array_sum(array_map(
@@ -738,6 +802,7 @@ try {
             $usuarios
         )),
         'status_atual' => $contagem_status_atual,
+        'tempos_por_dia' => $tempos_por_dia_total,
     ];
 
     graficos_responder_json(true, 'Painel simplificado carregado.', [

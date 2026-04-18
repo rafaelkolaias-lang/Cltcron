@@ -14,7 +14,7 @@ import urllib.request
 import uuid
 from ctypes import wintypes
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -207,6 +207,57 @@ def formatar_hhmmss(segundos: int) -> str:
     minutos = (total % 3600) // 60
     segs = total % 60
     return f"{horas:02d}:{minutos:02d}:{segs:02d}"
+
+
+def dividir_tempos_por_dia(
+    inicio_em: datetime,
+    fim_em: datetime,
+    segundos_trabalhando: int,
+    segundos_ocioso: int,
+    segundos_pausado: int,
+) -> list[tuple[date, int, int, int]]:
+    seg_trab = max(0, int(segundos_trabalhando or 0))
+    seg_oci = max(0, int(segundos_ocioso or 0))
+    seg_pau = max(0, int(segundos_pausado or 0))
+
+    if fim_em <= inicio_em or inicio_em.date() == fim_em.date():
+        return [(inicio_em.date(), seg_trab, seg_oci, seg_pau)]
+
+    total_segundos = max(1, int((fim_em - inicio_em).total_seconds()))
+    fatias: list[tuple[date, int]] = []
+    cursor = inicio_em
+    while cursor < fim_em:
+        proximo_dia = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time())
+        limite = min(proximo_dia, fim_em)
+        segundos_no_dia = int((limite - cursor).total_seconds())
+        if segundos_no_dia <= 0:
+            break
+        fatias.append((cursor.date(), segundos_no_dia))
+        cursor = limite
+
+    if not fatias:
+        return [(inicio_em.date(), seg_trab, seg_oci, seg_pau)]
+
+    resultado: list[tuple[date, int, int, int]] = []
+    acum_trab = 0
+    acum_oci = 0
+    acum_pau = 0
+    for i, (dia, seg_dia) in enumerate(fatias):
+        if i == len(fatias) - 1:
+            parte_trab = seg_trab - acum_trab
+            parte_oci = seg_oci - acum_oci
+            parte_pau = seg_pau - acum_pau
+        else:
+            frac = seg_dia / total_segundos
+            parte_trab = int(round(seg_trab * frac))
+            parte_oci = int(round(seg_oci * frac))
+            parte_pau = int(round(seg_pau * frac))
+            acum_trab += parte_trab
+            acum_oci += parte_oci
+            acum_pau += parte_pau
+        resultado.append((dia, max(0, parte_trab), max(0, parte_oci), max(0, parte_pau)))
+
+    return resultado
 
 
 @dataclass
@@ -614,10 +665,26 @@ class MonitorDeUso:
         return titulo[:255]
 
     def _montar_apps_json_locked(self) -> str:
+        nome_foco = self._nome_app_foco or "desconhecido"
+        abertos: list[dict] = []
+        for nome_app, dados in self._mapa_intervalos_apps.items():
+            if not nome_app or nome_app == "desconhecido":
+                continue
+            abertos.append({
+                "nome_app": nome_app,
+                "em_foco": nome_app == nome_foco,
+                "segundos_em_foco": int(dados.get("segundos_em_foco", 0) or 0),
+                "segundos_segundo_plano": int(dados.get("segundos_segundo_plano", 0) or 0),
+            })
+        abertos.sort(key=lambda item: (
+            0 if item.get("em_foco") else 1,
+            -int(item.get("segundos_em_foco", 0) or 0) - int(item.get("segundos_segundo_plano", 0) or 0),
+            str(item.get("nome_app", "")),
+        ))
         payload = {
-            "abertos": [],
+            "abertos": abertos,
             "em_foco": {
-                "nome_app": self._nome_app_foco or "desconhecido",
+                "nome_app": nome_foco,
                 "titulo_janela": self._titulo_janela_foco or "",
             },
         }
@@ -993,32 +1060,55 @@ class MonitorDeUso:
         except Exception:
             pass
 
-        # Inserir relatório para que o tempo fique disponível para declaração de tarefas
+        # Inserir relatório para que o tempo fique disponível para declaração de tarefas.
+        # Sessões que cruzam a meia-noite são divididas em múltiplas linhas por referencia_data.
         try:
-            segundos_total = converter_segundos_para_inteiro(
-                _seg_trab_snap + _seg_ocio_snap
+            fim_em_agora = datetime.now()
+            inicio_em_sessao = None
+            try:
+                linha_sessao = self._banco.consultar_um(
+                    "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
+                    [_id_snap],
+                )
+                if linha_sessao and linha_sessao.get("iniciado_em"):
+                    inicio_em_sessao = linha_sessao["iniciado_em"]
+            except Exception:
+                inicio_em_sessao = None
+
+            if not isinstance(inicio_em_sessao, datetime):
+                inicio_em_sessao = datetime.combine(_ref_data_snap, datetime.min.time())
+
+            fatias = dividir_tempos_por_dia(
+                inicio_em_sessao,
+                fim_em_agora,
+                converter_segundos_para_inteiro(_seg_trab_snap),
+                converter_segundos_para_inteiro(_seg_ocio_snap),
+                converter_segundos_para_inteiro(_seg_paus_snap),
             )
-            self._banco.executar(
-                """
-                INSERT INTO cronometro_relatorios
-                    (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-                VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                [
-                    _id_snap,
-                    _uid_snap,
-                    int(_id_ativ_snap) if _id_ativ_snap else None,
-                    "Sessão zerada",
-                    int(segundos_total),
-                    converter_segundos_para_inteiro(_seg_trab_snap),
-                    converter_segundos_para_inteiro(_seg_ocio_snap),
-                    converter_segundos_para_inteiro(_seg_paus_snap),
-                    datetime.now(),
-                    _ref_data_snap,
-                ],
-            )
+
+            for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
+                segundos_total_dia = seg_trab_dia + seg_oci_dia
+                self._banco.executar(
+                    """
+                    INSERT INTO cronometro_relatorios
+                        (id_sessao, user_id, id_atividade, relatorio, segundos_total,
+                         segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        _id_snap,
+                        _uid_snap,
+                        int(_id_ativ_snap) if _id_ativ_snap else None,
+                        "Sessão zerada",
+                        int(segundos_total_dia),
+                        int(seg_trab_dia),
+                        int(seg_oci_dia),
+                        int(seg_pau_dia),
+                        fim_em_agora,
+                        dia,
+                    ],
+                )
         except Exception:
             pass
 
@@ -1061,31 +1151,55 @@ class MonitorDeUso:
         except Exception:
             pass
 
-        segundos_total = converter_segundos_para_inteiro(
-            self._segundos_trabalhando_float + self._segundos_ocioso_float
+        # Sessões que cruzam a meia-noite são divididas em múltiplas linhas por referencia_data.
+        fim_em_agora = datetime.now()
+        inicio_em_sessao = None
+        try:
+            linha_sessao = self._banco.consultar_um(
+                "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
+                [self._id_sessao],
+            )
+            if linha_sessao and linha_sessao.get("iniciado_em"):
+                inicio_em_sessao = linha_sessao["iniciado_em"]
+        except Exception:
+            inicio_em_sessao = None
+
+        ref_data_fallback = self._referencia_data_sessao or date.today()
+        if not isinstance(inicio_em_sessao, datetime):
+            inicio_em_sessao = datetime.combine(ref_data_fallback, datetime.min.time())
+
+        fatias = dividir_tempos_por_dia(
+            inicio_em_sessao,
+            fim_em_agora,
+            converter_segundos_para_inteiro(self._segundos_trabalhando_float),
+            converter_segundos_para_inteiro(self._segundos_ocioso_float),
+            converter_segundos_para_inteiro(self._segundos_pausado_float),
         )
 
-        self._banco.executar(
-            """
-            INSERT INTO cronometro_relatorios
-                (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                 segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-            VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            [
-                self._id_sessao,
-                self._user_id,
-                int(self._id_atividade),
-                (relatorio or "").strip(),
-                int(segundos_total),
-                converter_segundos_para_inteiro(self._segundos_trabalhando_float),
-                converter_segundos_para_inteiro(self._segundos_ocioso_float),
-                converter_segundos_para_inteiro(self._segundos_pausado_float),
-                datetime.now(),
-                self._referencia_data_sessao or date.today(),
-            ],
-        )
+        texto_relatorio = (relatorio or "").strip()
+        for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
+            segundos_total_dia = seg_trab_dia + seg_oci_dia
+            self._banco.executar(
+                """
+                INSERT INTO cronometro_relatorios
+                    (id_sessao, user_id, id_atividade, relatorio, segundos_total,
+                     segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
+                VALUES
+                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    self._id_sessao,
+                    self._user_id,
+                    int(self._id_atividade),
+                    texto_relatorio,
+                    int(segundos_total_dia),
+                    int(seg_trab_dia),
+                    int(seg_oci_dia),
+                    int(seg_pau_dia),
+                    fim_em_agora,
+                    dia,
+                ],
+            )
 
         with self._trava:
             self._sessao_carregada = False

@@ -447,10 +447,10 @@
       };
     }
 
-    // Sem filtro manual: busca últimos 7 dias (setas navegam), gráficos iniciam mostrando hoje
+    // Sem filtro manual: mostra apenas o dia atual (tanto na visão geral quanto ao filtrar por membro)
     const hoje = obterDataHojeIso();
     return {
-      data_inicio: subtrairDiasIso(hoje, 6),
+      data_inicio: hoje,
       data_fim: hoje,
       usuarios: userId ? [userId] : [],
       apps: [],
@@ -494,15 +494,59 @@
   // ─── Montar resumo geral ──────────────────────────────────
   function setTexto(id, txt) { const el = document.getElementById(id); if (el) el.textContent = txt; }
 
+  // Retorna o dia selecionado na timeline da equipe, ou null quando mostra o período inteiro
+  function _diaRecorteEquipe() {
+    if (_modoTotalPeriodo) return null;
+    return _teamTimelineDias[_teamTimelineIdxDia] || null;
+  }
+
+  // Tempos globais considerando o recorte atual (dia selecionado ou período inteiro)
+  function _temposGlobaisNoRecorte(dados) {
+    const r = dados.resumo_geral || {};
+    const dia = _diaRecorteEquipe();
+    if (!dia) {
+      return {
+        segundos_trabalhando: r.segundos_trabalhando_total || 0,
+        segundos_ocioso: r.segundos_ocioso_total || 0,
+        segundos_pausado: r.segundos_pausado_total || 0,
+      };
+    }
+    const t = (r.tempos_por_dia || {})[dia] || {};
+    return {
+      segundos_trabalhando: t.segundos_trabalhando || 0,
+      segundos_ocioso: t.segundos_ocioso || 0,
+      segundos_pausado: t.segundos_pausado || 0,
+    };
+  }
+
+  // Tempos de um usuário considerando o recorte atual (dia ou período inteiro)
+  function _temposUsuarioNoRecorte(usuario) {
+    const dia = _diaRecorteEquipe();
+    if (!dia) {
+      return {
+        segundos_trabalhando: usuario.segundos_trabalhando_total || 0,
+        segundos_ocioso: usuario.segundos_ocioso_total || 0,
+        segundos_pausado: usuario.segundos_pausado_total || 0,
+      };
+    }
+    const t = (usuario.tempos_por_dia || {})[dia] || {};
+    return {
+      segundos_trabalhando: t.segundos_trabalhando || 0,
+      segundos_ocioso: t.segundos_ocioso || 0,
+      segundos_pausado: t.segundos_pausado || 0,
+    };
+  }
+
   function montarResumo(dados) {
     const r = dados.resumo_geral || {};
     const st = r.status_atual || {};
     setTexto("numeroResumoTrabalhandoAgora", String(st.trabalhando || 0));
     setTexto("numeroResumoOciososAgora", String(st.ocioso || 0));
     setTexto("numeroResumoPausadosAgora", String(st.pausado || 0));
-    setTexto("textoResumoTempoTrabalhando", hhmmss(r.segundos_trabalhando_total || 0));
-    setTexto("textoResumoTempoOcioso", hhmmss(r.segundos_ocioso_total || 0));
-    setTexto("textoResumoTempoPausado", hhmmss(r.segundos_pausado_total || 0));
+    const t = _temposGlobaisNoRecorte(dados);
+    setTexto("textoResumoTempoTrabalhando", hhmmss(t.segundos_trabalhando));
+    setTexto("textoResumoTempoOcioso", hhmmss(t.segundos_ocioso));
+    setTexto("textoResumoTempoPausado", hhmmss(t.segundos_pausado));
   }
 
   // ─── Tabela da equipe ─────────────────────────────────────
@@ -523,6 +567,7 @@
       const status = u.status_atual || "sem_status";
       const ativ = escaparHtml(String(u.atividade_atual || "").trim() || "—");
       const app = escaparHtml(u.app_principal || "—");
+      const tu = _temposUsuarioNoRecorte(u);
 
       return `<tr>
         <td>
@@ -539,8 +584,8 @@
         <td style="font-size:.85rem">${app !== "—" ? `<span class="pill-app"><span class="pill-app__dot"></span>${app}</span>` : '<span class="texto-fraco">—</span>'}</td>
         <td class="text-center"><span class="badge ${(u.status_conta||"").toLowerCase() === "ativa" ? "text-bg-success" : "text-bg-secondary"}">${escaparHtml((u.status_conta||"—").charAt(0).toUpperCase() + (u.status_conta||"").slice(1))}</span></td>
         <td class="text-end fw-semibold" style="font-size:.85rem">R$ ${Number(u.valor_hora || 0).toFixed(2).replace(".",",")}</td>
-        <td class="text-end texto-mono text-success" style="font-size:.85rem">${hhmmss(u.segundos_trabalhando_total || 0)}</td>
-        <td class="text-end texto-mono text-warning" style="font-size:.85rem">${hhmmss(u.segundos_ocioso_total || 0)}</td>
+        <td class="text-end texto-mono text-success" style="font-size:.85rem">${hhmmss(tu.segundos_trabalhando)}</td>
+        <td class="text-end texto-mono text-warning" style="font-size:.85rem">${hhmmss(tu.segundos_ocioso)}</td>
         <td class="text-end">${Number(u.quantidade_apps_usados || 0)}</td>
         <td class="text-end"><button class="btn btn-sm btn-outline-light" type="button" data-gestao-uid="${uid}">Gestão</button></td>
       </tr>`;
@@ -916,10 +961,9 @@
 
     if (!dados.length) { chart.clear(); return; }
 
-    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
-    const paddingMs = 30 * 60 * 1000;
-    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
-    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
+    // Eixo X fixo nos limites do dia/período — cobre 00:00:00 até 23:59:59 mesmo sem dados
+    const xMin = diaInicioMs;
+    const xMax = diaFimMs;
 
     const alturaChart = Math.max(120, Math.min(350, appsUnicos.length * 36 + 60));
     const el = document.getElementById("chartTimelineApps");
@@ -1078,8 +1122,17 @@
     const diaSelecionado = _teamTimelineDias[_teamTimelineIdxDia];
     if (!diaSelecionado) { chart.clear(); return; }
 
+    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
+    const diaFimMs    = new Date(diaSelecionado + "T23:59:59.999").getTime();
+
+    // Considera qualquer período que sobreponha o dia selecionado (mesma regra da timeline principal)
     const periodos = (_timelineAbertosUsuario.periodos_abertos || [])
-      .filter(p => _extrairDiaIso(p.inicio_em) === diaSelecionado && p.inicio_em)
+      .filter(p => {
+        if (!p.inicio_em) return false;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        return !isNaN(ini) && ini <= diaFimMs && fim >= diaInicioMs;
+      })
       .filter(p => FILTROS_APPS_ATIVOS.length === 0 || FILTROS_APPS_ATIVOS.includes(p.nome_app || "—"));
 
     if (!periodos.length) {
@@ -1089,28 +1142,30 @@
     }
 
     const appsUnicos = [...new Set(periodos.map(p => p.nome_app || "—"))];
-    const diaInicioMs = new Date(diaSelecionado + "T00:00:00").getTime();
-    const diaFimMs    = new Date(diaSelecionado + "T23:59:59").getTime();
 
+    // Clipa cada período às fronteiras 00:00:00 → 23:59:59 do dia selecionado
     const dados = _cliparSobreposicoes(
       periodos.map(p => {
         const app    = p.nome_app || "—";
-        const inicio = new Date(String(p.inicio_em).replace(" ", "T"));
-        const fim    = new Date(String(p.fim_em).replace(" ", "T"));
+        const iniMs  = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fimOrig = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        const inicio = Math.max(iniMs, diaInicioMs);
+        const fim    = Math.min(isNaN(fimOrig) ? Date.now() : fimOrig, diaFimMs);
+        // value[3] é a duração do trecho clipado — tooltip precisa refletir só o que aparece neste dia
+        const segsClipados = Math.max(0, Math.round((fim - inicio) / 1000));
         return {
           name: app,
-          value: [app, inicio.getTime(), isNaN(fim.getTime()) ? Date.now() : fim.getTime(), p.segundos_total || 0],
+          value: [app, inicio, fim, segsClipados],
           itemStyle: { color: _obterCorApp(app) },
         };
-      }).filter(d => !isNaN(d.value[1]))
+      }).filter(d => !isNaN(d.value[1]) && d.value[2] > d.value[1])
     );
 
     if (!dados.length) { chart.clear(); return; }
 
-    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
-    const paddingMs = 30 * 60 * 1000;
-    const xMin = Math.max(diaInicioMs, Math.min(...dados.map(d => d.value[1])) - paddingMs);
-    const xMax = Math.min(diaFimMs,    Math.max(...dados.map(d => d.value[2])) + paddingMs);
+    // Eixo X fixo nos limites do dia/período — cobre 00:00:00 até 23:59:59 mesmo sem dados
+    const xMin = diaInicioMs;
+    const xMax = diaFimMs;
 
     const alturaChart = Math.max(120, Math.min(400, appsUnicos.length * 36 + 60));
     const el = document.getElementById("chartTimelineAbertos");
@@ -1183,8 +1238,8 @@
 
     const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
     const trabalhando = usuarios.map(u => _segundosFocoMesclados(u.periodos_foco || [], cIniMs, cFimMs)).reverse();
-    const ocioso = usuarios.map(u => u.segundos_ocioso_total || 0).reverse();
-    const pausado = usuarios.map(u => u.segundos_pausado_total || 0).reverse();
+    const ocioso = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_ocioso).reverse();
+    const pausado = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_pausado).reverse();
 
     chart.setOption({
       tooltip: {
@@ -1379,10 +1434,9 @@
 
     const dadosClipados = _cliparSobreposicoes(dados);
 
-    // v4.7: eixo X ajustado ao intervalo real dos dados ± 30 min
-    const paddingMs = 30 * 60 * 1000;
-    const xMin = Math.max(diaInicioMs, Math.min(...dadosClipados.map(d => d.value[1])) - paddingMs);
-    const xMax = Math.min(diaFimMs,    Math.max(...dadosClipados.map(d => d.value[2])) + paddingMs);
+    // Eixo X fixo nos limites do dia/período — cobre 00:00:00 até 23:59:59 mesmo sem dados
+    const xMin = diaInicioMs;
+    const xMax = diaFimMs;
 
     const alturaChart = Math.max(120, Math.min(400, userNomes.length * 48 + 60));
     const el = document.getElementById("chartGlobalTimeline");
@@ -1553,6 +1607,12 @@
       }
     }
     _teamTimelineIdxDia = 0;
+
+    // Recorte da timeline definido agora — re-renderiza resumo e tabela para refletir o dia atual
+    if (_dadosPainelAtual) {
+      montarResumo(_dadosPainelAtual);
+      montarTabelaUsuarios(_dadosPainelAtual);
+    }
 
     setTimeout(() => {
       if (individual) {
@@ -1859,6 +1919,10 @@
           _teamTimelineIdxDia++;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
+          if (_dadosPainelAtual) {
+            montarResumo(_dadosPainelAtual);
+            montarTabelaUsuarios(_dadosPainelAtual);
+          }
           if (_teamTimelineUsuarios) {
             renderizarGlobalApps(_teamTimelineUsuarios);
             renderizarComparativoUsuarios(_teamTimelineUsuarios);
@@ -1872,6 +1936,10 @@
           _teamTimelineIdxDia--;
           _atualizarLabelTeamTimeline();
           _renderizarTeamTimelineDoDia();
+          if (_dadosPainelAtual) {
+            montarResumo(_dadosPainelAtual);
+            montarTabelaUsuarios(_dadosPainelAtual);
+          }
           if (_teamTimelineUsuarios) {
             renderizarGlobalApps(_teamTimelineUsuarios);
             renderizarComparativoUsuarios(_teamTimelineUsuarios);

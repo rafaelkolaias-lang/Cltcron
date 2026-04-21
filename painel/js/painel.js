@@ -133,14 +133,16 @@
     if (!json.ok) throw new Error(json.mensagem || "Falha ao listar usuários.");
     const lista = Array.isArray(json.dados) ? json.dados : [];
 
-    estado.usuariosDashboard = lista.map((u) => ({
-      user_id: String(u.user_id || ""),
-      nome_exibicao: String(u.nome_exibicao || ""),
-      nivel: String(u.nivel || ""),
-      valor_hora: Number(u.valor_hora || 0),
-      status_conta: String(u.status_conta || ""),
-      atualizado_em: String(u.atualizado_em || ""),
-    }));
+    estado.usuariosDashboard = lista
+      .filter((u) => Number(u.ocultar_dashboard || 0) !== 1)
+      .map((u) => ({
+        user_id: String(u.user_id || ""),
+        nome_exibicao: String(u.nome_exibicao || ""),
+        nivel: String(u.nivel || ""),
+        valor_hora: Number(u.valor_hora || 0),
+        status_conta: String(u.status_conta || ""),
+        atualizado_em: String(u.atualizado_em || ""),
+      }));
   }
 
   function badgeStatusConta(status) {

@@ -10,7 +10,7 @@ try {
     $pdo = obter_conexao_pdo();
 
     $st = $pdo->prepare("
-        SELECT id_usuario, user_id, nome_exibicao, nivel, valor_hora, status_conta, atualizado_em
+        SELECT id_usuario, user_id, nome_exibicao, nivel, valor_hora, status_conta, ocultar_dashboard, atualizado_em
         FROM usuarios
         WHERE status_conta = 'ativa'
         ORDER BY nome_exibicao ASC, user_id ASC

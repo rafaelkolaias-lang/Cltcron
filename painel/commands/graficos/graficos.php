@@ -349,6 +349,8 @@ function graficos_obter_usuarios_base(PDO $conexao_banco, array $usuarios_filtro
         $where .= " AND u.user_id IN {$in}";
     }
 
+    $where .= " AND u.ocultar_dashboard = 0";
+
     $sql = "
         SELECT
             u.user_id,
@@ -422,6 +424,7 @@ try {
         $cmdUsuarios = $conexao_banco->query("
             SELECT user_id, nome_exibicao, status_conta, nivel
             FROM usuarios
+            WHERE ocultar_dashboard = 0
             ORDER BY nome_exibicao ASC, user_id ASC
         ");
         $usuarios = $cmdUsuarios ? ($cmdUsuarios->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];

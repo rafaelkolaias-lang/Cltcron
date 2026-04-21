@@ -18,6 +18,7 @@
   function urlCriarUsuario() { return "./commands/usuarios/criar.php"; }
   function urlEditarUsuario() { return "./commands/usuarios/editar.php"; }
   function urlAtualizarStatusUsuario() { return "./commands/usuarios/atualizar_status.php"; }
+  function urlAlternarVisibilidadeDashboard() { return "./commands/usuarios/alternar_visibilidade_dashboard.php"; }
 
   function urlListarPagamentosPorUsuario(userId) {
     return `./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(userId)}`;
@@ -94,6 +95,16 @@
     return json.dados || null;
   }
 
+  async function alternarVisibilidadeDashboardNoBackend(payload) {
+    const json = await requisitarJson(urlAlternarVisibilidadeDashboard(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify(payload),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao alterar visibilidade.");
+    return json.dados || null;
+  }
+
   async function listarPagamentosDoBackend(userId) {
     const json = await requisitarJson(urlListarPagamentosPorUsuario(userId));
     if (!json.ok) throw new Error(json.mensagem || "Falha ao listar pagamentos.");
@@ -145,6 +156,7 @@
       valor_hora: Number(u.valor_hora || 0),
       chave: String(u.chave || ""),
       status_conta: String(u.status_conta || ""),
+      ocultar_dashboard: Number(u.ocultar_dashboard || 0) ? 1 : 0,
       atualizado_em: String(u.atualizado_em || ""),
     }));
   }
@@ -182,6 +194,25 @@
     if (s === "ativa") return `<span class="badge text-bg-success">Ativa</span>`;
     if (s === "inativa") return `<span class="badge text-bg-secondary">Inativa</span>`;
     return `<span class="badge text-bg-secondary">—</span>`;
+  }
+
+  function botaoVisibilidadeDashboard(u) {
+    const oculto = Number(u.ocultar_dashboard || 0) === 1;
+    const uid = escapeHtmlSeguro(u.user_id);
+    const icone = oculto ? "🙈" : "👁";
+    const titulo = oculto ? "Oculto do Dashboard — clique para mostrar" : "Visível no Dashboard — clique para ocultar";
+    const classe = oculto ? "btn-outline-secondary text-secondary" : "btn-outline-light text-light";
+    return `
+      <button class="btn btn-sm ${classe} px-2 py-0"
+              type="button"
+              title="${titulo}"
+              aria-label="${titulo}"
+              data-acao-usuario="alternar-visibilidade-dashboard"
+              data-uid="${uid}"
+              data-oculto-atual="${oculto ? 1 : 0}">
+        <span style="font-size: 0.95rem; line-height: 1;">${icone}</span>
+      </button>
+    `;
   }
 
   function dataHoraCurta(iso) {
@@ -337,7 +368,12 @@
             <span class="fw-semibold">${escapeHtmlSeguro(formatarDinheiroBr(u.valor_hora))}</span>
           </td>
 
-          <td class="text-center">${badgeStatusConta(u.status_conta)}</td>
+          <td class="text-center">
+            <div class="d-inline-flex align-items-center gap-2">
+              ${badgeStatusConta(u.status_conta)}
+              ${botaoVisibilidadeDashboard(u)}
+            </div>
+          </td>
 
           <td class="text-center">
             <span class="texto-mono">${escapeHtmlSeguro(dataHoraCurta(u.atualizado_em))}</span>
@@ -371,6 +407,26 @@
       const uid = btn.getAttribute("data-uid");
       if (acao === "abrir-gestao") {
         await abrirModalGestaoUsuario(uid);
+        return;
+      }
+      if (acao === "alternar-visibilidade-dashboard") {
+        const ocultoAtual = String(btn.getAttribute("data-oculto-atual") || "0") === "1";
+        const novoOculto = ocultoAtual ? 0 : 1;
+        btn.disabled = true;
+        try {
+          await alternarVisibilidadeDashboardNoBackend({ user_id: uid, ocultar_dashboard: novoOculto });
+          const u = buscarUsuarioGestao(uid);
+          if (u) u.ocultar_dashboard = novoOculto;
+          renderizarAbaUsuarios();
+          nucleo.utilidades.mostrarAlerta(
+            "sucesso",
+            novoOculto ? "Usuário oculto do Dashboard" : "Usuário visível no Dashboard",
+            uid,
+          );
+        } catch (e) {
+          btn.disabled = false;
+          nucleo.utilidades.mostrarAlerta("erro", "Falha ao alterar visibilidade", String(e && e.message ? e.message : e));
+        }
         return;
       }
       nucleo.utilidades.mostrarAlerta("info", "Ação", "Ação não implementada.");
@@ -417,8 +473,8 @@
       nucleo.utilidades.mostrarAlerta("aviso", "Nível inválido", "Escolha um nível válido.");
       return;
     }
-    if (valorHora <= 0) {
-      nucleo.utilidades.mostrarAlerta("aviso", "Valor por hora inválido", "Informe um valor maior que zero.");
+    if (!Number.isFinite(valorHora) || valorHora < 0) {
+      nucleo.utilidades.mostrarAlerta("aviso", "Valor por hora inválido", "Informe um valor maior ou igual a zero.");
       return;
     }
 
@@ -721,8 +777,8 @@
       nucleo.utilidades.mostrarAlerta("aviso", "Nível inválido", "Escolha um nível válido.");
       return;
     }
-    if (valorHora <= 0) {
-      nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior que zero.");
+    if (!Number.isFinite(valorHora) || valorHora < 0) {
+      nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior ou igual a zero.");
       return;
     }
 

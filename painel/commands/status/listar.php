@@ -18,6 +18,7 @@ try {
               s.apps_json
             FROM usuarios u
             LEFT JOIN usuarios_status_atual s ON s.user_id = u.user_id
+            WHERE u.ocultar_dashboard = 0
             ORDER BY u.user_id ASC";
 
     $stm = $pdo->prepare($sql);

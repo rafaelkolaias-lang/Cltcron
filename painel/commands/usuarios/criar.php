@@ -35,7 +35,7 @@ try {
     if (!nivel_valido($nivel)) {
         responder_json(false, "nivel inválido", null, 400);
     }
-    if ($valor_hora <= 0) {
+    if ($valor_hora < 0) {
         responder_json(false, "valor_hora inválido", null, 400);
     }
 

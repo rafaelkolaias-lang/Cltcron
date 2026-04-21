@@ -9,7 +9,7 @@ require_once __DIR__ . '/../conexao/conexao.php';
 try {
     $pdo = obter_conexao_pdo();
 
-    $sql = "SELECT id_usuario, user_id, nome_exibicao, nivel, valor_hora, chave, status_conta, criado_em, atualizado_em
+    $sql = "SELECT id_usuario, user_id, nome_exibicao, nivel, valor_hora, chave, status_conta, ocultar_dashboard, criado_em, atualizado_em
             FROM usuarios
             ORDER BY user_id ASC";
     $stm = $pdo->prepare($sql);

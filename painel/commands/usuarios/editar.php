@@ -31,7 +31,7 @@ try {
     if ($user_id === '') responder_json(false, 'user_id é obrigatório.', ['campo' => 'user_id'], 400);
     if ($nome_exibicao === '') responder_json(false, 'nome_exibicao é obrigatório.', ['campo' => 'nome_exibicao'], 400);
     if ($nivel === '') responder_json(false, 'nivel inválido.', ['campo' => 'nivel'], 400);
-    if ($valor_hora <= 0) responder_json(false, 'valor_hora deve ser maior que zero.', ['campo' => 'valor_hora'], 400);
+    if ($valor_hora < 0) responder_json(false, 'valor_hora não pode ser negativo.', ['campo' => 'valor_hora'], 400);
 
     if (mb_strlen($nome_exibicao) > 120) $nome_exibicao = mb_substr($nome_exibicao, 0, 120);
 

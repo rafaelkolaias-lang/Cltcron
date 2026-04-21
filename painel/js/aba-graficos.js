@@ -1721,11 +1721,67 @@
     _teamTimelineIdxDia = 0;
   }
 
+  // ─── Indicador de carregamento nos gráficos ────────────────
+  // IDs dos charts que mostram "Carregando…" durante o fetch.
+  const _CHARTS_COM_LOADING = [
+    "chartGlobalTimeline",
+    "chartGlobalComparativo",
+    "chartGlobalApps",
+    "chartBarrasApps",
+    "chartTimelineAbertos",
+  ];
+
+  function _indicarCarregandoGraficos() {
+    // Desabilita setas de navegação durante o fetch para evitar cliques duplicados
+    const btnAnt = document.getElementById("btnTeamTimelineDiaAnterior");
+    const btnProx = document.getElementById("btnTeamTimelineDiaProximo");
+    if (btnAnt) btnAnt.disabled = true;
+    if (btnProx) btnProx.disabled = true;
+
+    if (!window.echarts) return;
+    _CHARTS_COM_LOADING.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const inst = echarts.getInstanceByDom(el);
+      if (!inst) return;
+      try {
+        inst.showLoading("default", {
+          text: "Carregando…",
+          color: "#e62117",
+          textColor: "rgba(255,255,255,.8)",
+          maskColor: "rgba(11,18,32,.55)",
+          fontSize: 13,
+          spinnerRadius: 12,
+          lineWidth: 2,
+          zlevel: 0,
+        });
+      } catch (_) { /* noop */ }
+    });
+  }
+
+  function _pararCarregandoGraficos() {
+    if (!window.echarts) {
+      // Ainda assim tenta restaurar estado dos botões
+      _atualizarLabelTeamTimeline?.();
+      return;
+    }
+    _CHARTS_COM_LOADING.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const inst = echarts.getInstanceByDom(el);
+      if (!inst) return;
+      try { inst.hideLoading(); } catch (_) { /* noop */ }
+    });
+    // Re-aplica regras de disabled corretas (modo período vs navegação)
+    _atualizarLabelTeamTimeline();
+  }
+
   // ─── Fluxo principal ──────────────────────────────────────
   async function atualizarGraficos() {
     if (!abaGraficosEstaVisivel()) return;
     if (requisicaoEmAndamento) return;
     requisicaoEmAndamento = true;
+    _indicarCarregandoGraficos();
 
     try {
       garantirEstruturaSimplificada();
@@ -1751,6 +1807,7 @@
     } catch (e) {
       mostrarAlerta("erro", "Gráficos:", String(e?.message || e));
     } finally {
+      _pararCarregandoGraficos();
       requisicaoEmAndamento = false;
     }
   }

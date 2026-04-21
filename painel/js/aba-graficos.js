@@ -1620,31 +1620,62 @@
       const hoje = obterDataHojeIso();
       const inicio30 = subtrairDiasIso(hoje, 29);
 
+      // Carrega lista de usuários primeiro: precisamos do set de ocultos
+      // para esconder do Dashboard tanto na lista quanto na soma de pagamentos.
+      let usersTodos = [];
+      try {
+        const r = await requisitarJson("./commands/usuarios/listar.php");
+        usersTodos = Array.isArray(r) ? r : (Array.isArray(r?.dados) ? r.dados : []);
+      } catch (_) { usersTodos = []; }
+
+      const setOcultos = new Set(
+        usersTodos
+          .filter((u) => Number(u.ocultar_dashboard || 0) === 1)
+          .map((u) => String(u.user_id))
+      );
+      const usersVisiveis = usersTodos.filter((u) => !setOcultos.has(String(u.user_id)));
+
       const [dados, pagamentos] = await Promise.all([
         requisitarJson("./commands/relatorio/tempo_trabalhado.php", {
           data_inicio: inicio30, data_fim: hoje, usuarios: [],
         }),
         (async () => {
-          try {
-            // Buscar pagamentos de todos os usuários nos últimos 30 dias
-            const r = await requisitarJson("./commands/usuarios/listar.php");
-            const users = Array.isArray(r) ? r : (Array.isArray(r?.dados) ? r.dados : []);
-            let totalPago = 0;
-            for (const u of users) {
-              try {
-                const rp = await requisitarJson(`./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(u.user_id)}`);
-                const pags = Array.isArray(rp) ? rp : (Array.isArray(rp?.dados) ? rp.dados : []);
-                pags.forEach(p => {
-                  if (p.data_pagamento && p.data_pagamento >= inicio30 && p.data_pagamento <= hoje) {
-                    totalPago += Number(p.valor || 0);
-                  }
-                });
-              } catch (_) {}
-            }
-            return totalPago;
-          } catch (_) { return 0; }
+          let totalPago = 0;
+          for (const u of usersVisiveis) {
+            try {
+              const rp = await requisitarJson(`./commands/pagamentos/listar_por_usuario.php?user_id=${encodeURIComponent(u.user_id)}`);
+              const pags = Array.isArray(rp) ? rp : (Array.isArray(rp?.dados) ? rp.dados : []);
+              pags.forEach(p => {
+                if (p.data_pagamento && p.data_pagamento >= inicio30 && p.data_pagamento <= hoje) {
+                  totalPago += Number(p.valor || 0);
+                }
+              });
+            } catch (_) {}
+          }
+          return totalPago;
         })(),
       ]);
+
+      // Filtra usuários ocultos do payload e recalcula totais gerais.
+      if (setOcultos.size > 0 && dados && typeof dados === "object") {
+        if (Array.isArray(dados.linhas)) {
+          dados.linhas = dados.linhas.filter((ln) => !setOcultos.has(String(ln.user_id)));
+        }
+        if (Array.isArray(dados.totais_por_usuario)) {
+          dados.totais_por_usuario = dados.totais_por_usuario.filter(
+            (t) => !setOcultos.has(String(t.user_id))
+          );
+          let segTotal = 0;
+          let valorTotal = 0;
+          for (const t of dados.totais_por_usuario) {
+            segTotal += Number(t.segundos_total || 0);
+            valorTotal += Number(t.valor_estimado || (Number(t.segundos_total || 0) / 3600) * Number(t.valor_hora || 0));
+          }
+          dados.total_geral_segundos = segTotal;
+          dados.total_geral_horas = hhmmss(segTotal);
+          dados.total_geral_valor = valorTotal;
+        }
+      }
 
       renderizarTempoDeclarado(dados, pagamentos);
     } catch (e) {

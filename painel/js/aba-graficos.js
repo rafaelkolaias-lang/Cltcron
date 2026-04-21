@@ -116,6 +116,24 @@
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
   }
 
+  // "2026-04-21" + (+1) → "2026-04-22". Também aceita offsets negativos.
+  function _somarDiasISO(isoDia, delta) {
+    const base = isoDia || obterDataHojeIso();
+    const d = new Date(base + "T12:00:00");
+    d.setDate(d.getDate() + Number(delta || 0));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  // Retorna o dia ISO atualmente visível no Dashboard quando NÃO está em modo
+  // período. Usado como âncora para as setas de navegação somarem ±1 dia.
+  function _diaAtualmenteExibido() {
+    if (_diaNavegacaoSeta) return _diaNavegacaoSeta;
+    if (_teamTimelineDias.length && _teamTimelineDias[_teamTimelineIdxDia]) {
+      return _teamTimelineDias[_teamTimelineIdxDia];
+    }
+    return obterDataHojeIso();
+  }
+
   // Caps defensivos (espelham os tetos aplicados no backend/app). Última camada contra
   // registros legados pendurados que ainda cheguem sem fim_em ou com duração absurda.
   const MAX_FOCO_MS   = 3  * 3600 * 1000;   // foco contínuo > 3h é fantasma
@@ -474,11 +492,13 @@
       };
     }
 
-    // Sem filtro manual: mostra apenas o dia atual (tanto na visão geral quanto ao filtrar por membro)
-    const hoje = obterDataHojeIso();
+    // Sem filtro manual: usa o dia escolhido pelas setas (ou hoje, se nenhum).
+    // O backend é refetchado a cada clique em seta — por isso a janela enviada
+    // é sempre 1 dia só, centrada no dia navegado.
+    const diaAlvo = _diaNavegacaoSeta || obterDataHojeIso();
     return {
-      data_inicio: hoje,
-      data_fim: hoje,
+      data_inicio: diaAlvo,
+      data_fim: diaAlvo,
       usuarios: userId ? [userId] : [],
       apps: [],
       usuario_detalhe: userId,
@@ -524,7 +544,8 @@
   // Retorna o dia selecionado na timeline da equipe, ou null quando mostra o período inteiro
   function _diaRecorteEquipe() {
     if (_modoTotalPeriodo) return null;
-    return _teamTimelineDias[_teamTimelineIdxDia] || null;
+    // Fonte única da verdade: o dia realmente exibido (navegação de seta ou hoje).
+    return _diaAtualmenteExibido();
   }
 
   // Tempos globais considerando o recorte atual (dia selecionado ou período inteiro)
@@ -548,6 +569,25 @@
 
   // Tempos de um usuário considerando o recorte atual (dia ou período inteiro)
   function _temposUsuarioNoRecorte(usuario) {
+    // Modo período (filtro manual aplicado): soma tempos_por_dia dentro do
+    // intervalo [data_inicio, data_fim]. Evita usar segundos_*_total que
+    // pode incluir dias fora do filtro selecionado.
+    if (_modoTotalPeriodo) {
+      const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
+      const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
+      const tpd = usuario.tempos_por_dia || {};
+      let trab = 0, oci = 0, pau = 0;
+      Object.keys(tpd).forEach(d => {
+        if (ini && d < ini) return;
+        if (fim && d > fim) return;
+        const t = tpd[d] || {};
+        trab += Number(t.segundos_trabalhando || 0);
+        oci  += Number(t.segundos_ocioso || 0);
+        pau  += Number(t.segundos_pausado || 0);
+      });
+      return { segundos_trabalhando: trab, segundos_ocioso: oci, segundos_pausado: pau };
+    }
+
     const dia = _diaRecorteEquipe();
     if (!dia) {
       return {
@@ -562,6 +602,25 @@
       segundos_ocioso: t.segundos_ocioso || 0,
       segundos_pausado: t.segundos_pausado || 0,
     };
+  }
+
+  // Filtra usuários com atividade real no recorte atual.
+  // "Com atividade" = tempos_por_dia soma > 0 OU tem algum periodo_foco
+  // que sobrepõe a janela de recorte atual.
+  function _usuariosComAtividadeNoRecorte(usuarios) {
+    const [ri, rf] = _obterJanelaRecorteMs();
+    return (usuarios || []).filter(u => {
+      const t = _temposUsuarioNoRecorte(u);
+      if ((t.segundos_trabalhando + t.segundos_ocioso + t.segundos_pausado) > 0) return true;
+      const periodos = u.periodos_foco || [];
+      for (const p of periodos) {
+        if (!p.inicio_em) continue;
+        const ini = new Date(String(p.inicio_em).replace(" ", "T")).getTime();
+        const fim = p.fim_em ? new Date(String(p.fim_em).replace(" ", "T")).getTime() : Date.now();
+        if (!isNaN(ini) && ini <= rf && fim >= ri) return true;
+      }
+      return false;
+    });
   }
 
   function montarResumo(dados) {
@@ -734,6 +793,10 @@
   // Estado da team timeline (visão global)
   let _teamTimelineDias = [];
   let _teamTimelineIdxDia = 0;
+  // Dia ISO (YYYY-MM-DD) selecionado pelas setas de navegação quando NÃO há
+  // filtro manual aplicado. Vazio = "hoje". Cada mudança dispara atualizarGraficos()
+  // pra refazer o fetch centrado no dia escolhido.
+  let _diaNavegacaoSeta = "";
   let _teamTimelineUsuarios = null;
 
   // Controle de modo — evita rebuild de HTML a cada filtro
@@ -904,7 +967,9 @@
       const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || obterDataHojeIso();
       return [new Date(ini + "T00:00:00").getTime(), new Date(fim + "T23:59:59.999").getTime()];
     }
-    const dia = _teamTimelineDias[_teamTimelineIdxDia] || obterDataHojeIso();
+    // Modo dia: fonte única da verdade é o dia realmente exibido (seta ou hoje),
+    // não o índice de _teamTimelineDias que pode ter "saltado" no recálculo.
+    const dia = _diaAtualmenteExibido();
     return [new Date(dia + "T00:00:00").getTime(), new Date(dia + "T23:59:59.999").getTime()];
   }
 
@@ -1080,14 +1145,21 @@
   function renderizarComparativoUsuarios(usuarios) {
     const chart = criarOuObterChart("chartGlobalComparativo", 260);
     if (!chart) return;
-    if (!usuarios.length) { chart.clear(); return; }
 
-    const nomes = usuarios.map(u => u.nome_exibicao || u.user_id || "—").reverse();
+    // Mostra apenas usuários com atividade no recorte atual — oculta os zerados.
+    const ativos = _usuariosComAtividadeNoRecorte(usuarios);
+    if (!ativos.length) {
+      chart.clear();
+      chart.setOption({ title: { text: "Sem atividade neste período", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
+      return;
+    }
+
+    const nomes = ativos.map(u => u.nome_exibicao || u.user_id || "—").reverse();
     // Trabalhado líquido vem de cronometro_relatorios.segundos_trabalhando no recorte atual
     // (mesma fonte de Ocioso/Pausado) para manter a decomposição coerente: T + O + P = tempo cronometrado.
-    const trabalhando = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_trabalhando).reverse();
-    const ocioso = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_ocioso).reverse();
-    const pausado = usuarios.map(u => _temposUsuarioNoRecorte(u).segundos_pausado).reverse();
+    const trabalhando = ativos.map(u => _temposUsuarioNoRecorte(u).segundos_trabalhando).reverse();
+    const ocioso = ativos.map(u => _temposUsuarioNoRecorte(u).segundos_ocioso).reverse();
+    const pausado = ativos.map(u => _temposUsuarioNoRecorte(u).segundos_pausado).reverse();
 
     chart.setOption({
       tooltip: {
@@ -1195,16 +1267,12 @@
       return;
     }
 
-    if (!_teamTimelineDias.length) {
-      label.textContent = "—";
-      if (btnAnt) btnAnt.disabled = true;
-      if (btnProx) btnProx.disabled = true;
-      return;
-    }
-    const diaAtual = _teamTimelineDias[_teamTimelineIdxDia] || "";
-    label.textContent = _formatarDiaBr(diaAtual);
-    if (btnAnt) btnAnt.disabled = _teamTimelineIdxDia >= _teamTimelineDias.length - 1;
-    if (btnProx) btnProx.disabled = _teamTimelineIdxDia <= 0 || diaAtual >= obterDataHojeIso();
+    // Modo dia: usa o dia realmente exibido (seta ou hoje). Cada clique em seta
+    // já disparou um fetch novo, então aqui só refletimos o estado.
+    const diaAtual = _diaAtualmenteExibido();
+    label.textContent = diaAtual ? _formatarDiaBr(diaAtual) : "—";
+    if (btnAnt) btnAnt.disabled = false; // seta esquerda nunca trava (pode voltar sempre)
+    if (btnProx) btnProx.disabled = (diaAtual >= obterDataHojeIso()); // trava em hoje
   }
 
   function _renderizarTeamTimelineDoDia() {
@@ -1225,10 +1293,14 @@
       diaFimMs = new Date(diaSelecionado + "T23:59:59.999").getTime();
     }
 
+    // Filtra usuários com atividade dentro da janela atual — oculta os zerados
+    // em vez de reservar uma lane vazia pra cada um.
+    const usuariosAtivos = _usuariosComAtividadeNoRecorte(_teamTimelineUsuarios);
+
     const userNomes = [];
     const dados = [];
 
-    _teamTimelineUsuarios.forEach((u) => {
+    usuariosAtivos.forEach((u) => {
       const nome = u.nome_exibicao || u.user_id || "—";
       if (!userNomes.includes(nome)) userNomes.push(nome);
 
@@ -1255,9 +1327,13 @@
         });
     });
 
-    if (!dados.length) {
+    if (!dados.length || !userNomes.length) {
       chart.clear();
-      chart.setOption({ title: { text: "Sem atividade neste dia", left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
+      const msgVazio = _modoTotalPeriodo ? "Sem atividade neste período" : "Sem atividade neste dia";
+      chart.setOption({ title: { text: msgVazio, left: "center", top: "center", textStyle: { color: "rgba(255,255,255,.3)", fontSize: 14 } } }, true);
+      const el0 = document.getElementById("chartGlobalTimeline");
+      if (el0) el0.style.height = "160px";
+      chart.resize();
       return;
     }
 
@@ -1623,10 +1699,10 @@
     area.innerHTML = html;
   }
 
-  // Recalcula _teamTimelineDias / _teamTimelineIdxDia / _modoTotalPeriodo a partir do payload.
-  // Deve rodar ANTES de montarResumo/montarTabelaUsuarios para evitar flash de valores do recorte anterior.
+  // Recalcula _modoTotalPeriodo a partir dos filtros atuais. Em modo dia, a fonte
+  // da verdade do recorte é _diaAtualmenteExibido() (navegação por seta ou hoje),
+  // então _teamTimelineDias/_teamTimelineIdxDia só servem como fallback histórico.
   function _recalcularTeamTimelineDias(dados, usuarioDetalheId) {
-    const usuarios = (dados && dados.usuarios) || [];
     const hoje = obterDataHojeIso();
     _modoTotalPeriodo = _filtroTemMultiplosDias();
 
@@ -1638,29 +1714,10 @@
       return;
     }
 
-    const individual = !!usuarioDetalheId && usuarios.length === 1;
-    const diasSet = new Set();
-    usuarios.forEach(u => {
-      (u.periodos_foco || []).forEach(p => {
-        _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-      });
-      if (individual) {
-        (u.periodos_abertos || []).forEach(p => {
-          _extrairDiasAbrangidos(p.inicio_em, p.fim_em).forEach(d => diasSet.add(d));
-        });
-      }
-    });
-
-    if (diasSet.size > 0) {
-      const todos = [...diasSet].sort();
-      const maisAntigo = todos[0];
-      const maisRecente = todos[todos.length - 1] > hoje ? todos[todos.length - 1] : hoje;
-      _teamTimelineDias = _gerarDiasContiguos(maisAntigo, maisRecente).reverse();
-    } else {
-      // Sem dados: se o usuário aplicou uma data manual, respeitar o dia do filtro; caso contrário, hoje
-      const fimFiltro = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
-      _teamTimelineDias = [foiAplicadoManualmente && fimFiltro ? fimFiltro : hoje];
-    }
+    // Modo dia: o recorte vem de _diaNavegacaoSeta/hoje. Apenas mantém a estrutura
+    // sincronizada para compatibilidade com código que ainda lê _teamTimelineDias.
+    const dia = _diaAtualmenteExibido();
+    _teamTimelineDias = [dia];
     _teamTimelineIdxDia = 0;
   }
 
@@ -1702,6 +1759,7 @@
     foiAplicadoManualmente = false;
     _modoTotalPeriodo = false;
     _teamTimelineIdxDia = 0;
+    _diaNavegacaoSeta = ""; // volta pra "hoje"
     FILTROS_APPS_ATIVOS = [];
     const ini = document.getElementById("filtroGraficosDataInicio");
     const fim = document.getElementById("filtroGraficosDataFim");
@@ -1710,11 +1768,15 @@
     _atualizarLabelTeamTimeline();
   }
 
+  // Retorna true quando o admin aplicou um filtro manual de intervalo
+  // (com ini e fim preenchidos). Em modo período, os gráficos usam a
+  // janela completa [ini 00:00, fim 23:59] e a navegação por setas é bloqueada.
+  // Nome histórico era "_filtroTemMultiplosDias"; hoje também se aplica a 1 dia só.
   function _filtroTemMultiplosDias() {
     if (!foiAplicadoManualmente) return false;
     const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
     const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
-    return ini && fim && ini !== fim;
+    return !!(ini && fim);
   }
 
   function configurarGatilhos() {
@@ -1727,6 +1789,7 @@
     document.addEventListener("click", (ev) => {
       if (ev.target?.id === "botaoAplicarFiltrosGraficos") {
         foiAplicadoManualmente = true;
+        _diaNavegacaoSeta = ""; // filtro manual tem precedência sobre navegação por seta
         document.getElementById("filtroGraficosDataInicio")?.classList.remove("filtro-pendente");
         document.getElementById("filtroGraficosDataFim")?.classList.remove("filtro-pendente");
         atualizarGraficos();
@@ -1748,40 +1811,23 @@
     });
 
     // Navegação dia a dia na timeline (event delegation — registra 1 vez)
+    // Em modo período (filtro manual aplicado) a navegação por setas é desativada:
+    // os gráficos mostram o intervalo inteiro selecionado.
+    // Fora do modo período, cada clique em seta ajusta _diaNavegacaoSeta e
+    // refaz o fetch via atualizarGraficos() — garantindo que todos os usuários
+    // com atividade naquele dia apareçam (não só os que já estavam no cache).
     document.addEventListener("click", (ev) => {
       if (ev.target?.id === "btnTeamTimelineDiaAnterior") {
-        if (_teamTimelineIdxDia < _teamTimelineDias.length - 1) {
-          _teamTimelineIdxDia++;
-          _atualizarLabelTeamTimeline();
-          _renderizarTeamTimelineDoDia();
-          if (_dadosPainelAtual) {
-            montarResumo(_dadosPainelAtual);
-            montarTabelaUsuarios(_dadosPainelAtual);
-          }
-          if (_teamTimelineUsuarios) {
-            renderizarGlobalApps(_teamTimelineUsuarios);
-            renderizarComparativoUsuarios(_teamTimelineUsuarios);
-            if (_teamTimelineUsuarios.length === 1) renderizarBarrasApps(_teamTimelineUsuarios[0]);
-          }
-          if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
-        }
+        if (_modoTotalPeriodo) return;
+        _diaNavegacaoSeta = _somarDiasISO(_diaAtualmenteExibido(), -1);
+        atualizarGraficos();
       }
       if (ev.target?.id === "btnTeamTimelineDiaProximo") {
-        if (_teamTimelineIdxDia > 0) {
-          _teamTimelineIdxDia--;
-          _atualizarLabelTeamTimeline();
-          _renderizarTeamTimelineDoDia();
-          if (_dadosPainelAtual) {
-            montarResumo(_dadosPainelAtual);
-            montarTabelaUsuarios(_dadosPainelAtual);
-          }
-          if (_teamTimelineUsuarios) {
-            renderizarGlobalApps(_teamTimelineUsuarios);
-            renderizarComparativoUsuarios(_teamTimelineUsuarios);
-            if (_teamTimelineUsuarios.length === 1) renderizarBarrasApps(_teamTimelineUsuarios[0]);
-          }
-          if (_timelineAbertosUsuario) renderizarTimelineAbertosDoDia();
-        }
+        if (_modoTotalPeriodo) return;
+        const alvo = _somarDiasISO(_diaAtualmenteExibido(), +1);
+        if (alvo > obterDataHojeIso()) return; // trava em hoje
+        _diaNavegacaoSeta = alvo;
+        atualizarGraficos();
       }
     });
   }

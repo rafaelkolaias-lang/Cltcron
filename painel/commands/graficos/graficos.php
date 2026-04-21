@@ -520,15 +520,19 @@ try {
     );
 
     $usuarios = [];
+    $user_ids_permitidos = [];
 
     foreach ($usuarios_base as $linha_usuario_base) {
         $user_id = (string)($linha_usuario_base['user_id'] ?? '');
         graficos_garantir_usuario($usuarios, $user_id, $linha_usuario_base, $mapa_tempos);
+        if ($user_id !== '') {
+            $user_ids_permitidos[$user_id] = true;
+        }
     }
 
     foreach ($linhas_status_atuais as $linha_status) {
         $user_id = (string)($linha_status['user_id'] ?? '');
-        if ($user_id === '') {
+        if ($user_id === '' || !isset($user_ids_permitidos[$user_id])) {
             continue;
         }
 
@@ -606,7 +610,7 @@ try {
 
     foreach ($linhasResumoApps as $linha) {
         $user_id = (string)($linha['user_id'] ?? '');
-        if ($user_id === '') {
+        if ($user_id === '' || !isset($user_ids_permitidos[$user_id])) {
             continue;
         }
 
@@ -679,7 +683,7 @@ try {
 
     foreach ($linhasPeriodos as $linha) {
         $user_id = (string)($linha['user_id'] ?? '');
-        if ($user_id === '') {
+        if ($user_id === '' || !isset($user_ids_permitidos[$user_id])) {
             continue;
         }
 
@@ -773,7 +777,7 @@ try {
 
     foreach ($linhasAbertosAgora as $linha) {
         $user_id = (string)($linha['user_id'] ?? '');
-        if ($user_id === '') {
+        if ($user_id === '' || !isset($user_ids_permitidos[$user_id])) {
             continue;
         }
 

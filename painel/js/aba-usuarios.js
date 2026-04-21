@@ -199,7 +199,7 @@
   function botaoVisibilidadeDashboard(u) {
     const oculto = Number(u.ocultar_dashboard || 0) === 1;
     const uid = escapeHtmlSeguro(u.user_id);
-    const icone = oculto ? "🙈" : "👁";
+    const icone = oculto ? "🚫" : "👁";
     const titulo = oculto ? "Oculto do Dashboard — clique para mostrar" : "Visível no Dashboard — clique para ocultar";
     const classe = oculto ? "btn-outline-secondary text-secondary" : "btn-outline-light text-light";
     return `
@@ -210,7 +210,7 @@
               data-acao-usuario="alternar-visibilidade-dashboard"
               data-uid="${uid}"
               data-oculto-atual="${oculto ? 1 : 0}">
-        <span style="font-size: 0.95rem; line-height: 1;">${icone}</span>
+        <span style="font-size: 0.95rem; line-height: 1; opacity: ${oculto ? "0.5" : "1"};">${icone}</span>
       </button>
     `;
   }

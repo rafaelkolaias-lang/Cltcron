@@ -58,14 +58,17 @@ header('Content-Type: text/html; charset=utf-8');
           <li class="nav-item">
             <a class="nav-link" href="#" data-aba="abaGerenciarTarefas">Gerenciar Tarefas</a>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
-          </li>
           <li class="nav-item nav-hover-submenu">
             <a class="nav-link" href="#" data-aba="abaCredenciais">Credenciais e APIs</a>
             <ul class="submenu-nav">
               <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Gerenciar modelos</a></li>
             </ul>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
           </li>
         </ul>
 
@@ -236,6 +239,19 @@ header('Content-Type: text/html; charset=utf-8');
                 <div class="texto-fraco small" id="textoGestaoSubtitulo">—</div>
               </div>
             </div>
+
+            <!-- Alertas de auditoria (só renderiza se houver histórico) -->
+            <article id="blocoAlertasAuditoria" class="cartao-grafite p-3 mb-3 d-none" style="border-left: 3px solid var(--bs-danger, #dc3545);">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="d-flex align-items-center gap-2">
+                  <h6 class="mb-0">🚨 Alertas de Auditoria</h6>
+                </div>
+                <a href="#" class="small" data-aba="abaAuditoria" id="linkIrAuditoriaGestao">Ver aba Auditoria →</a>
+              </div>
+              <div id="alertasAuditoriaCorpo">
+                <div class="texto-fraco small">—</div>
+              </div>
+            </article>
 
             <div class="row g-3">
 
@@ -784,6 +800,90 @@ header('Content-Type: text/html; charset=utf-8');
             </article>
           </section>
 
+          <!-- ════════════════════════════════════════════════════════════
+               ABA: AUDITORIA (apps suspeitos + usuários com flag)
+               ════════════════════════════════════════════════════════════ -->
+          <section id="abaAuditoria" class="d-none" aria-label="Auditoria">
+            <!-- Bloco 1: Usuários com flag -->
+            <article class="cartao-grafite p-3 mb-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">🚨 Usuários com alerta</h2>
+                  <span class="badge badge-suave" id="auditoriaBadgeContadorUsuarios">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  <span class="texto-fraco small">Atualizado em <span id="auditoriaGeradoEm">—</span></span>
+                  <button class="btn btn-sm btn-outline-light" type="button" id="auditoriaBotaoRecarregar" title="Recarregar">&#x21BB;</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                Bandeira 🚩 fica ativa se o usuário utilizou algum app suspeito nos últimos 7 dias.
+                O histórico completo (desde sempre) permanece registrado mesmo após a bandeira sumir.
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:40px;"></th>
+                      <th style="min-width:160px;">Usuário</th>
+                      <th style="min-width:220px;">Apps suspeitos detectados</th>
+                      <th class="text-end" style="min-width:120px;">Horas totais</th>
+                      <th class="text-end" style="min-width:100px;">Sessões</th>
+                      <th class="text-end" style="min-width:160px;">Último uso</th>
+                      <th class="text-end" style="min-width:140px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyAuditoriaUsuarios">
+                    <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <!-- Bloco 2: CRUD de apps suspeitos -->
+            <article class="cartao-grafite p-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Apps suspeitos configurados</h2>
+                  <span class="badge badge-suave" id="auditoriaBadgeContadorApps">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  <div class="form-check form-switch d-flex align-items-center gap-2">
+                    <input class="form-check-input" type="checkbox" id="auditoriaIncluirInativos">
+                    <label class="form-check-label small texto-fraco" for="auditoriaIncluirInativos">Mostrar inativos</label>
+                  </div>
+                  <button class="btn btn-sm btn-light" type="button" id="auditoriaBotaoNovoApp">+ Novo app</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                A lista abaixo define quais nomes de processo levantam alerta. O match é por <em>substring</em>
+                (ex: cadastrar <code>autohotkey</code> pega <code>AutoHotkeyU64.exe</code>, <code>autohotkey64.exe</code>, etc).
+                Use termos curtos e específicos.
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:200px;">Nome do app (substring)</th>
+                      <th style="min-width:260px;">Motivo</th>
+                      <th class="text-center" style="min-width:90px;">Status</th>
+                      <th style="min-width:120px;">Criado por</th>
+                      <th style="min-width:140px;">Atualizado em</th>
+                      <th class="text-end" style="min-width:180px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyAuditoriaApps">
+                    <tr><td colspan="6" class="texto-fraco">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+
         </main>
 
         <footer class="texto-fraco small mt-4" aria-label="Rodapé">
@@ -969,6 +1069,38 @@ header('Content-Type: text/html; charset=utf-8');
     </div>
   </div>
 
+  <!-- Modal: novo / editar app suspeito -->
+  <div class="modal fade" id="modalAppSuspeito" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content bg-dark text-white border-secondary">
+        <div class="modal-header border-secondary">
+          <h5 class="modal-title" id="modalAppSuspeitoTitulo">Novo app suspeito</h5>
+          <button type="button" class="btn btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="appSuspeitoId" value="">
+          <div class="mb-3">
+            <label class="form-label texto-fraco" for="appSuspeitoNome">Nome do app (substring)</label>
+            <input type="text" id="appSuspeitoNome" class="form-control bg-transparent text-white border-secondary" placeholder="ex: autohotkey" maxlength="180">
+            <div class="form-text texto-fraco small">Match por <em>substring</em> no nome do processo. Use termos curtos (sem versão/arquitetura).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label texto-fraco" for="appSuspeitoMotivo">Motivo (opcional)</label>
+            <input type="text" id="appSuspeitoMotivo" class="form-control bg-transparent text-white border-secondary" placeholder="ex: Linguagem de automação" maxlength="255">
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="appSuspeitoAtivo" checked>
+            <label class="form-check-label" for="appSuspeitoAtivo">Ativo</label>
+          </div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-light" id="botaoSalvarAppSuspeito">Salvar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
@@ -976,6 +1108,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-atividades.js?v=7"></script>
   <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
   <script src="./js/aba-credenciais.js?v=1"></script>
+  <script src="./js/aba-auditoria.js?v=3"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

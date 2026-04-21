@@ -1,7 +1,7 @@
 @echo off
 title Release Cronometro
 chcp 65001 >nul
-cd /d "C:\xampp\htdocs\dashboard\Cronometro"
+cd /d "%~dp0"
 
 echo.
 echo ==========================================

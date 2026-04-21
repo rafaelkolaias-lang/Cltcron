@@ -577,6 +577,31 @@
   }
 
   // ─── Tabela da equipe ─────────────────────────────────────
+  // ─── Bandeira 🚩 de auditoria no resumo do Dashboard ─────────
+  function _bandeiraAuditoriaHtml(user_id) {
+    const flag = window.PainelAbaAuditoria?.obterFlagUsuarioSync?.(user_id);
+    if (!flag) return "";
+    if (flag.tem_flag_7dias) {
+      return `<span title="App suspeito utilizado nos últimos 7 dias" style="font-size:.95rem;line-height:1">🚩</span>`;
+    }
+    if ((flag.apps_detectados || []).length > 0) {
+      return `<span title="Histórico de app suspeito (sem uso nos últimos 7 dias)" style="font-size:.9rem;line-height:1;opacity:.55">🏳️</span>`;
+    }
+    return "";
+  }
+
+  function _atualizarBandeirasAuditoriaNoResumo() {
+    document.querySelectorAll("#tbodyResumoUsuariosGraficos tr[data-user-id]").forEach((tr) => {
+      const uid = tr.getAttribute("data-user-id");
+      const alvo = tr.querySelector(".marcador-bandeira-auditoria-resumo");
+      if (alvo) alvo.innerHTML = _bandeiraAuditoriaHtml(uid);
+    });
+  }
+
+  try {
+    window.addEventListener("painel:flags-auditoria-atualizadas", _atualizarBandeirasAuditoriaNoResumo);
+  } catch (_) { /* noop */ }
+
   function montarTabelaUsuarios(dados) {
     const tbody = document.getElementById("tbodyResumoUsuariosGraficos");
     if (!tbody) return;
@@ -587,6 +612,13 @@
       tbody.innerHTML = `<tr><td colspan="10" class="texto-fraco">Sem dados para este período.</td></tr>`;
       return;
     }
+
+    // Dispara carregamento de flags de auditoria em paralelo (não bloqueia render)
+    try {
+      window.PainelAbaAuditoria?.garantirFlagsMap?.()
+        .then(() => _atualizarBandeirasAuditoriaNoResumo())
+        .catch(() => { /* silencioso */ });
+    } catch (_) { /* silencioso */ }
 
     const [tIniMs, tFimMs] = _obterJanelaRecorteMs();
     tbody.innerHTML = usuarios.map(u => {
@@ -600,12 +632,17 @@
       const qtdApps = appsRec.length;
       const tu = _temposUsuarioNoRecorte(u);
 
-      return `<tr>
+      const bandeiraInicial = _bandeiraAuditoriaHtml(u.user_id);
+
+      return `<tr data-user-id="${uid}">
         <td>
           <div class="d-flex align-items-center gap-2">
             <div class="perfil-avatar" style="width:32px;height:32px;font-size:.75rem;border-radius:8px">${iniciais(u.nome_exibicao || u.user_id)}</div>
-            <div>
-              <div class="fw-semibold" style="font-size:.88rem">${nome}</div>
+            <div style="min-width:0">
+              <div class="fw-semibold d-flex align-items-center gap-1" style="font-size:.88rem">
+                <span>${nome}</span>
+                <span class="marcador-bandeira-auditoria-resumo">${bandeiraInicial}</span>
+              </div>
               <div class="texto-fraco" style="font-size:.72rem">${uid}</div>
             </div>
           </div>

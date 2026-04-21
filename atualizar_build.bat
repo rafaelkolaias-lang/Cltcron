@@ -2,7 +2,7 @@
 title Atualizar build CronometroLeve
 chcp 65001 >nul
 
-cd /d "C:\xampp\htdocs\dashboard\Cronometro"
+cd /d "%~dp0"
 
 echo ==========================================
 echo PASTA ATUAL:
@@ -32,26 +32,29 @@ echo Criando pasta de download, se nao existir...
 if not exist "painel\downloads" mkdir "painel\downloads"
 
 echo.
-echo Copiando exe novo para o painel...
-copy /y "dist\CronometroLeve.exe" "painel\downloads\CronometroLeve.exe"
+echo Movendo exe novo para o painel...
+if exist "painel\downloads\CronometroLeve.exe" del /f /q "painel\downloads\CronometroLeve.exe"
+move /y "dist\CronometroLeve.exe" "painel\downloads\CronometroLeve.exe"
 if errorlevel 1 (
     echo.
     echo ==========================================
-    echo ERRO ao copiar o exe para painel\downloads.
+    echo ERRO ao mover o exe para painel\downloads.
     echo ==========================================
     pause
     exit /b 1
 )
 
 echo.
+echo Limpando pastas intermediarias (build e dist)...
+if exist build rmdir /s /q build
+if exist dist rmdir /s /q dist
+
+echo.
 echo ==========================================
 echo BUILD ATUALIZADO COM SUCESSO
 echo.
-echo EXE GERADO EM:
-echo C:\xampp\htdocs\dashboard\Cronometro\dist\CronometroLeve.exe
-echo.
-echo EXE COPIADO PARA:
-echo C:\xampp\htdocs\dashboard\Cronometro\painel\downloads\CronometroLeve.exe
+echo EXE FINAL EM:
+echo %~dp0painel\downloads\CronometroLeve.exe
 echo ==========================================
 echo.
 pause

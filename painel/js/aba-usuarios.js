@@ -248,6 +248,34 @@
   }
 
   // ============================
+  // Bandeira 🚩 de auditoria
+  // ============================
+  function _renderizarBandeiraSync(user_id) {
+    const flag = window.PainelAbaAuditoria?.obterFlagUsuarioSync?.(user_id);
+    if (!flag) return "";
+    if (flag.tem_flag_7dias) {
+      return `<span title="App suspeito utilizado nos últimos 7 dias" style="font-size:1.05rem;line-height:1">🚩</span>`;
+    }
+    if ((flag.apps_detectados || []).length > 0) {
+      return `<span title="Histórico de app suspeito (sem uso nos últimos 7 dias)" style="font-size:.95rem;line-height:1;opacity:.55">🏳️</span>`;
+    }
+    return "";
+  }
+
+  function _atualizarBandeirasUsuarios() {
+    document.querySelectorAll("#tbodyUsuarios tr[data-user-id]").forEach((tr) => {
+      const uid = tr.getAttribute("data-user-id");
+      const alvo = tr.querySelector(".marcador-bandeira-auditoria");
+      if (alvo) alvo.innerHTML = _renderizarBandeiraSync(uid);
+    });
+  }
+
+  // Reagir ao evento disparado pela aba Auditoria quando o cache é atualizado
+  try {
+    window.addEventListener("painel:flags-auditoria-atualizadas", _atualizarBandeirasUsuarios);
+  } catch (_) { /* noop */ }
+
+  // ============================
   // Render: Aba Usuários
   // ============================
   function renderizarAbaUsuarios() {
@@ -272,18 +300,35 @@
       return;
     }
 
+    // Dispara carregamento do cache de flags de auditoria (não bloqueia a renderização).
+    // Quando concluído, chama _atualizarBandeirasUsuarios() para colocar a 🚩 nas linhas
+    // existentes sem precisar re-renderizar tudo.
+    try {
+      window.PainelAbaAuditoria?.garantirFlagsMap?.()
+        .then(() => _atualizarBandeirasUsuarios())
+        .catch(() => { /* silencioso */ });
+    } catch (_) { /* silencioso */ }
+
     tbody.innerHTML = lista.map((u) => {
       const uid = escapeHtmlSeguro(u.user_id);
       const nomeLinha = u.nome_exibicao && u.nome_exibicao !== u.user_id
         ? `<div class="texto-fraco small">${escapeHtmlSeguro(u.nome_exibicao)}</div>`
         : "";
 
+      // Marcador invisível — preenchido depois por _atualizarBandeirasUsuarios
+      const bandeiraInicial = _renderizarBandeiraSync(u.user_id);
+
       return `
-        <tr>
+        <tr data-user-id="${uid}">
           <td>
-            <div class="fw-semibold">${uid}</div>
-            ${nomeLinha}
-            <div class="texto-fraco small">Chave: <span class="texto-mono">${escapeHtmlSeguro(u.chave || "—")}</span></div>
+            <div class="d-flex align-items-center gap-2">
+              <span class="marcador-bandeira-auditoria">${bandeiraInicial}</span>
+              <div>
+                <div class="fw-semibold">${uid}</div>
+                ${nomeLinha}
+                <div class="texto-fraco small">Chave: <span class="texto-mono">${escapeHtmlSeguro(u.chave || "—")}</span></div>
+              </div>
+            </div>
           </td>
 
           <td class="text-center">${badgeNivel(u.nivel)}</td>
@@ -576,6 +621,11 @@
       carregarResumoHorasPagamento(uid, u.valor_hora),
       carregarTarefasDoUsuario(uid),
     ]);
+
+    // Alertas de auditoria (opcional — silencioso se o módulo não estiver disponível)
+    try {
+      await window.PainelAbaAuditoria?.renderizarAlertasNaGestao?.(uid);
+    } catch (_) { /* silencioso */ }
 
     const abaGestaoEl = document.getElementById("abaGestaoUsuario");
     if (abaGestaoEl) abaGestaoEl.setAttribute("data-user-id", uid);

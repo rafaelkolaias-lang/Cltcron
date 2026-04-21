@@ -403,6 +403,19 @@
               <div id="chartGlobalComparativo" class="grafico-container" style="height:200px"></div>
             </div>
 
+            <!-- Controle de navegação por dia (compartilhado entre Top apps e Timeline) -->
+            <div id="_controleNavegacaoDia" class="d-none mb-3">
+              <div class="d-flex align-items-center gap-2">
+                <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
+                <button type="button" id="teamTimelineDiaLabel" class="btn btn-sm btn-link fw-semibold p-0 position-relative" style="min-width:150px;text-align:center;font-size:.88rem;text-decoration:none;color:#fff" title="Clique para escolher uma data">
+                  <span id="teamTimelineDiaLabelTexto">&mdash;</span>
+                  <span class="ms-1" style="opacity:.55;font-size:.9em" aria-hidden="true">📅</span>
+                  <input type="date" id="teamTimelineDiaPicker" class="position-absolute top-0 start-0 w-100 h-100" style="opacity:0;cursor:pointer;pointer-events:none" aria-label="Selecionar data">
+                </button>
+                <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
+              </div>
+            </div>
+
             <!-- Seção apps: donut + legenda + barras (barras só individual) -->
             <div id="_secaoApps" class="d-none mb-4">
               <div class="row g-3">
@@ -422,13 +435,8 @@
 
             <!-- Seção timeline (compartilhada) -->
             <div id="_secaoTimeline" class="d-none mb-3">
-              <div class="d-flex align-items-center justify-content-between mb-2">
+              <div class="d-flex align-items-center mb-2">
                 <div class="texto-fraco small fw-semibold" id="_tituloTimeline" style="text-transform:uppercase;letter-spacing:.3px"></div>
-                <div class="d-flex align-items-center gap-2">
-                  <button id="btnTeamTimelineDiaAnterior" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Dia anterior">&larr;</button>
-                  <span id="teamTimelineDiaLabel" class="fw-semibold" style="min-width:120px;text-align:center;font-size:.88rem">—</span>
-                  <button id="btnTeamTimelineDiaProximo" class="btn btn-sm btn-outline-light botao-mini" style="padding:2px 10px;font-size:.85rem" title="Próximo dia">&rarr;</button>
-                </div>
               </div>
               <div id="_labelEmFoco" class="d-none texto-fraco small mb-1" style="opacity:.55;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px">Em foco</div>
               <div class="chart-shimmer-wrapper" id="_shimmerTimeline">
@@ -1253,15 +1261,20 @@
   }
 
   function _atualizarLabelTeamTimeline() {
-    const label = document.getElementById("teamTimelineDiaLabel");
+    const labelBtn = document.getElementById("teamTimelineDiaLabel");
+    const labelTxt = document.getElementById("teamTimelineDiaLabelTexto");
+    const picker = document.getElementById("teamTimelineDiaPicker");
     const btnAnt = document.getElementById("btnTeamTimelineDiaAnterior");
     const btnProx = document.getElementById("btnTeamTimelineDiaProximo");
-    if (!label) return;
+    if (!labelBtn || !labelTxt) return;
 
     if (_modoTotalPeriodo) {
       const ini = (document.getElementById("filtroGraficosDataInicio") || {}).value || "";
       const fim = (document.getElementById("filtroGraficosDataFim") || {}).value || "";
-      label.textContent = `${_formatarDiaBr(ini)} → ${_formatarDiaBr(fim)}`;
+      labelTxt.textContent = `${_formatarDiaBr(ini)} → ${_formatarDiaBr(fim)}`;
+      labelBtn.disabled = true;
+      labelBtn.title = "Use os campos de data para alterar o período";
+      if (picker) picker.disabled = true;
       if (btnAnt) btnAnt.disabled = true;
       if (btnProx) btnProx.disabled = true;
       return;
@@ -1270,7 +1283,14 @@
     // Modo dia: usa o dia realmente exibido (seta ou hoje). Cada clique em seta
     // já disparou um fetch novo, então aqui só refletimos o estado.
     const diaAtual = _diaAtualmenteExibido();
-    label.textContent = diaAtual ? _formatarDiaBr(diaAtual) : "—";
+    labelTxt.textContent = diaAtual ? _formatarDiaBr(diaAtual) : "—";
+    labelBtn.disabled = false;
+    labelBtn.title = "Clique para escolher uma data";
+    if (picker) {
+      picker.disabled = false;
+      picker.value = diaAtual || "";
+      picker.max = obterDataHojeIso();
+    }
     if (btnAnt) btnAnt.disabled = false; // seta esquerda nunca trava (pode voltar sempre)
     if (btnProx) btnProx.disabled = (diaAtual >= obterDataHojeIso()); // trava em hoje
   }
@@ -1432,6 +1452,7 @@
       _mostrarOcultar("_secaoComparativo", false);
       _mostrarOcultar("_secaoApps", false);
       _mostrarOcultar("_secaoTimeline", false);
+      _mostrarOcultar("_controleNavegacaoDia", false);
       const existente = document.getElementById("_resumoDetalhadoApps");
       if (existente) existente.remove();
       _htmlModoAtual = null;
@@ -1449,6 +1470,7 @@
     // Mostrar seções, ocultar mensagem vazia
     _mostrarOcultar("_chartsMsgVazio", false);
     _mostrarOcultar("_chartsHeader", true);
+    _mostrarOcultar("_controleNavegacaoDia", true);
     _mostrarOcultar("_secaoApps", true);
     _mostrarOcultar("_secaoTimeline", true);
 
@@ -1886,6 +1908,35 @@
         _diaNavegacaoSeta = alvo;
         atualizarGraficos();
       }
+      // Clique no label da data → abre o date picker nativo
+      if (ev.target?.closest?.("#teamTimelineDiaLabel")) {
+        if (_modoTotalPeriodo) return;
+        const picker = document.getElementById("teamTimelineDiaPicker");
+        if (!picker || picker.disabled) return;
+        // Evita abrir duas vezes se o próprio picker recebeu o clique
+        if (ev.target.id === "teamTimelineDiaPicker") return;
+        ev.preventDefault();
+        try {
+          if (typeof picker.showPicker === "function") {
+            picker.showPicker();
+          } else {
+            picker.focus();
+            picker.click();
+          }
+        } catch (_) { /* fallback silencioso */ }
+      }
+    });
+
+    // Mudança de data via date picker → vai direto para o dia escolhido
+    document.addEventListener("change", (ev) => {
+      if (ev.target?.id !== "teamTimelineDiaPicker") return;
+      if (_modoTotalPeriodo) return;
+      const novoDia = ev.target.value;
+      if (!novoDia) return;
+      if (novoDia > obterDataHojeIso()) return; // guarda contra datas futuras
+      if (novoDia === _diaAtualmenteExibido()) return; // já está nesse dia
+      _diaNavegacaoSeta = novoDia;
+      atualizarGraficos();
     });
   }
 

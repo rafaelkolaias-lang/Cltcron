@@ -59,10 +59,15 @@ try {
 
     if (!$aplicar_todos) {
         // ===== Modo individual =====
-        $stm = $pdo->prepare("SELECT user_id FROM usuarios WHERE user_id=? LIMIT 1");
+        $stm = $pdo->prepare("SELECT status_conta FROM usuarios WHERE user_id=? LIMIT 1");
         $stm->execute([$user_id]);
-        if (!$stm->fetch()) {
+        $usr = $stm->fetch();
+        if (!$usr) {
             responder_json(false, 'usuário não encontrado', null, 404);
+        }
+        if (strtolower((string)$usr['status_conta']) !== 'ativa') {
+            sodium_memzero($valor);
+            responder_json(false, 'usuário desativado — reative antes de atribuir credenciais', null, 409);
         }
 
         upsert_credencial_usuario_cifrada($pdo, $upsert, $id_modelo, $user_id, $valor, $mascara);

@@ -89,6 +89,37 @@ function listar_credenciais_globais_para_herdar(PDO $pdo): array
 }
 
 /**
+ * Marca todas as credenciais ativas de um usuário como 'revogado'.
+ * Usado quando o usuário é desativado: o cliente ainda é barrado pelo
+ * _auth_cliente.php (que confere status_conta), mas marcar a linha
+ * fecha a porta na camada de dados também.
+ *
+ * Não apaga: ao reativar o usuário, basta voltar essas linhas para 'ativo'
+ * (ver reativar_credenciais_revogadas_de_usuario).
+ */
+function revogar_credenciais_de_usuario(PDO $pdo, string $user_id): int
+{
+    $stm = $pdo->prepare("UPDATE credenciais_usuario
+                             SET status='revogado', atualizado_em=CURRENT_TIMESTAMP
+                           WHERE user_id=? AND status='ativo'");
+    $stm->execute([$user_id]);
+    return $stm->rowCount();
+}
+
+/**
+ * Reativa as credenciais que foram revogadas para este usuário.
+ * Usado quando o usuário é reativado: as credenciais antigas voltam a valer.
+ */
+function reativar_credenciais_revogadas_de_usuario(PDO $pdo, string $user_id): int
+{
+    $stm = $pdo->prepare("UPDATE credenciais_usuario
+                             SET status='ativo', atualizado_em=CURRENT_TIMESTAMP
+                           WHERE user_id=? AND status='revogado'");
+    $stm->execute([$user_id]);
+    return $stm->rowCount();
+}
+
+/**
  * Para um novo usuário, herda todas as credenciais marcadas como globais
  * (aplicar_novos_usuarios=1). Para cada credencial herdada:
  *   - decifra o valor da linha-referência usando a chave mestra;

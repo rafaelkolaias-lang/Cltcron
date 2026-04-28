@@ -9,7 +9,8 @@ require_once __DIR__ . '/../conexao/conexao.php';
 try {
     $pdo = obter_conexao_pdo();
     $sql = "SELECT id_modelo, identificador, nome_exibicao, categoria, descricao,
-                   ordem_exibicao, status, criado_em, atualizado_em
+                   ordem_exibicao, status, aplicar_novos_usuarios,
+                   criado_em, atualizado_em
             FROM credenciais_modelos
             WHERE status = 'ativo'
             ORDER BY ordem_exibicao ASC, nome_exibicao ASC";

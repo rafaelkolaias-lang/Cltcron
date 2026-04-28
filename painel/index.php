@@ -780,6 +780,16 @@ header('Content-Type: text/html; charset=utf-8');
                 Cada modelo existe globalmente; cada usuário preenche o seu.
               </div>
 
+              <!-- APIs globais ativas (herdam para novos usuários) -->
+              <div id="boxApisGlobais" class="cartao-grafite p-2 mb-3 d-none" style="background:rgba(255,255,255,0.03);">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                  <span class="badge bg-warning text-dark">GLOBAL</span>
+                  <strong class="small">APIs aplicadas a todos os usuários</strong>
+                  <span class="texto-fraco small">— novos cadastros herdam automaticamente.</span>
+                </div>
+                <div id="listaApisGlobais" class="d-flex flex-wrap gap-2"></div>
+              </div>
+
               <div class="table-responsive" style="max-height:620px;">
                 <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
                   <thead>

@@ -60,6 +60,55 @@
     }
     renderizarModelosTabela();
     popularFiltroServico();
+    renderizarApisGlobais();
+  }
+
+  // ---------- APIs globais (lista + remover) ----------
+  function renderizarApisGlobais() {
+    const box = document.getElementById('boxApisGlobais');
+    const lista = document.getElementById('listaApisGlobais');
+    if (!box || !lista) return;
+    const globais = estado.modelos.filter(m => Number(m.aplicar_novos_usuarios) === 1);
+    if (!globais.length) {
+      box.classList.add('d-none');
+      lista.innerHTML = '';
+      return;
+    }
+    box.classList.remove('d-none');
+    lista.innerHTML = globais.map(m => `
+      <div class="d-inline-flex align-items-center gap-2 px-2 py-1 rounded"
+           style="background:rgba(255,255,255,0.06);"
+           data-id-modelo="${m.id_modelo}" data-nome="${esc(m.nome_exibicao)}">
+        <span class="texto-mono small">${esc(m.identificador)}</span>
+        <span class="small">${esc(m.nome_exibicao)}</span>
+        <button class="btn btn-sm btn-outline-warning"
+                data-acao="remover-global"
+                title="Desativar globalmente: revoga em todos os usuários e novos cadastros não herdam mais.">
+          Remover global
+        </button>
+      </div>
+    `).join('');
+  }
+
+  async function removerApiGlobal(idModelo, nome) {
+    const ok = confirm(
+      `Remover "${nome}" das APIs globais?\n\n` +
+      `• A credencial será REVOGADA em todos os usuários (clientes perdem acesso).\n` +
+      `• Novos cadastros NÃO herdarão mais essa credencial.\n` +
+      `• O modelo continua existindo — credenciais individuais podem ser atribuídas depois.\n\n` +
+      `Continuar?`
+    );
+    if (!ok) return;
+    try {
+      const resp = await requisitar(API + 'remover_global.php', 'POST', { id_modelo: idModelo });
+      alert(`OK — ${resp.credenciais_revogadas} credencial(is) revogada(s).`);
+      await carregarModelos();
+      if (estado.userSelecionadoAba) carregarCredenciaisAba();
+      const userG = obterUserIdGestao();
+      if (userG) carregarCredenciaisGestao(userG);
+    } catch (e) {
+      alert('Erro ao remover global: ' + e.message);
+    }
   }
 
   const MODELOS_PROTEGIDOS = ['chatgpt', 'gemini', 'minimax', 'elevenlabs', 'assembly'];
@@ -297,6 +346,9 @@
       if (estado.userSelecionadoAba) carregarCredenciaisAba();
       const userG = obterUserIdGestao();
       if (userG) carregarCredenciaisGestao(userG);
+
+      // Aplicar global liga aplicar_novos_usuarios — recarrega lista de globais
+      if (aplicar_todos) carregarModelos();
     } catch (e) {
       alert('Erro ao salvar valor: ' + e.message);
     }
@@ -379,6 +431,20 @@
     delegarAcoesGrade(document.getElementById('tbodyCredenciais'));
     delegarAcoesGrade(document.getElementById('tbodyGestaoCredenciais'));
     delegarAcoesModelos();
+
+    // Botões "Remover global" na seção de APIs globais
+    const boxGlob = document.getElementById('listaApisGlobais');
+    if (boxGlob) {
+      boxGlob.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button[data-acao="remover-global"]');
+        if (!btn) return;
+        const wrapper = btn.closest('[data-id-modelo]');
+        if (!wrapper) return;
+        const idModelo = parseInt(wrapper.getAttribute('data-id-modelo') || '0', 10);
+        const nome = wrapper.getAttribute('data-nome') || '';
+        if (idModelo > 0) removerApiGlobal(idModelo, nome);
+      });
+    }
 
     // Reagir à abertura da Gestão do Usuário
     const abaGestao = document.getElementById('abaGestaoUsuario');

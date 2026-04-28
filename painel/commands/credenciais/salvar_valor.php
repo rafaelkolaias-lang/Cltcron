@@ -9,6 +9,12 @@ declare(strict_types=1);
  *   - global (aplicar_todos=true): aplica a TODOS os usuários com status_conta='ativa'.
  *     Cada linha é cifrada com NONCE NOVO por usuário (nunca reutilizar nonce).
  *     Sobrescreve se já existir, reativa se estiver revogada.
+ *     Também marca o modelo como aplicar_novos_usuarios=1 para que usuários
+ *     cadastrados depois herdem essa credencial automaticamente.
+ *
+ * Quando aplicar_todos=false em uma chamada para o modelo, a flag global
+ * (aplicar_novos_usuarios) é DESLIGADA — assim o checkbox da UI controla
+ * tanto a aplicação imediata quanto a herança futura.
  *
  * NUNCA loga o valor puro.
  */
@@ -18,6 +24,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/cripto.php';
+require_once __DIR__ . '/../_comum/credenciais_upsert.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -47,40 +54,19 @@ try {
         responder_json(false, 'modelo não encontrado ou inativo', null, 404);
     }
 
-    // Máscara é a mesma em qualquer modo (depende do valor, não do user)
     $mascara = gerar_mascara_parcial($valor);
-
-    // SQL de upsert compartilhado
-    $sql = "INSERT INTO credenciais_usuario
-                (id_modelo, user_id, mascara_parcial, valor_cifrado, nonce, versao_chave, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'ativo')
-            ON DUPLICATE KEY UPDATE
-                mascara_parcial = VALUES(mascara_parcial),
-                valor_cifrado   = VALUES(valor_cifrado),
-                nonce           = VALUES(nonce),
-                versao_chave    = VALUES(versao_chave),
-                status          = 'ativo',
-                atualizado_em   = CURRENT_TIMESTAMP";
-    $upsert = $pdo->prepare($sql);
+    $upsert = preparar_stmt_upsert_credencial($pdo);
 
     if (!$aplicar_todos) {
-        // ===== Modo individual (comportamento antigo) =====
+        // ===== Modo individual =====
         $stm = $pdo->prepare("SELECT user_id FROM usuarios WHERE user_id=? LIMIT 1");
         $stm->execute([$user_id]);
         if (!$stm->fetch()) {
             responder_json(false, 'usuário não encontrado', null, 404);
         }
 
-        $cif = cifrar_segredo($valor);
+        upsert_credencial_usuario_cifrada($pdo, $upsert, $id_modelo, $user_id, $valor, $mascara);
         sodium_memzero($valor);
-
-        $upsert->bindValue(1, $id_modelo, PDO::PARAM_INT);
-        $upsert->bindValue(2, $user_id);
-        $upsert->bindValue(3, $mascara);
-        $upsert->bindValue(4, $cif['cipher'], PDO::PARAM_LOB);
-        $upsert->bindValue(5, $cif['nonce'],  PDO::PARAM_LOB);
-        $upsert->bindValue(6, $cif['versao'], PDO::PARAM_INT);
-        $upsert->execute();
 
         responder_json(true, 'credencial salva', [
             'modo'            => 'individual',
@@ -89,7 +75,7 @@ try {
         ]);
     }
 
-    // ===== Modo global: aplica a todos os usuários ativos =====
+    // ===== Modo global: aplica a todos os usuários ativos e marca herança futura =====
     $usuarios = $pdo->query("SELECT user_id FROM usuarios WHERE status_conta='ativa'")
                     ->fetchAll(PDO::FETCH_COLUMN);
     if (!$usuarios) {
@@ -97,21 +83,17 @@ try {
         responder_json(false, 'nenhum usuário ativo encontrado', null, 404);
     }
 
+    $stmt_flag = $pdo->prepare("UPDATE credenciais_modelos SET aplicar_novos_usuarios=1 WHERE id_modelo=?");
+
     $pdo->beginTransaction();
     try {
         $afetados = 0;
         foreach ($usuarios as $uid) {
             // NONCE NOVO por usuário — nunca reutilizar
-            $cif = cifrar_segredo($valor);
-            $upsert->bindValue(1, $id_modelo, PDO::PARAM_INT);
-            $upsert->bindValue(2, (string)$uid);
-            $upsert->bindValue(3, $mascara);
-            $upsert->bindValue(4, $cif['cipher'], PDO::PARAM_LOB);
-            $upsert->bindValue(5, $cif['nonce'],  PDO::PARAM_LOB);
-            $upsert->bindValue(6, $cif['versao'], PDO::PARAM_INT);
-            $upsert->execute();
+            upsert_credencial_usuario_cifrada($pdo, $upsert, $id_modelo, (string)$uid, $valor, $mascara);
             $afetados++;
         }
+        $stmt_flag->execute([$id_modelo]);
         $pdo->commit();
     } catch (Throwable $e) {
         $pdo->rollBack();
@@ -122,12 +104,12 @@ try {
     sodium_memzero($valor);
 
     responder_json(true, "credencial aplicada a {$afetados} usuário(s)", [
-        'modo'             => 'global',
-        'usuarios_afetados'=> $afetados,
-        'mascara_parcial'  => $mascara,
-        'estado'           => 'preenchida',
+        'modo'              => 'global',
+        'usuarios_afetados' => $afetados,
+        'mascara_parcial'   => $mascara,
+        'estado'            => 'preenchida',
+        'herdar_novos'      => true,
     ]);
 } catch (Throwable $e) {
-    // não logar valor — error_log padrão só captura a mensagem do Throwable
     responder_json(false, 'falha ao salvar credencial', debug_ativo() ? ['erro' => $e->getMessage()] : null, 500);
 }

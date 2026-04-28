@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/credenciais_upsert.php';
 
 function gerar_chave_acesso(): string
 {
@@ -61,6 +62,11 @@ try {
         ':chave' => $chave,
     ]);
 
+    // Herda credenciais marcadas como aplicar_novos_usuarios=1.
+    // Falhas individuais aqui são silenciosas: o cadastro do usuário não pode
+    // depender de uma credencial-referência ter chave válida ou MAC íntegro.
+    $credenciais_herdadas = herdar_credenciais_globais_para_usuario($pdo, $user_id);
+
     responder_json(true, "Usuário criado", [
         'user_id' => $user_id,
         'nome_exibicao' => $nome_exibicao,
@@ -68,6 +74,7 @@ try {
         'valor_hora' => (float)$valor_hora,
         'chave' => $chave,
         'status_conta' => 'ativa',
+        'credenciais_herdadas' => $credenciais_herdadas,
     ]);
 } catch (Throwable $e) {
     responder_json(false, "falha ao criar usuário", ['erro' => $e->getMessage()], 500);

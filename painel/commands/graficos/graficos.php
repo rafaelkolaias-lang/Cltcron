@@ -634,8 +634,11 @@ try {
         $usuarios[$user_id]['segundos_total_segundo_plano'] += $segundos_segundo_plano;
     }
 
-    // Cap defensivo: foco acima de 3h é tratado como fantasma — LEAST corta no (inicio_em + 3h).
-    // Protege contra registros antigos pendurados que estariam esticando até NOW().
+    // Duração do foco vem da coluna cumulativa fj.segundos_em_foco (atualizada pelo
+    // app.py a cada 10s — sobrevive a crash). Para registros legados (segundos_em_foco=0
+    // E fim_em IS NULL), aplica cap defensivo de 3h sobre TIMESTAMPDIFF como fallback.
+    // Registros novos NUNCA caem no fallback porque _flush_foco_periodico grava antes de
+    // qualquer crash (intervalo de 10s = perda máxima de 10s, não 3h).
     $sqlPeriodos = "
         SELECT
             fj.id_foco,
@@ -645,26 +648,22 @@ try {
             fj.nome_app,
             fj.titulo_janela,
             fj.inicio_em,
-            LEAST(
-                CASE
-                    WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
-                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
-                    ELSE NOW()
-                END,
-                fj.inicio_em + INTERVAL 3 HOUR
-            ) AS fim_em,
-            TIMESTAMPDIFF(
-                SECOND,
-                fj.inicio_em,
-                LEAST(
-                    CASE
-                        WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
-                        WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
-                        ELSE NOW()
-                    END,
-                    fj.inicio_em + INTERVAL 3 HOUR
+            CASE
+                WHEN fj.segundos_em_foco > 0 THEN fj.inicio_em + INTERVAL fj.segundos_em_foco SECOND
+                WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
+                ELSE LEAST(NOW(), fj.inicio_em + INTERVAL 3 HOUR)
+            END AS fim_em,
+            CASE
+                WHEN fj.segundos_em_foco > 0 THEN fj.segundos_em_foco
+                WHEN fj.fim_em IS NOT NULL THEN GREATEST(0, TIMESTAMPDIFF(SECOND, fj.inicio_em, fj.fim_em))
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE
+                    THEN GREATEST(0, TIMESTAMPDIFF(SECOND, fj.inicio_em, s.ultimo_em))
+                ELSE LEAST(
+                    GREATEST(0, TIMESTAMPDIFF(SECOND, fj.inicio_em, NOW())),
+                    10800
                 )
-            ) AS segundos_periodo,
+            END AS segundos_periodo,
             CASE
                 WHEN fj.fim_em IS NOT NULL THEN 0
                 WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN 0
@@ -702,21 +701,26 @@ try {
     }
 
     // ── Períodos de todos os apps abertos (foco + 2.º plano) ──────────────────
-    // Cap defensivo: app aberto acima de 20h é tratado como fantasma — LEAST corta no (inicio_em + 20h).
+    // Duração da barra na timeline de apps:
+    // 1.º) (segundos_em_foco + segundos_segundo_plano) cumulativo — fonte de verdade
+    //      (atualizado a cada 10s pelo app, sobrevive a crash com perda máx ~10s).
+    // 2.º) fim_em explícito (fechamento limpo).
+    // 3.º) ultima_atualizacao_em (ON UPDATE CURRENT_TIMESTAMP — apontou pro último flush).
+    // 4.º) usuarios_status_atual.ultimo_em (cliente offline há mais de 3min).
+    // 5.º) cap defensivo de 20h sobre NOW() — só se nada acima resolveu.
     $sqlPeriodosAbertos = "
         SELECT
             ai.user_id,
             ai.nome_app,
             ai.inicio_em,
-            LEAST(
-                CASE
-                    WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
-                    WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
-                    WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
-                    ELSE NOW()
-                END,
-                ai.inicio_em + INTERVAL 20 HOUR
-            ) AS fim_em,
+            CASE
+                WHEN (ai.segundos_em_foco + ai.segundos_segundo_plano) > 0
+                    THEN ai.inicio_em + INTERVAL (ai.segundos_em_foco + ai.segundos_segundo_plano) SECOND
+                WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
+                WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
+                WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
+                ELSE LEAST(NOW(), ai.inicio_em + INTERVAL 20 HOUR)
+            END AS fim_em,
             ai.segundos_em_foco,
             ai.segundos_segundo_plano,
             (ai.segundos_em_foco + ai.segundos_segundo_plano) AS segundos_total

@@ -84,7 +84,7 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.6"
+VERSAO_APLICACAO = "v2.7"
 
 HISTORICO_VERSOES = [
     {
@@ -579,6 +579,12 @@ class MonitorDeUso:
         self._nome_app_foco: str = "desconhecido"
         self._titulo_janela_foco: str = ""
         self._id_foco_aberto: int | None = None
+        # Acumulação cumulativa do foco atual — espelha o padrão de cronometro_apps_intervalos.
+        # Se o app crashar, o último UPDATE periódico já gravou os segundos até ali, eliminando
+        # o "fantasma de 3h" que vinha do cap aplicado a registros com fim_em IS NULL.
+        self._segundos_em_foco_atual: int = 0
+        self._mono_ultimo_acumulo_foco: float = 0.0
+        self._mono_ultimo_flush_foco: float = 0.0
 
         self._ultimo_heartbeat_mono: float = 0.0
         self._ultimo_sync_status_mono: float = 0.0
@@ -1027,24 +1033,42 @@ class MonitorDeUso:
 
     def _sanear_registros_abertos_do_usuario(self, user_id: str) -> None:
         """Fecha registros antigos com fim_em IS NULL, aplicando caps de sanidade:
-        - cronometro_foco_janela: teto de 3h por período (foco contínuo acima disso é fantasma)
-        - cronometro_apps_intervalos: teto de 20h por período (app aberto acima disso é fantasma)
+        - cronometro_foco_janela:
+            - se segundos_em_foco > 0 (cliente novo): usa inicio_em + segundos_em_foco como verdade.
+            - senão (registros legados): cap de 3h sobre inicio_em — só pra não deixar fim_em nulo.
+        - cronometro_apps_intervalos: teto de 20h por período (app aberto acima disso é fantasma).
         Roda antes de iniciar/restaurar sessão para não deixar lixo legado poluindo gráficos.
         """
         uid = (user_id or "").strip()
         if not uid:
             return
         try:
-            linhas_foco = self._banco.executar_e_contar(
+            # Registros novos (segundos_em_foco > 0): a duração real foi acumulada
+            # em tempo real pelo _flush_foco_periodico até o crash. Fecha exatamente em
+            # inicio_em + segundos_em_foco — sem inflar até cap arbitrário.
+            linhas_foco_novos = self._banco.executar_e_contar(
+                """
+                UPDATE cronometro_foco_janela
+                   SET fim_em = DATE_ADD(inicio_em, INTERVAL segundos_em_foco SECOND)
+                 WHERE user_id = %s
+                   AND fim_em IS NULL
+                   AND segundos_em_foco > 0
+                """,
+                [uid],
+            )
+            # Registros legados (segundos_em_foco = 0, cliente antigo): cap de 3h como fallback.
+            linhas_foco_legados = self._banco.executar_e_contar(
                 """
                 UPDATE cronometro_foco_janela
                    SET fim_em = DATE_ADD(inicio_em, INTERVAL 3 HOUR)
                  WHERE user_id = %s
                    AND fim_em IS NULL
+                   AND segundos_em_foco = 0
                    AND inicio_em < NOW() - INTERVAL 3 HOUR
                 """,
                 [uid],
             )
+            linhas_foco = int(linhas_foco_novos) + int(linhas_foco_legados)
             linhas_apps = self._banco.executar_e_contar(
                 """
                 UPDATE cronometro_apps_intervalos
@@ -1071,23 +1095,75 @@ class MonitorDeUso:
         self._id_foco_aberto = self._banco.executar(
             """
             INSERT INTO cronometro_foco_janela
-                (id_sessao, user_id, nome_app, titulo_janela, inicio_em, fim_em)
-            VALUES (%s, %s, %s, %s, %s, NULL)
+                (id_sessao, user_id, nome_app, titulo_janela, inicio_em, fim_em, segundos_em_foco)
+            VALUES (%s, %s, %s, %s, %s, NULL, 0)
             """,
             [self._id_sessao, self._user_id, nome_app, (titulo or None), datetime.now()],
         )
+        # Reseta contadores cumulativos do foco recém-aberto.
+        self._segundos_em_foco_atual = 0
+        self._mono_ultimo_acumulo_foco = time.monotonic()
+        self._mono_ultimo_flush_foco = self._mono_ultimo_acumulo_foco
         LOG_TEC.log("foco", f"abrir {nome_app}", {"titulo": titulo or "", "id_foco": self._id_foco_aberto})
 
     def _fechar_foco(self) -> None:
         if self._id_foco_aberto is None:
             return
 
+        # Antes de fechar, acumula o tempo restante desde o último acúmulo.
+        self._acumular_foco_locked(time.monotonic())
+
         self._banco.executar(
-            "UPDATE cronometro_foco_janela SET fim_em = %s WHERE id_foco = %s",
-            [datetime.now(), self._id_foco_aberto],
+            "UPDATE cronometro_foco_janela SET fim_em = %s, segundos_em_foco = %s WHERE id_foco = %s",
+            [datetime.now(), int(self._segundos_em_foco_atual), self._id_foco_aberto],
         )
-        LOG_TEC.log("foco", "fechar", {"id_foco": self._id_foco_aberto})
+        LOG_TEC.log("foco", "fechar", {
+            "id_foco": self._id_foco_aberto,
+            "segundos_em_foco": int(self._segundos_em_foco_atual),
+        })
         self._id_foco_aberto = None
+        self._segundos_em_foco_atual = 0
+        self._mono_ultimo_acumulo_foco = 0.0
+        self._mono_ultimo_flush_foco = 0.0
+
+    def _acumular_foco_locked(self, mono_agora: float) -> None:
+        """Soma delta desde o último acúmulo no contador em memória.
+
+        Chamado a cada tick do _loop e antes de qualquer UPDATE/fechamento.
+        Operação puramente em memória — UPDATE periódico vai pra _flush_foco_periodico.
+        """
+        if self._id_foco_aberto is None:
+            return
+        if self._mono_ultimo_acumulo_foco <= 0:
+            self._mono_ultimo_acumulo_foco = mono_agora
+            return
+        delta = mono_agora - self._mono_ultimo_acumulo_foco
+        if delta <= 0:
+            return
+        self._segundos_em_foco_atual += int(delta)
+        self._mono_ultimo_acumulo_foco = mono_agora
+
+    def _flush_foco_periodico(self, mono_agora: float, intervalo: float) -> bool:
+        """Grava segundos_em_foco no banco a cada `intervalo` segundos (sem fechar fim_em).
+
+        Retorna True se houve flush. Chamado FORA do lock — id e segundos são
+        snapshots resolvidos antes da chamada.
+        """
+        if self._id_foco_aberto is None:
+            return False
+        if (mono_agora - self._mono_ultimo_flush_foco) < intervalo:
+            return False
+        id_snap = self._id_foco_aberto
+        seg_snap = int(self._segundos_em_foco_atual)
+        self._mono_ultimo_flush_foco = mono_agora
+        try:
+            self._banco.executar(
+                "UPDATE cronometro_foco_janela SET segundos_em_foco = %s WHERE id_foco = %s",
+                [seg_snap, id_snap],
+            )
+        except Exception:
+            return False
+        return True
 
     def _abrir_intervalo_app_locked(self, nome_app: str) -> int | None:
         if self._id_sessao is None or not self._user_id:
@@ -1402,6 +1478,9 @@ class MonitorDeUso:
             self._nome_app_foco = "desconhecido"
             self._titulo_janela_foco = ""
             self._id_foco_aberto = None
+            self._segundos_em_foco_atual = 0
+            self._mono_ultimo_acumulo_foco = 0.0
+            self._mono_ultimo_flush_foco = 0.0
 
             self._mapa_intervalos_apps = {}
             self._ultimo_scan_apps_mono = 0.0
@@ -1889,6 +1968,9 @@ class MonitorDeUso:
                         nova_situacao = "ocioso" if idle >= LIMITE_OCIOSO_SEGUNDOS else "trabalhando"
                         self._situacao_calculada = nova_situacao
                         self._acumular_tempo_ate_agora_locked(mono_agora)
+                        # Acumula segundos do foco atual em memória (UPDATE no banco vai
+                        # acontecer fora do lock via _flush_foco_periodico).
+                        self._acumular_foco_locked(mono_agora)
                         self._nome_app_foco = nome_foco
                         self._titulo_janela_foco = titulo_foco
                         foco_atual = (nome_foco, titulo_foco)
@@ -1945,6 +2027,15 @@ class MonitorDeUso:
                     except Exception:
                         pass
                     ultimo_foco = foco_atual
+                else:
+                    # Foco não mudou — flush periódico do contador cumulativo
+                    # mantém segundos_em_foco em dia no banco mesmo sem troca,
+                    # de modo que crash/kill não deixe registro com fim_em NULL
+                    # e duração correta. Mesmo intervalo do scan de apps (10s).
+                    try:
+                        self._flush_foco_periodico(mono_agora, INTERVALO_SCAN_APPS_SEGUNDOS)
+                    except Exception:
+                        pass
 
                 if apps_visiveis_scan is not None:
                     try:

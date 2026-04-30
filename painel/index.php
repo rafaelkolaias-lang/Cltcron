@@ -440,6 +440,34 @@ header('Content-Type: text/html; charset=utf-8');
 
               </div>
 
+              <!-- Tarefas declaradas (full-width abaixo) -->
+              <div class="col-12 mt-3">
+                <article class="cartao-grafite p-3">
+                  <div class="d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">Tarefas declaradas</h6>
+                    <span class="texto-fraco small" id="textoGestaoTotalTarefas">—</span>
+                  </div>
+                  <div class="table-responsive mt-2" style="max-height:500px; overflow-y:auto;">
+                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
+                      <thead class="sticky-top" style="background:var(--cor-fundo);">
+                        <tr class="texto-fraco small">
+                          <th style="min-width:90px;">Data</th>
+                          <th style="min-width:100px;">Canal</th>
+                          <th style="min-width:200px;">Tarefa</th>
+                          <th style="min-width:80px;">Tempo</th>
+                          <th class="text-center" style="min-width:80px;">Status</th>
+                          <th style="min-width:200px;">Observação</th>
+                          <th class="text-end" style="min-width:80px;">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGestaoTarefas">
+                        <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </div>
+
               <!-- Credenciais e APIs do usuário (full-width) -->
               <div class="col-12 mt-3">
                 <article class="cartao-grafite p-3">
@@ -463,34 +491,6 @@ header('Content-Type: text/html; charset=utf-8');
                       </thead>
                       <tbody id="tbodyGestaoCredenciais">
                         <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </div>
-
-              <!-- Tarefas declaradas (full-width abaixo) -->
-              <div class="col-12 mt-3">
-                <article class="cartao-grafite p-3">
-                  <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="mb-0">Tarefas declaradas</h6>
-                    <span class="texto-fraco small" id="textoGestaoTotalTarefas">—</span>
-                  </div>
-                  <div class="table-responsive mt-2" style="max-height:500px; overflow-y:auto;">
-                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
-                      <thead class="sticky-top" style="background:var(--cor-fundo);">
-                        <tr class="texto-fraco small">
-                          <th style="min-width:90px;">Data</th>
-                          <th style="min-width:100px;">Canal</th>
-                          <th style="min-width:200px;">Tarefa</th>
-                          <th style="min-width:80px;">Tempo</th>
-                          <th class="text-center" style="min-width:80px;">Status</th>
-                          <th style="min-width:200px;">Observação</th>
-                          <th class="text-end" style="min-width:80px;">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody id="tbodyGestaoTarefas">
-                        <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
                       </tbody>
                     </table>
                   </div>

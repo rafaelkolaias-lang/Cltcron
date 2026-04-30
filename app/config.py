@@ -70,9 +70,16 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.9"
+VERSAO_APLICACAO = "v2.9.1"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v2.9.1",
+        "data": "30/04/2026",
+        "notas": [
+            "Correção: endereço do servidor para a integração de upload do MEGA",
+        ],
+    },
     {
         "versao": "v2.9",
         "data": "30/04/2026",
@@ -150,7 +157,7 @@ URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/
 # `http://localhost/cronometro-web/painel`).
 import os as _os  # local — evita poluir o namespace público
 
-URL_PAINEL = _os.environ.get("CRONOMETRO_URL_PAINEL", "http://76.13.112.108/painel").rstrip("/")
+URL_PAINEL = _os.environ.get("CRONOMETRO_URL_PAINEL", "https://banco-painel.cpgdmb.easypanel.host").rstrip("/")
 
 # Chave fixa usada pelo painel para recifrar credenciais entregues ao desktop
 # (XSalsa20-Poly1305 / libsodium secretbox). Vem de `app/segredos.py`

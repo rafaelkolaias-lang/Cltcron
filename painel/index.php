@@ -948,8 +948,8 @@ header('Content-Type: text/html; charset=utf-8');
                   <select id="megaFiltroUser" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:200px;">
                     <option value="">Selecione um usuário…</option>
                   </select>
-                  <select id="megaFiltroCanal" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
-                    <option value="">Selecione um canal…</option>
+                  <select id="megaFiltroCanal" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;" disabled>
+                    <option value="">Selecione um usuário primeiro…</option>
                   </select>
                   <button class="btn btn-sm btn-light" type="button" id="megaBotaoNovoCampo" disabled>+ Novo campo</button>
                 </div>
@@ -1244,7 +1244,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
   <script src="./js/aba-credenciais.js?v=1"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=1"></script>
+  <script src="./js/aba-mega.js?v=2"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

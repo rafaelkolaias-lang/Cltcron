@@ -56,6 +56,10 @@
   const estado = {
     canais: [],
     usuarios: [],
+    // Vem de /commands/atividades/listar.php — inclui usuarios[] por atividade.
+    // Usado pra filtrar o select de canais do bloco "Campos por user+canal":
+    // só mostra canais que o usuário selecionado tem atribuídos.
+    atividadesComUsuarios: [],
     campos: [],
     pastas: [],
     filtroUserId: '',
@@ -77,9 +81,24 @@
       const badge = document.getElementById('megaBadgeCanais');
       if (badge) badge.textContent = String(estado.canais.length);
       renderizarCanais();
-      atualizarSelectsCanais();
+      // Filtro do bloco "Pastas lógicas" usa todos os canais; o do bloco
+      // "Campos por user+canal" depende do user selecionado (separado).
+      atualizarSelectCanaisPastas();
+      atualizarSelectCanaisPorUsuario();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  // Lista de atividades com usuarios atribuídos (vem de atividades/listar.php).
+  // Usada pra filtrar o select de canais por usuário no bloco "Campos".
+  async function carregarAtividadesComUsuarios() {
+    try {
+      const dados = await requisitar('./commands/atividades/listar.php');
+      estado.atividadesComUsuarios = Array.isArray(dados) ? dados : [];
+      atualizarSelectCanaisPorUsuario();
+    } catch (e) {
+      console.warn('[mega] falha ao carregar atividades+usuarios:', e?.message || e);
     }
   }
 
@@ -163,19 +182,53 @@
     if (atual) sel.value = atual;
   }
 
-  function atualizarSelectsCanais() {
-    [['megaFiltroCanal', true], ['megaFiltroCanalPastas', false]].forEach(([id, mandatorio]) => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-      const atual = sel.value;
-      const opts = mandatorio
-        ? '<option value="">Selecione um canal…</option>'
-        : '<option value="">Todos os canais</option>';
-      sel.innerHTML = opts + estado.canais.map((c) => {
-        return `<option value="${c.id_atividade}">${esc(c.titulo_atividade)}</option>`;
-      }).join('');
-      if (atual) sel.value = atual;
-    });
+  // Bloco "Pastas lógicas cadastradas": filtro opcional, todos os canais.
+  function atualizarSelectCanaisPastas() {
+    const sel = document.getElementById('megaFiltroCanalPastas');
+    if (!sel) return;
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos os canais</option>' +
+      estado.canais.map((c) => `<option value="${c.id_atividade}">${esc(c.titulo_atividade)}</option>`).join('');
+    if (atual) sel.value = atual;
+  }
+
+  // Bloco "Campos por user+canal": só mostra canais que o usuário selecionado
+  // efetivamente tem atribuídos (via atividades_usuarios). Sem usuário, fica
+  // desabilitado com placeholder. Usuário sem canais → mostra mensagem.
+  function atualizarSelectCanaisPorUsuario() {
+    const sel = document.getElementById('megaFiltroCanal');
+    if (!sel) return;
+    const userId = String(estado.filtroUserId || '').trim();
+    const valorAtual = sel.value;
+
+    if (!userId) {
+      sel.innerHTML = '<option value="">Selecione um usuário primeiro…</option>';
+      sel.disabled = true;
+      estado.filtroIdAtividade = 0;
+      return;
+    }
+
+    const canaisDoUsuario = estado.atividadesComUsuarios.filter((a) =>
+      Array.isArray(a.usuarios) && a.usuarios.some((u) => String(u.user_id || '') === userId)
+    );
+
+    if (!canaisDoUsuario.length) {
+      sel.innerHTML = '<option value="">Nenhum canal atribuído a este usuário</option>';
+      sel.disabled = true;
+      estado.filtroIdAtividade = 0;
+      return;
+    }
+
+    sel.disabled = false;
+    sel.innerHTML = '<option value="">Selecione um canal…</option>' +
+      canaisDoUsuario.map((c) => `<option value="${c.id_atividade}">${esc(c.titulo)}</option>`).join('');
+
+    // Preserva seleção anterior se ainda for válida pro novo user.
+    if (valorAtual && canaisDoUsuario.some((c) => String(c.id_atividade) === valorAtual)) {
+      sel.value = valorAtual;
+    } else {
+      estado.filtroIdAtividade = 0;
+    }
   }
 
   async function carregarCampos() {
@@ -369,6 +422,9 @@
 
     document.getElementById('megaFiltroUser')?.addEventListener('change', (ev) => {
       estado.filtroUserId = ev.target.value;
+      // Re-renderiza select de canais filtrado pelos canais do user; reseta
+      // a seleção atual de canal pra evitar inconsistência.
+      atualizarSelectCanaisPorUsuario();
       carregarCampos();
     });
     document.getElementById('megaFiltroCanal')?.addEventListener('change', (ev) => {
@@ -402,10 +458,15 @@
     // Carrega usuários + canais em paralelo na primeira visita; depois só se forçado.
     if (!_carregadoUmaVez) {
       _carregadoUmaVez = true;
-      await Promise.all([carregarCanais(), carregarUsuarios()]);
+      await Promise.all([
+        carregarCanais(),
+        carregarUsuarios(),
+        carregarAtividadesComUsuarios(),
+      ]);
       carregarPastas();
     } else {
       carregarCanais();
+      carregarAtividadesComUsuarios();
       carregarPastas();
     }
   }

@@ -528,7 +528,9 @@ class RepositorioDeclaracoesDia:
         (FK, NOT NULL, tipo, etc. propagam normalmente).
         """
         uid = self._normalizar_user_id(user_id)
-        # Atividades com saldo pendente (monitorado > declarado total)
+        # Filtra direto por user_id em cada subquery (em vez de comparar com r.user_id)
+        # para evitar conflito de collation entre cronometro_relatorios e
+        # atividades_subtarefas / pagamento_abatimentos.
         atividades = self._banco.consultar_todos(
             """
             SELECT
@@ -537,21 +539,21 @@ class RepositorioDeclaracoesDia:
               COALESCE((
                 SELECT SUM(s.segundos_gastos)
                 FROM atividades_subtarefas s
-                WHERE s.user_id = r.user_id
+                WHERE s.user_id = %s
                   AND s.id_atividade = r.id_atividade
                   AND s.concluida = 1
               ), 0) AS declarado,
               COALESCE((
                 SELECT SUM(a.segundos_abatidos)
                 FROM pagamento_abatimentos a
-                WHERE a.user_id = r.user_id
+                WHERE a.user_id = %s
                   AND a.id_atividade = r.id_atividade
               ), 0) AS abatido
             FROM cronometro_relatorios r
             WHERE r.user_id = %s
             GROUP BY r.id_atividade
             """,
-            [uid],
+            [uid, uid, uid],
         )
         for row in atividades:
             id_ativ = int(row["id_atividade"])

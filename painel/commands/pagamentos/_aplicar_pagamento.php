@@ -70,6 +70,9 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
         return 0;
     }
 
+    // Filtra direto por :user_id em cada subquery para evitar conflito de collation
+    // entre cronometro_relatorios (utf8mb4_0900_ai_ci) e atividades_subtarefas /
+    // pagamento_abatimentos (utf8mb4_unicode_ci). Bind params se acomodam à coluna.
     $st = $pdo->prepare("
         SELECT
           r.id_atividade,
@@ -77,21 +80,25 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
           COALESCE((
             SELECT SUM(s.segundos_gastos)
             FROM atividades_subtarefas s
-            WHERE s.user_id = r.user_id
+            WHERE s.user_id = :user_id_sub
               AND s.id_atividade = r.id_atividade
               AND s.concluida = 1
           ), 0) AS declarado,
           COALESCE((
             SELECT SUM(a.segundos_abatidos)
             FROM pagamento_abatimentos a
-            WHERE a.user_id = r.user_id
+            WHERE a.user_id = :user_id_abat
               AND a.id_atividade = r.id_atividade
           ), 0) AS abatido
         FROM cronometro_relatorios r
         WHERE r.user_id = :user_id
         GROUP BY r.id_atividade
     ");
-    $st->execute([':user_id' => $user_id]);
+    $st->execute([
+        ':user_id'      => $user_id,
+        ':user_id_sub'  => $user_id,
+        ':user_id_abat' => $user_id,
+    ]);
 
     $stIns = $pdo->prepare("
         INSERT INTO pagamento_abatimentos

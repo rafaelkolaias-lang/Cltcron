@@ -9,8 +9,8 @@ echo  RELEASE CRONOMETRO
 echo ==========================================
 echo.
 
-:: 1. Pegar versao do app.py
-for /f "tokens=2 delims==" %%a in ('findstr /C:"VERSAO_APLICACAO" app.py') do set "VERSAO_RAW=%%a"
+:: 1. Pegar versao de app/config.py (fonte canonica apos refator modular)
+for /f "tokens=2 delims==" %%a in ('findstr /C:"VERSAO_APLICACAO = " app\config.py') do set "VERSAO_RAW=%%a"
 set "VERSAO=%VERSAO_RAW: =%"
 set "VERSAO=%VERSAO:~2,-1%"
 echo Versao detectada: %VERSAO%

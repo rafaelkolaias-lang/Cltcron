@@ -70,7 +70,8 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 
 ```
 Cronometro/
-├── app.py                    # App desktop (~2000 linhas)
+├── main.py                   # Entrypoint do app desktop
+├── app/                      # Pacote modular do desktop (config, monitor, app_shell, etc.)
 ├── banco.py                  # Conexao MySQL thread-safe
 ├── atividades.py             # Logica de atividades e pagamentos
 ├── declaracoes_dia.py        # Subtarefas e declaracoes diarias
@@ -138,7 +139,7 @@ mysql -u root -p < dados.sql
 
 ```bash
 pip install pymysql psutil
-python app.py
+python main.py
 ```
 
 Ou use o .exe compilado: `dist/CronometroLeve.exe`

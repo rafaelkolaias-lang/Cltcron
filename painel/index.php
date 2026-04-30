@@ -70,6 +70,9 @@ header('Content-Type: text/html; charset=utf-8');
           <li class="nav-item">
             <a class="nav-link" href="#" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
           </li>
+          <li class="nav-item">
+            <a class="nav-link" href="#" data-aba="abaMega" title="Configuração de upload obrigatório no MEGA">MEGA</a>
+          </li>
         </ul>
 
         <div class="d-flex align-items-center gap-2 ms-2">
@@ -894,6 +897,128 @@ header('Content-Type: text/html; charset=utf-8');
             </article>
           </section>
 
+          <!-- ════════════════════════════════════════════════════════════
+               ABA: MEGA (config de upload obrigatório por canal/usuário)
+               ════════════════════════════════════════════════════════════ -->
+          <section id="abaMega" class="d-none" aria-label="MEGA">
+
+            <!-- Bloco 1: Configuração por canal -->
+            <article class="cartao-grafite p-3 mb-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Configuração por canal</h2>
+                  <span class="badge badge-suave" id="megaBadgeCanais">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoRecarregarCanais" title="Recarregar">&#x21BB;</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                Defina a <strong>pasta raiz no MEGA</strong> de cada canal e ative o upload obrigatório. Canais sem
+                configuração mantêm o fluxo antigo (checkbox "Declaro que subi os arquivos").
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:220px;">Canal</th>
+                      <th style="min-width:260px;">Pasta raiz no MEGA</th>
+                      <th class="text-center" style="min-width:120px;">Upload ativo</th>
+                      <th style="min-width:140px;">Atualizado em</th>
+                      <th class="text-end" style="min-width:120px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyMegaCanais">
+                    <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <!-- Bloco 2: Campos exigidos por usuário + canal -->
+            <article class="cartao-grafite p-3 mb-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Campos de upload por usuário + canal</h2>
+                  <span class="badge badge-suave" id="megaBadgeCampos">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                  <select id="megaFiltroUser" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:200px;">
+                    <option value="">Selecione um usuário…</option>
+                  </select>
+                  <select id="megaFiltroCanal" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
+                    <option value="">Selecione um canal…</option>
+                  </select>
+                  <button class="btn btn-sm btn-light" type="button" id="megaBotaoNovoCampo" disabled>+ Novo campo</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                Cada usuário pode ter campos distintos por canal (ex.: editor sobe vídeo + projeto, thumbmaker sobe só thumb).
+                Sem campos configurados → nenhum upload é exigido daquele usuário no canal.
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:60px;">Ordem</th>
+                      <th style="min-width:200px;">Label do campo</th>
+                      <th style="min-width:160px;">Extensões aceitas</th>
+                      <th class="text-center" style="min-width:80px;">Qtd. máx</th>
+                      <th class="text-center" style="min-width:100px;">Obrigatório</th>
+                      <th class="text-center" style="min-width:80px;">Ativo</th>
+                      <th class="text-end" style="min-width:140px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyMegaCampos">
+                    <tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+            <!-- Bloco 3: Pastas lógicas existentes (read-only) -->
+            <article class="cartao-grafite p-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Pastas lógicas cadastradas</h2>
+                  <span class="badge badge-suave" id="megaBadgePastas">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  <select id="megaFiltroCanalPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
+                    <option value="">Todos os canais</option>
+                  </select>
+                  <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoRecarregarPastas">&#x21BB;</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                Pastas criadas pelos usuários ao declarar tarefas. O nome canônico (<code>NN - Titulo</code>) é único por canal.
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:180px;">Canal</th>
+                      <th style="min-width:240px;">Nome da pasta</th>
+                      <th style="min-width:80px;">Nº</th>
+                      <th style="min-width:160px;">Criado por</th>
+                      <th style="min-width:140px;">Criado em</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyMegaPastas">
+                    <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
+          </section>
+
         </main>
 
         <footer class="texto-fraco small mt-4" aria-label="Rodapé">
@@ -1119,6 +1244,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
   <script src="./js/aba-credenciais.js?v=1"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
+  <script src="./js/aba-mega.js?v=1"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

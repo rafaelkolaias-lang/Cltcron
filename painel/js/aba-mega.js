@@ -1,0 +1,419 @@
+/* aba-mega.js — Configuração de upload obrigatório no MEGA por canal e usuário.
+ *
+ * Três blocos independentes na #abaMega:
+ *   1) Canal config: pasta raiz no MEGA + flag upload_ativo por atividade.
+ *   2) Campos exigidos: por (user_id, id_atividade), CRUD inline.
+ *   3) Pastas lógicas: lista read-only, com filtro opcional por canal.
+ *
+ * Edição via linha inline (sem modal) — mantém o código curto e a UX direta.
+ */
+(function () {
+  'use strict';
+
+  const API = './commands/mega/';
+
+  // ---------- Helpers ----------
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatarData(s) {
+    if (!s) return '—';
+    const d = new Date(String(s).replace(' ', 'T'));
+    if (isNaN(d.getTime())) return esc(s);
+    return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  async function requisitar(url, metodo, corpo) {
+    const opts = { method: metodo || 'GET', credentials: 'same-origin', headers: {} };
+    if (corpo !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(corpo);
+    }
+    const r = await fetch(url, opts);
+    let json = null;
+    try { json = await r.json(); } catch (_) {}
+    if (!r.ok || !json || json.ok !== true) {
+      const msg = (json && json.mensagem) ? json.mensagem : ('HTTP ' + r.status);
+      const det = (json && json.dados && json.dados.erro) ? ' — ' + json.dados.erro : '';
+      throw new Error(msg + det);
+    }
+    return json.dados;
+  }
+
+  function alerta(tipo, titulo, msg) {
+    if (typeof window.mostrarAlerta === 'function') {
+      window.mostrarAlerta(tipo, titulo, msg);
+      return;
+    }
+    console[tipo === 'erro' ? 'error' : 'log']('[mega]', titulo, msg);
+  }
+
+  // ---------- Estado ----------
+  const estado = {
+    canais: [],
+    usuarios: [],
+    campos: [],
+    pastas: [],
+    filtroUserId: '',
+    filtroIdAtividade: 0,
+    filtroCanalPastas: 0,
+  };
+
+  // ===========================================================
+  // BLOCO 1 — Configuração por canal
+  // ===========================================================
+  async function carregarCanais() {
+    const tbody = document.getElementById('tbodyMegaCanais');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>';
+
+    try {
+      const dados = await requisitar(API + 'canal_config_listar.php');
+      estado.canais = Array.isArray(dados) ? dados : [];
+      const badge = document.getElementById('megaBadgeCanais');
+      if (badge) badge.textContent = String(estado.canais.length);
+      renderizarCanais();
+      atualizarSelectsCanais();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function renderizarCanais() {
+    const tbody = document.getElementById('tbodyMegaCanais');
+    if (!tbody) return;
+
+    if (!estado.canais.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Nenhum canal cadastrado.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = estado.canais.map((c) => {
+      const idA = c.id_atividade;
+      const ativo = c.upload_ativo ? 'checked' : '';
+      const inativoHint = String(c.status_atividade || '').toLowerCase() !== 'aberta'
+        ? `<span class="badge bg-secondary ms-1" title="Status: ${esc(c.status_atividade)}">${esc(c.status_atividade)}</span>` : '';
+      return `
+        <tr data-id-atividade="${idA}">
+          <td><strong>${esc(c.titulo_atividade)}</strong>${inativoHint}</td>
+          <td>
+            <input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-pasta-input"
+                   placeholder="ex: Canal Astronomia"
+                   value="${esc(c.nome_pasta_mega)}" maxlength="255">
+          </td>
+          <td class="text-center">
+            <div class="form-check form-switch d-inline-block">
+              <input class="form-check-input mega-ativo-input" type="checkbox" ${ativo}>
+            </div>
+          </td>
+          <td class="texto-fraco small">${formatarData(c.atualizado_em)}</td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-light mega-salvar-canal" type="button">Salvar</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('.mega-salvar-canal').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const idA = parseInt(tr.getAttribute('data-id-atividade'), 10);
+        const nome = (tr.querySelector('.mega-pasta-input')?.value || '').trim();
+        const ativo = !!tr.querySelector('.mega-ativo-input')?.checked;
+        try {
+          await requisitar(API + 'canal_config_salvar.php', 'POST', {
+            id_atividade: idA, nome_pasta_mega: nome, upload_ativo: ativo,
+          });
+          alerta('sucesso', 'MEGA', 'Configuração salva.');
+          carregarCanais();
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message);
+        }
+      });
+    });
+  }
+
+  // ===========================================================
+  // BLOCO 2 — Campos por user + canal
+  // ===========================================================
+  async function carregarUsuarios() {
+    try {
+      const dados = await requisitar('./commands/usuarios/listar.php');
+      estado.usuarios = Array.isArray(dados) ? dados : (Array.isArray(dados?.usuarios) ? dados.usuarios : []);
+      atualizarSelectUsuarios();
+    } catch (e) {
+      console.warn('[mega] falha ao carregar usuarios:', e?.message || e);
+    }
+  }
+
+  function atualizarSelectUsuarios() {
+    const sel = document.getElementById('megaFiltroUser');
+    if (!sel) return;
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Selecione um usuário…</option>' +
+      estado.usuarios.map((u) => {
+        const uid = u.user_id || '';
+        const nome = u.nome_exibicao || uid;
+        const inat = String(u.status_conta || '').toLowerCase() !== 'ativa' ? ' [inativo]' : '';
+        return `<option value="${esc(uid)}">${esc(nome)}${inat}</option>`;
+      }).join('');
+    if (atual) sel.value = atual;
+  }
+
+  function atualizarSelectsCanais() {
+    [['megaFiltroCanal', true], ['megaFiltroCanalPastas', false]].forEach(([id, mandatorio]) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const atual = sel.value;
+      const opts = mandatorio
+        ? '<option value="">Selecione um canal…</option>'
+        : '<option value="">Todos os canais</option>';
+      sel.innerHTML = opts + estado.canais.map((c) => {
+        return `<option value="${c.id_atividade}">${esc(c.titulo_atividade)}</option>`;
+      }).join('');
+      if (atual) sel.value = atual;
+    });
+  }
+
+  async function carregarCampos() {
+    const tbody = document.getElementById('tbodyMegaCampos');
+    if (!tbody) return;
+
+    if (!estado.filtroUserId || !estado.filtroIdAtividade) {
+      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
+      const b = document.getElementById('megaBadgeCampos');
+      if (b) b.textContent = '—';
+      const btn = document.getElementById('megaBotaoNovoCampo');
+      if (btn) btn.disabled = true;
+      return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
+
+    try {
+      const url = `${API}campos_listar.php?user_id=${encodeURIComponent(estado.filtroUserId)}&id_atividade=${estado.filtroIdAtividade}&incluir_inativos=1`;
+      const dados = await requisitar(url);
+      estado.campos = Array.isArray(dados) ? dados : [];
+      const b = document.getElementById('megaBadgeCampos');
+      if (b) b.textContent = String(estado.campos.filter(c => c.ativo).length);
+      const btn = document.getElementById('megaBotaoNovoCampo');
+      if (btn) btn.disabled = false;
+      renderizarCampos();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  function linhaCampoEditavel(campo) {
+    const c = campo || { id_campo: 0, label_campo: '', extensoes_permitidas: '', quantidade_maxima: 1, obrigatorio: true, ordem: 0, ativo: true };
+    return `
+      <tr data-id-campo="${c.id_campo || 0}" data-modo="edicao">
+        <td><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ordem" value="${c.ordem || 0}" min="0" style="width:70px;"></td>
+        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-label" value="${esc(c.label_campo)}" placeholder="ex: Vídeo final" maxlength="120"></td>
+        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ext" value="${esc(c.extensoes_permitidas || '')}" placeholder="mp4,mov" maxlength="255"></td>
+        <td class="text-center"><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-qtd" value="${c.quantidade_maxima || 1}" min="1" max="50" style="width:70px;display:inline-block;"></td>
+        <td class="text-center"><input type="checkbox" class="form-check-input mega-campo-obrig" ${c.obrigatorio ? 'checked' : ''}></td>
+        <td class="text-center"><input type="checkbox" class="form-check-input mega-campo-ativo" ${c.ativo ? 'checked' : ''}></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-light mega-campo-confirmar" type="button">Salvar</button>
+          <button class="btn btn-sm btn-outline-light mega-campo-cancelar" type="button">Cancelar</button>
+        </td>
+      </tr>`;
+  }
+
+  function linhaCampoLeitura(c) {
+    const ext = c.extensoes_permitidas ? esc(c.extensoes_permitidas) : '<span class="texto-fraco">qualquer</span>';
+    const obrig = c.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
+    const ativo = c.ativo ? '<span class="badge bg-success">ativo</span>' : '<span class="badge bg-secondary">inativo</span>';
+    return `
+      <tr data-id-campo="${c.id_campo}" data-modo="leitura" ${c.ativo ? '' : 'style="opacity:0.55;"'}>
+        <td>${c.ordem}</td>
+        <td><strong>${esc(c.label_campo)}</strong></td>
+        <td>${ext}</td>
+        <td class="text-center">${c.quantidade_maxima}</td>
+        <td class="text-center">${obrig}</td>
+        <td class="text-center">${ativo}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-light mega-campo-editar" type="button">Editar</button>
+          <button class="btn btn-sm btn-outline-danger mega-campo-excluir" type="button" title="Desativar">×</button>
+        </td>
+      </tr>`;
+  }
+
+  function renderizarCampos() {
+    const tbody = document.getElementById('tbodyMegaCampos');
+    if (!tbody) return;
+
+    if (!estado.campos.length) {
+      tbody.innerHTML = `
+        <tr><td colspan="7" class="texto-fraco">
+          Nenhum campo cadastrado para esse usuário neste canal. Clique em <strong>+ Novo campo</strong>.
+        </td></tr>`;
+      bindCamposActions();
+      return;
+    }
+
+    tbody.innerHTML = estado.campos.map(linhaCampoLeitura).join('');
+    bindCamposActions();
+  }
+
+  function bindCamposActions() {
+    const tbody = document.getElementById('tbodyMegaCampos');
+    if (!tbody) return;
+
+    tbody.querySelectorAll('.mega-campo-editar').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-campo'), 10);
+        const c = estado.campos.find((x) => x.id_campo === id);
+        if (!c) return;
+        tr.outerHTML = linhaCampoEditavel(c);
+        bindCamposActions();
+      });
+    });
+
+    tbody.querySelectorAll('.mega-campo-excluir').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-campo'), 10);
+        if (!id || !confirm('Desativar este campo? (Soft-delete)')) return;
+        try {
+          await requisitar(API + 'campos_excluir.php', 'POST', { id_campo: id });
+          carregarCampos();
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.mega-campo-cancelar').forEach((btn) => {
+      btn.addEventListener('click', () => carregarCampos());
+    });
+
+    tbody.querySelectorAll('.mega-campo-confirmar').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-campo'), 10) || 0;
+        const payload = {
+          id_campo: id,
+          user_id: estado.filtroUserId,
+          id_atividade: estado.filtroIdAtividade,
+          label_campo: tr.querySelector('.mega-campo-label')?.value?.trim() || '',
+          extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
+          quantidade_maxima: parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 1,
+          obrigatorio: !!tr.querySelector('.mega-campo-obrig')?.checked,
+          ordem: parseInt(tr.querySelector('.mega-campo-ordem')?.value, 10) || 0,
+          ativo: !!tr.querySelector('.mega-campo-ativo')?.checked,
+        };
+        if (!payload.label_campo) {
+          alerta('erro', 'MEGA', 'Label do campo é obrigatório.');
+          return;
+        }
+        try {
+          await requisitar(API + 'campos_salvar.php', 'POST', payload);
+          carregarCampos();
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message);
+        }
+      });
+    });
+  }
+
+  // ===========================================================
+  // BLOCO 3 — Pastas lógicas (read-only)
+  // ===========================================================
+  async function carregarPastas() {
+    const tbody = document.getElementById('tbodyMegaPastas');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>';
+
+    let url = API + 'pasta_logica_listar.php';
+    if (estado.filtroCanalPastas > 0) {
+      url += '?id_atividade=' + estado.filtroCanalPastas;
+    }
+
+    try {
+      const dados = await requisitar(url);
+      estado.pastas = Array.isArray(dados) ? dados : [];
+      const b = document.getElementById('megaBadgePastas');
+      if (b) b.textContent = String(estado.pastas.length);
+
+      if (!estado.pastas.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Nenhuma pasta lógica cadastrada.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = estado.pastas.map((p) => `
+        <tr>
+          <td>${esc(p.titulo_atividade || '—')}</td>
+          <td><strong>${esc(p.nome_pasta)}</strong></td>
+          <td>${esc(p.numero_video)}</td>
+          <td>${esc(p.criado_por || '—')}</td>
+          <td class="texto-fraco small">${formatarData(p.criado_em)}</td>
+        </tr>`).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+    }
+  }
+
+  // ===========================================================
+  // Wiring de eventos
+  // ===========================================================
+  function bindEventosAba() {
+    document.getElementById('megaBotaoRecarregarCanais')?.addEventListener('click', () => carregarCanais());
+    document.getElementById('megaBotaoRecarregarPastas')?.addEventListener('click', () => carregarPastas());
+
+    document.getElementById('megaFiltroUser')?.addEventListener('change', (ev) => {
+      estado.filtroUserId = ev.target.value;
+      carregarCampos();
+    });
+    document.getElementById('megaFiltroCanal')?.addEventListener('change', (ev) => {
+      estado.filtroIdAtividade = parseInt(ev.target.value, 10) || 0;
+      carregarCampos();
+    });
+    document.getElementById('megaFiltroCanalPastas')?.addEventListener('change', (ev) => {
+      estado.filtroCanalPastas = parseInt(ev.target.value, 10) || 0;
+      carregarPastas();
+    });
+
+    document.getElementById('megaBotaoNovoCampo')?.addEventListener('click', () => {
+      if (!estado.filtroUserId || !estado.filtroIdAtividade) return;
+      const tbody = document.getElementById('tbodyMegaCampos');
+      if (!tbody) return;
+      // Insere linha em modo edição no topo (não duplica se já existir uma).
+      if (tbody.querySelector('tr[data-id-campo="0"]')) return;
+      tbody.insertAdjacentHTML('afterbegin', linhaCampoEditavel(null));
+      bindCamposActions();
+    });
+  }
+
+  let _eventosBindados = false;
+  let _carregadoUmaVez = false;
+
+  async function renderizarAbaMega() {
+    if (!_eventosBindados) {
+      bindEventosAba();
+      _eventosBindados = true;
+    }
+    // Carrega usuários + canais em paralelo na primeira visita; depois só se forçado.
+    if (!_carregadoUmaVez) {
+      _carregadoUmaVez = true;
+      await Promise.all([carregarCanais(), carregarUsuarios()]);
+      carregarPastas();
+    } else {
+      carregarCanais();
+      carregarPastas();
+    }
+  }
+
+  window.PainelAbaMega = {
+    renderizarAbaMega,
+    recarregarCanais: carregarCanais,
+    recarregarCampos: carregarCampos,
+    recarregarPastas: carregarPastas,
+  };
+})();

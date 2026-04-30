@@ -22,7 +22,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B", "UP"]
-"app.py" = ["E402"]
+"app/__init__.py" = ["F401"]  # re-exports para compatibilidade
 
 [tool.mypy]
 python_version = "3.12"

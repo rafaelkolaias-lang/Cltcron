@@ -15,7 +15,7 @@ try {
     $pdo = obter_conexao_pdo();
 
     // Modelos padrão do sistema não podem ser excluídos (protegidos).
-    $protegidos = ['chatgpt', 'gemini', 'minimax', 'elevenlabs', 'assembly'];
+    $protegidos = ['chatgpt', 'gemini', 'minimax', 'elevenlabs', 'assembly', 'mega_email', 'mega_password'];
     $stm = $pdo->prepare("SELECT identificador FROM credenciais_modelos WHERE id_modelo=?");
     $stm->execute([$id_modelo]);
     $ident = (string)($stm->fetchColumn() ?: '');

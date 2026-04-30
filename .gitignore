@@ -55,6 +55,10 @@ Backup banco/
 # Manual de credenciais (contém chave fixa de descriptografia dos apps)
 \!manual-credenciais.md
 
+# Segredos embutidos no .exe do desktop (chave fixa do cliente para decifrar
+# credenciais entregues pelo painel). Mesma chave do !manual-credenciais.md.
+app/segredos.py
+
 # Arquivo de ambiente com APP_SECRETS_MASTER_KEY
 .env
 painel/.env

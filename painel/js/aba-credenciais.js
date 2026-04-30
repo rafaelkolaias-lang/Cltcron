@@ -111,7 +111,7 @@
     }
   }
 
-  const MODELOS_PROTEGIDOS = ['chatgpt', 'gemini', 'minimax', 'elevenlabs', 'assembly'];
+  const MODELOS_PROTEGIDOS = ['chatgpt', 'gemini', 'minimax', 'elevenlabs', 'assembly', 'mega_email', 'mega_password'];
 
   function renderizarModelosTabela() {
     const tb = document.getElementById('tbodyModelos');

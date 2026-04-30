@@ -1,12 +1,31 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+# pynacl (libsodium) tem extensão C nativa (_sodium.pyd) e binário libsodium.dll
+# que NÃO são pegos automaticamente pelo PyInstaller. collect_all garante que
+# datas, binaries e hiddenimports do pacote `nacl` entrem no .exe.
+from PyInstaller.utils.hooks import collect_all
+
+_nacl_datas, _nacl_binaries, _nacl_hiddenimports = collect_all('nacl')
+
 
 a = Analysis(
-    ['app.py'],
+    ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=_nacl_binaries,
+    datas=[('logo.png', '.'), *_nacl_datas],
+    hiddenimports=[
+        'app',
+        'app.app_shell',
+        'app.config',
+        'app.hooks_input',
+        'app.main',
+        'app.mega_uploader',
+        'app.monitor',
+        'app.subtarefas',
+        'app.win32_utils',
+        'app.segredos',
+        *_nacl_hiddenimports,
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

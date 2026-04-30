@@ -528,9 +528,9 @@ class RepositorioDeclaracoesDia:
         (FK, NOT NULL, tipo, etc. propagam normalmente).
         """
         uid = self._normalizar_user_id(user_id)
-        # Filtra direto por user_id em cada subquery (em vez de comparar com r.user_id)
-        # para evitar conflito de collation entre cronometro_relatorios e
-        # atividades_subtarefas / pagamento_abatimentos.
+        # Janela temporal: monitorado somado APENAS até o instante da última
+        # declaração feita pelo usuário naquela atividade. Trabalho cronometrado
+        # após esse instante NÃO é abatido — carrega para o próximo ciclo.
         atividades = self._banco.consultar_todos(
             """
             SELECT
@@ -551,9 +551,16 @@ class RepositorioDeclaracoesDia:
               ), 0) AS abatido
             FROM cronometro_relatorios r
             WHERE r.user_id = %s
+              AND r.criado_em <= COALESCE((
+                SELECT MAX(COALESCE(s.concluida_em, s.criada_em))
+                FROM atividades_subtarefas s
+                WHERE s.user_id = %s
+                  AND s.id_atividade = r.id_atividade
+                  AND s.concluida = 1
+              ), '1900-01-01 00:00:00')
             GROUP BY r.id_atividade
             """,
-            [uid, uid, uid],
+            [uid, uid, uid, uid],
         )
         for row in atividades:
             id_ativ = int(row["id_atividade"])
@@ -605,6 +612,25 @@ class RepositorioDeclaracoesDia:
                 parametros.append(referencia_data)
 
             linha = self._banco.consultar_um(sql, parametros)
+            return int((linha or {}).get("total") or 0)
+        except Exception:
+            return 0
+
+    def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int) -> int:
+        """Total cronometrado da atividade = trabalhando + ocioso (todo histórico).
+
+        Métrica neutra para a UI: não revela saldo declarável.
+        """
+        self._garantir_estrutura()
+        try:
+            linha = self._banco.consultar_um(
+                """
+                SELECT COALESCE(SUM(segundos_trabalhando + segundos_ocioso), 0) AS total
+                FROM cronometro_relatorios
+                WHERE user_id = %s AND id_atividade = %s
+                """,
+                [self._normalizar_user_id(user_id), int(id_atividade)],
+            )
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
@@ -1385,6 +1411,8 @@ class RepositorioDeclaracoesDia:
             [self._normalizar_user_id(user_id), int(id_atividade)],
         )
 
+        cronometrado = self.obter_segundos_cronometrados_atividade(user_id, int(id_atividade))
+
         return {
             "monitorado_segundos": monitorado,
             "monitorado_hhmmss": formatar_hhmmss(monitorado),
@@ -1394,6 +1422,8 @@ class RepositorioDeclaracoesDia:
             "declarado_ciclo_hhmmss": formatar_hhmmss(declarado_ciclo),
             "saldo_segundos": saldo,
             "saldo_hhmmss": formatar_hhmmss(saldo),
+            "cronometrado_segundos": cronometrado,
+            "cronometrado_hhmmss": formatar_hhmmss(cronometrado),
             "total_subtarefas": int((linha or {}).get("total_subtarefas") or 0),
             "total_concluidas": int((linha or {}).get("total_concluidas") or 0),
             "periodo_travado": self.data_esta_travada(user_id, referencia_data) if referencia_data else False,

@@ -2509,8 +2509,8 @@ class JanelaSubtarefas(tk.Toplevel):
                 self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
             self._var_resumo.set(
-                f"Disponível: {resumo['saldo_hhmmss']}    |    "
-                f"Declarado: {resumo['declarado_ciclo_hhmmss']}"
+                f"Cronometradas: {resumo['cronometrado_hhmmss']}    |    "
+                f"Declaradas: {resumo['declarado_ciclo_hhmmss']}"
             )
             self._atualizar_texto_trava(travado_ate)
 

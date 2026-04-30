@@ -70,9 +70,16 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
         return 0;
     }
 
-    // Filtra direto por :user_id em cada subquery para evitar conflito de collation
-    // entre cronometro_relatorios (utf8mb4_0900_ai_ci) e atividades_subtarefas /
-    // pagamento_abatimentos (utf8mb4_unicode_ci). Bind params se acomodam à coluna.
+    // Janela temporal: monitorado é somado APENAS até o instante da última
+    // declaração feita pelo usuário naquela atividade. Trabalho cronometrado
+    // após esse instante (e antes do pagamento) NÃO é abatido — fica como saldo
+    // disponível para o próximo ciclo.
+    //
+    // Sem declaração na atividade → janela vazia → monitorado=0 → pendente=0
+    // (nenhum abatimento gravado, todo trabalho carrega para frente).
+    //
+    // Filtra direto por :user_id em cada subquery para evitar conflito de
+    // collation entre cronometro_relatorios e atividades_subtarefas / pagamento_abatimentos.
     $st = $pdo->prepare("
         SELECT
           r.id_atividade,
@@ -80,7 +87,7 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
           COALESCE((
             SELECT SUM(s.segundos_gastos)
             FROM atividades_subtarefas s
-            WHERE s.user_id = :user_id_sub
+            WHERE s.user_id = :user_id_decl
               AND s.id_atividade = r.id_atividade
               AND s.concluida = 1
           ), 0) AS declarado,
@@ -92,12 +99,20 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
           ), 0) AS abatido
         FROM cronometro_relatorios r
         WHERE r.user_id = :user_id
+          AND r.criado_em <= COALESCE((
+            SELECT MAX(COALESCE(s.concluida_em, s.criada_em))
+            FROM atividades_subtarefas s
+            WHERE s.user_id = :user_id_corte
+              AND s.id_atividade = r.id_atividade
+              AND s.concluida = 1
+          ), '1900-01-01 00:00:00')
         GROUP BY r.id_atividade
     ");
     $st->execute([
-        ':user_id'      => $user_id,
-        ':user_id_sub'  => $user_id,
-        ':user_id_abat' => $user_id,
+        ':user_id'       => $user_id,
+        ':user_id_decl'  => $user_id,
+        ':user_id_abat'  => $user_id,
+        ':user_id_corte' => $user_id,
     ]);
 
     $stIns = $pdo->prepare("

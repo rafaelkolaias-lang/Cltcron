@@ -20,7 +20,8 @@ try {
     $id_atividade = (int)($in['id_atividade'] ?? 0);
     $label        = trim((string)($in['label_campo'] ?? ''));
     $extensoes    = mega_normalizar_extensoes(isset($in['extensoes_permitidas']) ? (string)$in['extensoes_permitidas'] : null);
-    $quantidade   = max(1, (int)($in['quantidade_maxima'] ?? 1));
+    // 0 = ilimitado. >=0 permitido. Sem upper bound — admin que se vire.
+    $quantidade   = max(0, (int)($in['quantidade_maxima'] ?? 1));
     $obrigatorio  = !empty($in['obrigatorio']) ? 1 : 0;
     $ordem        = (int)($in['ordem'] ?? 0);
     $ativo        = array_key_exists('ativo', $in) ? (!empty($in['ativo']) ? 1 : 0) : 1;

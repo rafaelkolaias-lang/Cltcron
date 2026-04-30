@@ -966,8 +966,8 @@ header('Content-Type: text/html; charset=utf-8');
                     <tr class="texto-fraco small">
                       <th style="min-width:60px;">Ordem</th>
                       <th style="min-width:200px;">Label do campo</th>
-                      <th style="min-width:160px;">Extensões aceitas</th>
-                      <th class="text-center" style="min-width:80px;">Qtd. máx</th>
+                      <th style="min-width:160px;" title="Vazio = aceita qualquer extensão">Extensões aceitas</th>
+                      <th class="text-center" style="min-width:80px;" title="0 = ilimitado">Qtd. máx</th>
                       <th class="text-center" style="min-width:100px;">Obrigatório</th>
                       <th class="text-center" style="min-width:80px;">Ativo</th>
                       <th class="text-end" style="min-width:140px;">Ações</th>
@@ -1244,7 +1244,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
   <script src="./js/aba-credenciais.js?v=1"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=2"></script>
+  <script src="./js/aba-mega.js?v=3"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

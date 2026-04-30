@@ -261,13 +261,20 @@
   }
 
   function linhaCampoEditavel(campo) {
+    // Defaults p/ "novo campo": extensões vazias = qualquer; quantidade 1.
     const c = campo || { id_campo: 0, label_campo: '', extensoes_permitidas: '', quantidade_maxima: 1, obrigatorio: true, ordem: 0, ativo: true };
+    // qty=0 é válido (= ilimitado). Não usar `|| 1` (truthy coercion zeraria 0).
+    const qtdAtual = (c.quantidade_maxima === undefined || c.quantidade_maxima === null) ? 1 : c.quantidade_maxima;
     return `
       <tr data-id-campo="${c.id_campo || 0}" data-modo="edicao">
         <td><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ordem" value="${c.ordem || 0}" min="0" style="width:70px;"></td>
         <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-label" value="${esc(c.label_campo)}" placeholder="ex: Vídeo final" maxlength="120"></td>
-        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ext" value="${esc(c.extensoes_permitidas || '')}" placeholder="mp4,mov" maxlength="255"></td>
-        <td class="text-center"><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-qtd" value="${c.quantidade_maxima || 1}" min="1" max="50" style="width:70px;display:inline-block;"></td>
+        <td>
+          <input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ext" value="${esc(c.extensoes_permitidas || '')}" placeholder="vazio = qualquer arquivo" maxlength="255">
+        </td>
+        <td class="text-center">
+          <input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-qtd" value="${qtdAtual}" min="0" max="100" title="0 = ilimitado" style="width:70px;display:inline-block;">
+        </td>
         <td class="text-center"><input type="checkbox" class="form-check-input mega-campo-obrig" ${c.obrigatorio ? 'checked' : ''}></td>
         <td class="text-center"><input type="checkbox" class="form-check-input mega-campo-ativo" ${c.ativo ? 'checked' : ''}></td>
         <td class="text-end">
@@ -279,6 +286,9 @@
 
   function linhaCampoLeitura(c) {
     const ext = c.extensoes_permitidas ? esc(c.extensoes_permitidas) : '<span class="texto-fraco">qualquer</span>';
+    const qtd = (parseInt(c.quantidade_maxima, 10) || 0) === 0
+      ? '<span class="texto-fraco">ilim.</span>'
+      : c.quantidade_maxima;
     const obrig = c.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
     const ativo = c.ativo ? '<span class="badge bg-success">ativo</span>' : '<span class="badge bg-secondary">inativo</span>';
     return `
@@ -286,7 +296,7 @@
         <td>${c.ordem}</td>
         <td><strong>${esc(c.label_campo)}</strong></td>
         <td>${ext}</td>
-        <td class="text-center">${c.quantidade_maxima}</td>
+        <td class="text-center">${qtd}</td>
         <td class="text-center">${obrig}</td>
         <td class="text-center">${ativo}</td>
         <td class="text-end">
@@ -356,7 +366,8 @@
           id_atividade: estado.filtroIdAtividade,
           label_campo: tr.querySelector('.mega-campo-label')?.value?.trim() || '',
           extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
-          quantidade_maxima: parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 1,
+          // 0 = ilimitado (válido). Math.max evita negativos; sem `|| 1` pra não zerar 0.
+          quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 0),
           obrigatorio: !!tr.querySelector('.mega-campo-obrig')?.checked,
           ordem: parseInt(tr.querySelector('.mega-campo-ordem')?.value, 10) || 0,
           ativo: !!tr.querySelector('.mega-campo-ativo')?.checked,

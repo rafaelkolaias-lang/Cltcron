@@ -2147,7 +2147,7 @@ class JanelaSubtarefas(tk.Toplevel):
         opcoes_canal: list[str] | None = None,
     ) -> None:
         super().__init__(mestre)
-        self.title("Tarefas do dia")
+        self.title("Tarefas da Atividade")
         self.geometry("1220x800")
         self.minsize(980, 700)
         self.transient(mestre)
@@ -2170,10 +2170,20 @@ class JanelaSubtarefas(tk.Toplevel):
         self._travado_ate_cache: object = None  # date | None — atualizado a cada reload
         self._id_subtarefa_criada_nesta_janela: int | None = None  # evita duplicação ao reter erro
 
+        # Ordenação manual triestada
+        self._sort_col: str | None = None
+        self._sort_dir: str = "asc"
+        self._lista_base_ordenacao: list[tuple] = []
+
         self._var_resumo = tk.StringVar(value="")
         self._var_trava = tk.StringVar(value="Carregando...")
 
         self._montar_tela()
+
+        # Bloqueios e abatimentos de pagamento são gravados pelo painel web
+        # (painel/commands/pagamentos/_aplicar_pagamento.php) no momento do pagamento.
+        # O desktop apenas lê — não precisa sincronizar nada na abertura.
+
         self._recarregar_dados()
 
     def _usuario_id(self) -> str:
@@ -2243,9 +2253,10 @@ class JanelaSubtarefas(tk.Toplevel):
         ttk.Label(
             topo,
             text=(
-                "Cadastre as subtarefas executadas nesta atividade principal. "
+                "Cadastre as subtarefas executadas nesta atividade. "
                 "Preencha o Tempo gasto no formulário para salvar como Concluída. "
-                "Depois do pagamento, a data fica travada e não pode mais editar nem excluir."
+                "Clique nos cabeçalhos para ordenar (↑ crescente / ↓ decrescente / 3º clique restaura ordem). "
+                "Depois do pagamento, subtarefas ficam travadas e não podem ser alteradas."
             ),
             wraplength=1160,
         ).pack(anchor="w", pady=(6, 0))
@@ -2267,13 +2278,21 @@ class JanelaSubtarefas(tk.Toplevel):
             show="headings",
             height=18,
         )
-        self._arvore.heading("titulo", text="Subtarefa")
-        self._arvore.heading("canal", text="Canal")
-        self._arvore.heading("status", text="Status")
-        self._arvore.heading("data", text="Data")
-        self._arvore.heading("tempo", text="Tempo")
-        self._arvore.heading("observacao", text="Observação")
-        self._arvore.heading("bloqueio", text="Pagamento")
+        _cols = [
+            ("titulo", "Subtarefa"),
+            ("canal", "Canal"),
+            ("status", "Status"),
+            ("data", "Data"),
+            ("tempo", "Tempo"),
+            ("observacao", "Observação"),
+            ("bloqueio", "Pagamento"),
+        ]
+        for _col_id, _col_label in _cols:
+            self._arvore.heading(
+                _col_id,
+                text=_col_label,
+                command=lambda c=_col_id: self._alternar_ordenacao_coluna(c),
+            )
 
         self._arvore.column("titulo", width=290, stretch=True)
         self._arvore.column("canal", width=180, stretch=True)
@@ -2399,9 +2418,9 @@ class JanelaSubtarefas(tk.Toplevel):
                 self._arvore.delete(item)
 
             # Mesclar subtarefas e pagamentos ordenados por datetime desc
-            # Cada item: (datetime_ordenacao, iid, valores, tags)
+            # Cada item: (datetime_ordenacao, iid, valores, tags, sort_keys)
             _DT_MIN = datetime.min
-            itens_mesclados: list[tuple[datetime, str, tuple, tuple]] = []
+            itens_mesclados: list[tuple] = []
 
             for subtarefa in subtarefas:
                 id_sub = int(getattr(subtarefa, "id_subtarefa", 0))
@@ -2413,19 +2432,26 @@ class JanelaSubtarefas(tk.Toplevel):
                     dt_ord = datetime(ref.year, ref.month, ref.day)
                 else:
                     dt_ord = _DT_MIN
+                _titulo = str(getattr(subtarefa, "titulo", "") or "")
+                _canal = str(getattr(subtarefa, "canal_entrega", "") or "")
+                _status = "Concluída" if bool(getattr(subtarefa, "concluida", False)) else "Aberta"
+                _segundos = int(getattr(subtarefa, "segundos_gastos", 0) or 0)
+                _obs = str(getattr(subtarefa, "observacao", "") or "")
+                _bloqueio = "Pago" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else ""
                 itens_mesclados.append((
                     dt_ord,
                     f"subtarefa_{id_sub}",
-                    (
-                        str(getattr(subtarefa, "titulo", "") or ""),
-                        str(getattr(subtarefa, "canal_entrega", "") or ""),
-                        "Concluída" if bool(getattr(subtarefa, "concluida", False)) else "Aberta",
-                        self._formatar_data(ref),
-                        formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)),
-                        str(getattr(subtarefa, "observacao", "") or ""),
-                        "Pago" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else "",
-                    ),
-                    (),  # tags
+                    (_titulo, _canal, _status, self._formatar_data(ref), formatar_hhmmss(_segundos), _obs, _bloqueio),
+                    (),
+                    {
+                        "titulo": _titulo.lower(),
+                        "canal": _canal.lower(),
+                        "status": _status.lower(),
+                        "data": dt_ord,
+                        "tempo": _segundos,
+                        "observacao": _obs.lower(),
+                        "bloqueio": _bloqueio.lower(),
+                    },
                 ))
 
             for pag in pagamentos:
@@ -2451,30 +2477,40 @@ class JanelaSubtarefas(tk.Toplevel):
                 valor_fmt = f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
                 obs = str(pag.get("observacao") or "")
                 id_pag = int(pag.get("id_pagamento", 0))
+                _titulo_pag = f"💰 Pagamento — {valor_fmt}"
                 itens_mesclados.append((
                     dt_ord_pag,
                     f"pagamento_{id_pag}",
-                    (
-                        f"💰 Pagamento — {valor_fmt}",
-                        "",
-                        "Pago",
-                        self._formatar_data(data_pag),
-                        "",
-                        obs,
-                        "",
-                    ),
+                    (_titulo_pag, "", "Pago", self._formatar_data(data_pag), "", obs, ""),
                     ("pagamento",),
+                    {
+                        "titulo": _titulo_pag.lower(),
+                        "canal": "",
+                        "status": "pago",
+                        "data": dt_ord_pag,
+                        "tempo": 0,
+                        "observacao": obs.lower(),
+                        "bloqueio": "",
+                    },
                 ))
 
-            # Ordenar por datetime desc (mais recente no topo)
+            # Ordem padrão: mais recente no topo
             itens_mesclados.sort(key=lambda x: x[0], reverse=True)
 
-            for _, iid, valores, tags in itens_mesclados:
+            # Salva lista-base para restauração ao limpar ordenação manual
+            self._lista_base_ordenacao = list(itens_mesclados)
+
+            # Reseta indicadores de cabeçalho ao recarregar
+            self._sort_col = None
+            self._sort_dir = "asc"
+            self._atualizar_indicadores_cabecalhos()
+
+            for _, iid, valores, tags, _sk in itens_mesclados:
                 self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
             self._var_resumo.set(
-                f"Trabalhado: {resumo['monitorado_hhmmss']}    |    "
-                f"Declarado: {resumo['declarado_hhmmss']}"
+                f"Disponível: {resumo['saldo_hhmmss']}    |    "
+                f"Declarado: {resumo['declarado_ciclo_hhmmss']}"
             )
             self._atualizar_texto_trava(travado_ate)
 
@@ -2483,6 +2519,72 @@ class JanelaSubtarefas(tk.Toplevel):
             messagebox.showerror("Erro", str(erro), parent=self)
 
         self._executar_em_background(_buscar, _aplicar, _falha)
+
+    # ----------------------------------------------------------
+    # Ordenação por cabeçalho (triestado: asc → desc → padrão)
+    # ----------------------------------------------------------
+    _SORT_COLS_LABEL = {
+        "titulo": "Subtarefa",
+        "canal": "Canal",
+        "status": "Status",
+        "data": "Data",
+        "tempo": "Tempo",
+        "observacao": "Observação",
+        "bloqueio": "Pagamento",
+    }
+
+    def _chave_ordenacao(self, item: tuple, col: str) -> object:
+        """Extrai chave de comparação tipada a partir do item da lista-base."""
+        _, _, valores, _, sort_keys = item
+        return sort_keys.get(col, "")
+
+    def _atualizar_indicadores_cabecalhos(self) -> None:
+        for col, label in self._SORT_COLS_LABEL.items():
+            if col == self._sort_col:
+                indicador = " ↑" if self._sort_dir == "asc" else " ↓"
+            else:
+                indicador = ""
+            try:
+                self._arvore.heading(col, text=label + indicador)
+            except Exception:
+                pass
+
+    def _alternar_ordenacao_coluna(self, col: str) -> None:
+        if not self._lista_base_ordenacao:
+            return
+        if self._sort_col != col:
+            self._sort_col = col
+            self._sort_dir = "asc"
+        elif self._sort_dir == "asc":
+            self._sort_dir = "desc"
+        else:
+            # Terceiro clique: restaura ordem padrão
+            self._sort_col = None
+            self._sort_dir = "asc"
+
+        self._atualizar_indicadores_cabecalhos()
+        self._aplicar_ordenacao()
+
+    def _aplicar_ordenacao(self) -> None:
+        if not self._lista_base_ordenacao:
+            return
+
+        if self._sort_col is None:
+            itens = list(self._lista_base_ordenacao)
+        else:
+            col = self._sort_col
+            reverso = self._sort_dir == "desc"
+            itens = sorted(
+                self._lista_base_ordenacao,
+                key=lambda x: self._chave_ordenacao(x, col),
+                reverse=reverso,
+            )
+
+        for item in self._arvore.get_children():
+            self._arvore.delete(item)
+
+        for _, iid, valores, tags, _sort_keys in itens:
+            self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
     def _validar_nao_travado(self, id_subtarefa: int | None = None) -> bool:
         """Valida se a operação é permitida. Para subtarefas existentes, verifica a flag individual."""

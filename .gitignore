@@ -49,6 +49,9 @@ temporary_rules.md
 # Schema SQL (contém estrutura sensível do banco)
 dados.sql
 
+# Backups locais do banco (dumps/exports manuais)
+Backup banco/
+
 # Manual de credenciais (contém chave fixa de descriptografia dos apps)
 \!manual-credenciais.md
 

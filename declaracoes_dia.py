@@ -63,6 +63,7 @@ class RepositorioDeclaracoesDia:
         self._criar_tabela_declaracoes_dia_itens()
         self._criar_tabela_subtarefas()
         self._criar_tabela_historico_subtarefas()
+        self._criar_tabela_abatimentos()
         self._garantir_colunas_pagamentos()
         self._garantir_colunas_declaracoes_dia_itens()
         self._garantir_colunas_subtarefas()
@@ -137,6 +138,25 @@ class RepositorioDeclaracoesDia:
               PRIMARY KEY (id_historico),
               KEY idx_hist_subtarefa (id_subtarefa),
               KEY idx_hist_user_data (user_id_alvo, criado_em)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+        )
+
+    def _criar_tabela_abatimentos(self) -> None:
+        """Abatimento reversível: registra o saldo pendente consumido a cada pagamento."""
+        self._banco.executar(
+            """
+            CREATE TABLE IF NOT EXISTS pagamento_abatimentos (
+              id_abatimento BIGINT NOT NULL AUTO_INCREMENT,
+              user_id VARCHAR(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+              id_pagamento INT NOT NULL,
+              id_atividade INT NOT NULL,
+              segundos_abatidos INT NOT NULL DEFAULT 0,
+              criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              PRIMARY KEY (id_abatimento),
+              UNIQUE KEY uq_pag_atividade (id_pagamento, user_id, id_atividade),
+              KEY idx_abt_user_ativ (user_id, id_atividade),
+              KEY idx_abt_pagamento (id_pagamento)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """
         )
@@ -456,6 +476,13 @@ class RepositorioDeclaracoesDia:
         id_pagamento = None if not pagamento else pagamento.get("id_pagamento")
         dt_pagamento = self.obter_datetime_ultimo_pagamento(user_id)
 
+        # Registra abatimento reversível por atividade antes de bloquear subtarefas
+        if id_pagamento:
+            self._registrar_abatimentos_por_pagamento(
+                user_id=user_id,
+                id_pagamento=int(id_pagamento),
+            )
+
         # Dias estritamente anteriores: trava tudo
         self._banco.executar(
             """
@@ -490,6 +517,60 @@ class RepositorioDeclaracoesDia:
         linha = self._banco.consultar_um("SELECT ROW_COUNT() AS total")
         return int((linha or {}).get("total") or 0)
 
+    def _registrar_abatimentos_por_pagamento(self, *, user_id: str, id_pagamento: int) -> None:
+        """Calcula e persiste o saldo pendente por atividade no momento do pagamento.
+
+        Backup do registro feito pelo painel em pagamento_aplicar() — mantido como
+        utilitário standalone para reprocessamentos manuais. Idempotente via
+        ON DUPLICATE KEY UPDATE (no-op): se já existe linha para
+        (id_pagamento, user_id, id_atividade), nada acontece. Diferente de
+        INSERT IGNORE, não silencia erros que não sejam de duplicidade
+        (FK, NOT NULL, tipo, etc. propagam normalmente).
+        """
+        uid = self._normalizar_user_id(user_id)
+        # Atividades com saldo pendente (monitorado > declarado total)
+        atividades = self._banco.consultar_todos(
+            """
+            SELECT
+              r.id_atividade,
+              COALESCE(SUM(r.segundos_trabalhando), 0) AS monitorado,
+              COALESCE((
+                SELECT SUM(s.segundos_gastos)
+                FROM atividades_subtarefas s
+                WHERE s.user_id = r.user_id
+                  AND s.id_atividade = r.id_atividade
+                  AND s.concluida = 1
+              ), 0) AS declarado,
+              COALESCE((
+                SELECT SUM(a.segundos_abatidos)
+                FROM pagamento_abatimentos a
+                WHERE a.user_id = r.user_id
+                  AND a.id_atividade = r.id_atividade
+              ), 0) AS abatido
+            FROM cronometro_relatorios r
+            WHERE r.user_id = %s
+            GROUP BY r.id_atividade
+            """,
+            [uid],
+        )
+        for row in atividades:
+            id_ativ = int(row["id_atividade"])
+            monitorado = int(row.get("monitorado") or 0)
+            declarado = int(row.get("declarado") or 0)
+            abatido = int(row.get("abatido") or 0)
+            pendente = max(0, monitorado - declarado - abatido)
+            if pendente <= 0:
+                continue
+            self._banco.executar(
+                """
+                INSERT INTO pagamento_abatimentos
+                  (user_id, id_pagamento, id_atividade, segundos_abatidos)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE id_abatimento = id_abatimento
+                """,
+                [uid, id_pagamento, id_ativ, pendente],
+            )
+
     # ==========================================================
     # Monitoramento / tempo
     # ==========================================================
@@ -522,6 +603,41 @@ class RepositorioDeclaracoesDia:
                 parametros.append(referencia_data)
 
             linha = self._banco.consultar_um(sql, parametros)
+            return int((linha or {}).get("total") or 0)
+        except Exception:
+            return 0
+
+    def obter_abatimento_total_atividade(self, user_id: str, id_atividade: int) -> int:
+        """Retorna o total de segundos abatidos por pagamentos para user+atividade."""
+        self._garantir_estrutura()
+        try:
+            linha = self._banco.consultar_um(
+                """
+                SELECT COALESCE(SUM(segundos_abatidos), 0) AS total
+                FROM pagamento_abatimentos
+                WHERE user_id = %s AND id_atividade = %s
+                """,
+                [self._normalizar_user_id(user_id), int(id_atividade)],
+            )
+            return int((linha or {}).get("total") or 0)
+        except Exception:
+            return 0
+
+    def obter_segundos_declarados_desbloqueados(self, user_id: str, id_atividade: int) -> int:
+        """Retorna segundos declarados do ciclo atual (subtarefas não bloqueadas por pagamento)."""
+        self._garantir_estrutura()
+        try:
+            linha = self._banco.consultar_um(
+                """
+                SELECT COALESCE(SUM(segundos_gastos), 0) AS total
+                FROM atividades_subtarefas
+                WHERE user_id = %s
+                  AND id_atividade = %s
+                  AND concluida = 1
+                  AND bloqueada_pagamento = 0
+                """,
+                [self._normalizar_user_id(user_id), int(id_atividade)],
+            )
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
@@ -564,24 +680,28 @@ class RepositorioDeclaracoesDia:
         id_subtarefa_ignorar: int | None = None,
         segundos_monitorados_adicionais: int = 0,
     ) -> None:
+        # Validação por acumulado total da atividade (independente da data de referência)
         segundos_novos = self._validar_segundos(segundos_novos)
-        monitorado = self.obter_segundos_monitorados_do_dia(user_id, referencia_data, id_atividade)
+        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, id_atividade)
         monitorado += max(0, int(segundos_monitorados_adicionais or 0))
-        if monitorado <= 0 and segundos_novos > 0:
+        abatimento = self.obter_abatimento_total_atividade(user_id, id_atividade)
+        disponivel = max(0, monitorado - abatimento)
+
+        if disponivel <= 0 and segundos_novos > 0:
             raise RuntimeError(
-                "Não existe tempo monitorado no cronômetro para esta atividade nesta data."
+                "Não existe tempo monitorado disponível no cronômetro para esta atividade."
             )
 
         ja_declarado = self.obter_segundos_declarados_do_dia(
             user_id,
-            referencia_data,
+            None,
             id_atividade,
             id_subtarefa_ignorar=id_subtarefa_ignorar,
         )
         total_resultante = ja_declarado + segundos_novos
-        if total_resultante > monitorado:
+        if total_resultante > disponivel:
             raise RuntimeError(
-                f"Você está tentando declarar {formatar_hhmmss(total_resultante)}, mas o cronômetro possui {formatar_hhmmss(monitorado)} nesta atividade/data."
+                f"Você está tentando declarar {formatar_hhmmss(total_resultante)}, mas o total disponível nesta atividade é {formatar_hhmmss(disponivel)}."
             )
 
     # ==========================================================
@@ -1241,31 +1361,35 @@ class RepositorioDeclaracoesDia:
         self._garantir_estrutura()
         self._validar_atividade_do_usuario(user_id, int(id_atividade))
 
-        monitorado = self.obter_segundos_monitorados_do_dia(user_id, referencia_data, int(id_atividade))
+        # monitorado/declarado acumulados da atividade (independente de data)
+        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, int(id_atividade))
         monitorado += max(0, int(segundos_monitorados_adicionais or 0))
-        declarado = self.obter_segundos_declarados_do_dia(user_id, referencia_data, int(id_atividade))
-        saldo = max(0, monitorado - declarado)
+        abatimento = self.obter_abatimento_total_atividade(user_id, int(id_atividade))
+        declarado_total = self.obter_segundos_declarados_do_dia(user_id, None, int(id_atividade))
+        # Saldo líquido: horas disponíveis para declarar no ciclo atual
+        saldo = max(0, monitorado - abatimento - declarado_total)
+        # Declarado do ciclo atual: apenas subtarefas não bloqueadas por pagamento
+        declarado_ciclo = self.obter_segundos_declarados_desbloqueados(user_id, int(id_atividade))
 
-        sql_contagem = """
+        linha = self._banco.consultar_um(
+            """
             SELECT
               COUNT(*) AS total_subtarefas,
               SUM(CASE WHEN concluida = 1 THEN 1 ELSE 0 END) AS total_concluidas
             FROM atividades_subtarefas
             WHERE user_id = %s
               AND id_atividade = %s
-        """
-        params_contagem: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
-        if referencia_data is not None:
-            sql_contagem += " AND referencia_data = %s"
-            params_contagem.append(referencia_data)
-
-        linha = self._banco.consultar_um(sql_contagem, params_contagem)
+            """,
+            [self._normalizar_user_id(user_id), int(id_atividade)],
+        )
 
         return {
             "monitorado_segundos": monitorado,
             "monitorado_hhmmss": formatar_hhmmss(monitorado),
-            "declarado_segundos": declarado,
-            "declarado_hhmmss": formatar_hhmmss(declarado),
+            "declarado_segundos": declarado_total,
+            "declarado_hhmmss": formatar_hhmmss(declarado_total),
+            "declarado_ciclo_segundos": declarado_ciclo,
+            "declarado_ciclo_hhmmss": formatar_hhmmss(declarado_ciclo),
             "saldo_segundos": saldo,
             "saldo_hhmmss": formatar_hhmmss(saldo),
             "total_subtarefas": int((linha or {}).get("total_subtarefas") or 0),

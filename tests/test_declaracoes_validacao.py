@@ -64,12 +64,16 @@ class TestSegundosDeclarados:
 class TestValidacaoAntiFragude:
     """Testes da funcao mais critica do sistema."""
 
-    def _montar_respostas(self, banco_fake, monitorado: int, ja_declarado: int):
-        """Helper: configura o banco pra retornar monitorado e ja_declarado em sequencia."""
-        respostas = [{"total": monitorado}, {"total": ja_declarado}]
+    def _montar_respostas(
+        self, banco_fake, monitorado: int, ja_declarado: int, abatimento: int = 0
+    ):
+        """Helper: configura o banco pra retornar monitorado, abatimento e declarado em sequencia.
+        Ordem das queries internas: 1) monitorado, 2) abatimento, 3) declarado.
+        """
+        respostas = [{"total": monitorado}, {"total": abatimento}, {"total": ja_declarado}]
         self._idx = 0
 
-        def consultar_sequencial(sql, params=None):
+        def consultar_sequencial(_sql, _params=None):
             if self._idx < len(respostas):
                 ret = respostas[self._idx]
                 self._idx += 1
@@ -126,3 +130,16 @@ class TestValidacaoAntiFragude:
         self._montar_respostas(banco_fake, monitorado=100, ja_declarado=0)
         with pytest.raises(RuntimeError, match="Tempo"):
             repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, -10)
+
+    def test_abatimento_reduz_disponivel(self, repo, banco_fake):
+        """Abatimento por pagamento deve reduzir o saldo disponível."""
+        # monitorado=3600, abatimento=1800 → disponivel=1800. Declarar 1801 deve falhar.
+        self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0, abatimento=1800)
+        with pytest.raises(RuntimeError, match="Você está tentando declarar"):
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1801)
+
+    def test_abatimento_permite_declarar_dentro_do_saldo(self, repo, banco_fake):
+        """Com abatimento, declarar exatamente o saldo restante deve passar."""
+        # monitorado=3600, abatimento=1800 → disponivel=1800. Declarar 1800 deve passar.
+        self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0, abatimento=1800)
+        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1800)

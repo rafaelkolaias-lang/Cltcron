@@ -76,6 +76,7 @@ try {
         'id_pagamento' => $id_pagamento,
         'tarefas_desvinculadas' => $limpos['subtarefas'],
         'registros_desvinculados' => $limpos['registros'],
+        'abatimentos_apagados' => $limpos['abatimentos'] ?? 0,
     ], 200);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {

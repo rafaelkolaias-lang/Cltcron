@@ -592,13 +592,16 @@ class RepositorioDeclaracoesDia:
         self._garantir_estrutura()
 
         try:
+            id_ativ = int(id_atividade)
             sql = """
                 SELECT COALESCE(SUM(segundos_trabalhando), 0) AS total
                 FROM cronometro_relatorios
                 WHERE user_id = %s
-                  AND id_atividade = %s
             """
-            parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
+            parametros: list[Any] = [self._normalizar_user_id(user_id)]
+            if id_ativ > 0:
+                sql += " AND id_atividade = %s"
+                parametros.append(id_ativ)
             if referencia_data is not None:
                 # Usa referencia_data (data real trabalhada). Fallback para DATE(criado_em)
                 # apenas em relatórios legados que ainda não tenham referencia_data preenchida.
@@ -617,55 +620,66 @@ class RepositorioDeclaracoesDia:
             return 0
 
     def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int) -> int:
-        """Total cronometrado da atividade = trabalhando + ocioso (todo histórico).
+        """Total cronometrado = trabalhando + ocioso (todo histórico).
 
         Métrica neutra para a UI: não revela saldo declarável.
+        `id_atividade <= 0` = soma de todas as atividades do user (overview).
         """
         self._garantir_estrutura()
         try:
-            linha = self._banco.consultar_um(
-                """
+            id_ativ = int(id_atividade)
+            sql = """
                 SELECT COALESCE(SUM(segundos_trabalhando + segundos_ocioso), 0) AS total
                 FROM cronometro_relatorios
-                WHERE user_id = %s AND id_atividade = %s
-                """,
-                [self._normalizar_user_id(user_id), int(id_atividade)],
-            )
+                WHERE user_id = %s
+            """
+            params: list[Any] = [self._normalizar_user_id(user_id)]
+            if id_ativ > 0:
+                sql += " AND id_atividade = %s"
+                params.append(id_ativ)
+            linha = self._banco.consultar_um(sql, params)
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
 
     def obter_abatimento_total_atividade(self, user_id: str, id_atividade: int) -> int:
-        """Retorna o total de segundos abatidos por pagamentos para user+atividade."""
+        """Retorna o total de segundos abatidos por pagamentos para user+atividade.
+        `id_atividade <= 0` = soma de todas as atividades do user."""
         self._garantir_estrutura()
         try:
-            linha = self._banco.consultar_um(
-                """
+            id_ativ = int(id_atividade)
+            sql = """
                 SELECT COALESCE(SUM(segundos_abatidos), 0) AS total
                 FROM pagamento_abatimentos
-                WHERE user_id = %s AND id_atividade = %s
-                """,
-                [self._normalizar_user_id(user_id), int(id_atividade)],
-            )
+                WHERE user_id = %s
+            """
+            params: list[Any] = [self._normalizar_user_id(user_id)]
+            if id_ativ > 0:
+                sql += " AND id_atividade = %s"
+                params.append(id_ativ)
+            linha = self._banco.consultar_um(sql, params)
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
 
     def obter_segundos_declarados_desbloqueados(self, user_id: str, id_atividade: int) -> int:
-        """Retorna segundos declarados do ciclo atual (subtarefas não bloqueadas por pagamento)."""
+        """Retorna segundos declarados do ciclo atual (subtarefas não bloqueadas por pagamento).
+        `id_atividade <= 0` = soma de todas as atividades do user."""
         self._garantir_estrutura()
         try:
-            linha = self._banco.consultar_um(
-                """
+            id_ativ = int(id_atividade)
+            sql = """
                 SELECT COALESCE(SUM(segundos_gastos), 0) AS total
                 FROM atividades_subtarefas
                 WHERE user_id = %s
-                  AND id_atividade = %s
                   AND concluida = 1
                   AND bloqueada_pagamento = 0
-                """,
-                [self._normalizar_user_id(user_id), int(id_atividade)],
-            )
+            """
+            params: list[Any] = [self._normalizar_user_id(user_id)]
+            if id_ativ > 0:
+                sql += " AND id_atividade = %s"
+                params.append(id_ativ)
+            linha = self._banco.consultar_um(sql, params)
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
@@ -680,14 +694,17 @@ class RepositorioDeclaracoesDia:
     ) -> int:
         self._garantir_estrutura()
 
+        id_ativ = int(id_atividade)
         sql = """
             SELECT COALESCE(SUM(segundos_gastos), 0) AS total
             FROM atividades_subtarefas
             WHERE user_id = %s
-              AND id_atividade = %s
               AND concluida = 1
         """
-        parametros: list[Any] = [self._normalizar_user_id(user_id), int(id_atividade)]
+        parametros: list[Any] = [self._normalizar_user_id(user_id)]
+        if id_ativ > 0:
+            sql += " AND id_atividade = %s"
+            parametros.append(id_ativ)
         if referencia_data is not None:
             sql += " AND referencia_data = %s"
             parametros.append(referencia_data)
@@ -832,10 +849,20 @@ class RepositorioDeclaracoesDia:
         id_atividade: int = 0,
     ) -> list[SubtarefaDeclaracaoDia]:
         self._garantir_estrutura()
-        self._validar_atividade_do_usuario(user_id, int(id_atividade))
 
-        condicoes = ["s.user_id = %s", "s.id_atividade = %s"]
-        params: list = [self._normalizar_user_id(user_id), int(id_atividade)]
+        # `id_atividade=0` (default) = overview de todas as atividades do user.
+        # Usado pela JanelaSubtarefas no desktop pra mostrar tarefas de todos
+        # os canais num lugar só. Validação de pertença só roda quando filtra
+        # por canal específico (caso contrário a query já restringe por user_id).
+        id_ativ = int(id_atividade)
+        if id_ativ > 0:
+            self._validar_atividade_do_usuario(user_id, id_ativ)
+
+        condicoes = ["s.user_id = %s"]
+        params: list = [self._normalizar_user_id(user_id)]
+        if id_ativ > 0:
+            condicoes.append("s.id_atividade = %s")
+            params.append(id_ativ)
 
         if referencia_data is not None:
             condicoes.append("s.referencia_data = %s")
@@ -1387,31 +1414,38 @@ class RepositorioDeclaracoesDia:
         segundos_monitorados_adicionais: int = 0,
     ) -> dict[str, Any]:
         self._garantir_estrutura()
-        self._validar_atividade_do_usuario(user_id, int(id_atividade))
 
-        # monitorado/declarado acumulados da atividade (independente de data)
-        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, int(id_atividade))
+        # `id_atividade=0` = overview de TODAS as atividades do user (usado
+        # pelo desktop). Pula validação de pertença porque a query já restringe
+        # por user_id (não vaza dado de outro usuário).
+        id_ativ = int(id_atividade)
+        if id_ativ > 0:
+            self._validar_atividade_do_usuario(user_id, id_ativ)
+
+        # monitorado/declarado acumulados (independente de data)
+        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, id_ativ)
         monitorado += max(0, int(segundos_monitorados_adicionais or 0))
-        abatimento = self.obter_abatimento_total_atividade(user_id, int(id_atividade))
-        declarado_total = self.obter_segundos_declarados_do_dia(user_id, None, int(id_atividade))
+        abatimento = self.obter_abatimento_total_atividade(user_id, id_ativ)
+        declarado_total = self.obter_segundos_declarados_do_dia(user_id, None, id_ativ)
         # Saldo líquido: horas disponíveis para declarar no ciclo atual
         saldo = max(0, monitorado - abatimento - declarado_total)
         # Declarado do ciclo atual: apenas subtarefas não bloqueadas por pagamento
-        declarado_ciclo = self.obter_segundos_declarados_desbloqueados(user_id, int(id_atividade))
+        declarado_ciclo = self.obter_segundos_declarados_desbloqueados(user_id, id_ativ)
 
-        linha = self._banco.consultar_um(
-            """
+        sql_count = """
             SELECT
               COUNT(*) AS total_subtarefas,
               SUM(CASE WHEN concluida = 1 THEN 1 ELSE 0 END) AS total_concluidas
             FROM atividades_subtarefas
             WHERE user_id = %s
-              AND id_atividade = %s
-            """,
-            [self._normalizar_user_id(user_id), int(id_atividade)],
-        )
+        """
+        params_count: list[Any] = [self._normalizar_user_id(user_id)]
+        if id_ativ > 0:
+            sql_count += " AND id_atividade = %s"
+            params_count.append(id_ativ)
+        linha = self._banco.consultar_um(sql_count, params_count)
 
-        cronometrado = self.obter_segundos_cronometrados_atividade(user_id, int(id_atividade))
+        cronometrado = self.obter_segundos_cronometrados_atividade(user_id, id_ativ)
 
         return {
             "monitorado_segundos": monitorado,

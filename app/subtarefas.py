@@ -114,14 +114,14 @@ class JanelaSubtarefas(tk.Toplevel):
 
         ttk.Label(
             topo,
-            text=f"Atividade principal: {self._titulo_atividade}",
+            text=f"Tarefas declaradas — todos os canais  ·  Sessão atual em: {self._titulo_atividade}",
             font=("Segoe UI", 12, "bold"),
         ).pack(anchor="w")
         ttk.Label(
             topo,
             text=(
                 f"Data: {self._referencia_data.strftime('%d/%m/%Y')}    |    "
-                f"Trabalhado: {formatar_hhmmss(self._segundos_trabalhando)}    |    "
+                f"Trabalhado (sessão): {formatar_hhmmss(self._segundos_trabalhando)}    |    "
                 f"Pausado: {formatar_hhmmss(self._segundos_pausado)}"
             ),
             font=("Segoe UI", 10, "bold"),
@@ -246,30 +246,33 @@ class JanelaSubtarefas(tk.Toplevel):
     def _atualizar_texto_trava(self, travado_ate: object) -> None:
         self._travado_ate_cache = travado_ate
         if travado_ate is None:
-            self._var_trava.set("Sem bloqueio por pagamento para este usuário.")
+            self._var_trava.set("Sem pagamento registrado para este usuário.")
             return
 
         if self._referencia_data < travado_ate:
             self._var_trava.set(
-                f"Lançamentos travados até {travado_ate.strftime('%d/%m/%Y')}. Datas anteriores não podem mais ser editadas."
+                f"Pago em {travado_ate.strftime('%d/%m/%Y')}. Datas anteriores não podem mais ser editadas."
             )
         else:
             self._var_trava.set(
-                f"Última trava por pagamento: {travado_ate.strftime('%d/%m/%Y')}. Tarefas após o pagamento ainda podem ser alteradas."
+                f"Pago em {travado_ate.strftime('%d/%m/%Y')}. Tarefas após o pagamento ainda podem ser alteradas."
             )
 
     def _recarregar_dados(self) -> None:
         self._var_resumo.set("Carregando...")
 
         user_id = self._usuario_id()
-        id_atividade = self._id_atividade
+        # Janela "Tarefas da Atividade" agora é overview do user inteiro:
+        # mostra tarefas/horas de TODOS os canais (não filtra por self._id_atividade).
+        # A precisão por canal acontece no form "Declarar Tarefa" — onde o canal
+        # selecionado define a pasta MEGA, os campos e o id_atividade da sub.
         segundos_trabalhando = self._segundos_trabalhando
 
         def _buscar() -> tuple:
-            subtarefas = self._repositorio.listar_subtarefas_do_dia(user_id, id_atividade=id_atividade)
+            subtarefas = self._repositorio.listar_subtarefas_do_dia(user_id, id_atividade=0)
             resumo = self._repositorio.obter_resumo_do_dia(
                 user_id,
-                id_atividade=id_atividade,
+                id_atividade=0,
                 segundos_monitorados_adicionais=segundos_trabalhando,
             )
             travado_ate = self._repositorio.obter_data_travada_por_pagamento(user_id)
@@ -643,11 +646,19 @@ class JanelaSubtarefas(tk.Toplevel):
             self._abrir_formulario_subtarefa_legado(subtarefa)
             return
 
+        # Em modo edição, busca a config do canal DA SUB (que pode ser
+        # diferente do canal da janela — agora a JanelaSubtarefas mostra
+        # subs de todos os canais do user). Em modo "nova", usa o canal
+        # ativo da janela.
+        id_ativ_lookup = self._id_atividade
+        if subtarefa is not None:
+            id_ativ_lookup = int(getattr(subtarefa, "id_atividade", 0) or self._id_atividade)
+
         def _buscar_config() -> dict | None:
             try:
                 from app.mega_uploader import PainelMegaApi
                 api = PainelMegaApi(URL_PAINEL, user_id, chave)
-                return api.obter_config_canal(self._id_atividade, timeout=5.0)
+                return api.obter_config_canal(id_ativ_lookup, timeout=5.0)
             except Exception:
                 return None
 
@@ -685,7 +696,16 @@ class JanelaSubtarefas(tk.Toplevel):
         janela.grab_set()
         janela.configure(bg="#111111")
 
-        canal_inicial = (str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else self._titulo_atividade)
+        # Edição: prioriza titulo_atividade (canal real da sub) sobre
+        # canal_entrega (texto livre legado).
+        if subtarefa is not None:
+            canal_inicial = (
+                str(getattr(subtarefa, "titulo_atividade", "") or "")
+                or str(getattr(subtarefa, "canal_entrega", "") or "")
+                or self._titulo_atividade
+            )
+        else:
+            canal_inicial = self._titulo_atividade
 
         # Separa número e nome da tarefa ao editar (formato esperado: "NUMERO - NOME")
         _titulo_completo = str(getattr(subtarefa, "titulo", "") or "") if subtarefa else ""
@@ -909,7 +929,14 @@ class JanelaSubtarefas(tk.Toplevel):
                 return
 
             user_id = self._usuario_id()
+            # Em edição, usa o id_atividade da SUB (que pode ser diferente do
+            # canal da janela — JanelaSubtarefas mostra subs de todos os canais).
+            # Em modo "nova", usa o canal ativo da janela.
             id_atividade = self._id_atividade
+            if subtarefa is not None:
+                id_sub_ativ = int(getattr(subtarefa, "id_atividade", 0) or 0)
+                if id_sub_ativ > 0:
+                    id_atividade = id_sub_ativ
             if not var_drive.get():
                 _atualizar_texto_botao()
                 btn_salvar.configure(state="normal")
@@ -1075,8 +1102,15 @@ class JanelaSubtarefas(tk.Toplevel):
         # Estado mutável compartilhado pelos closures internos.
         pasta_logica = {"id_pasta_logica": 0, "nome_pasta": ""}
         # Permite trocar o canal em runtime (tarefa 7.4): id_atividade efetiva
-        # e pasta raiz são mutáveis.
-        id_atividade_efetiva = {"id": self._id_atividade}
+        # e pasta raiz são mutáveis. Em edição de sub de outro canal, inicia
+        # com o canal da SUB (não da janela) — porque a JanelaSubtarefas
+        # agora mostra subs de todos os canais.
+        id_inicial = self._id_atividade
+        if subtarefa is not None:
+            id_sub_ativ = int(getattr(subtarefa, "id_atividade", 0) or 0)
+            if id_sub_ativ > 0:
+                id_inicial = id_sub_ativ
+        id_atividade_efetiva = {"id": id_inicial}
         pasta_raiz_holder = {"valor": pasta_raiz_mega}
         # Por nome_campo: {"state", "id_upload", "arquivo_local", "label_status", "pbar"}
         estado_campos: dict[str, dict] = {}
@@ -1472,7 +1506,16 @@ class JanelaSubtarefas(tk.Toplevel):
         # ====================================================
         tk.Frame(inner, bg="#222", height=1).pack(fill="x", pady=(12, 8))
 
-        canal_inicial = (str(getattr(subtarefa, "canal_entrega", "") or "") if subtarefa else self._titulo_atividade)
+        # Edição: prioriza titulo_atividade (canal real da sub via JOIN no
+        # backend) sobre canal_entrega (texto livre, pode estar desatualizado).
+        if subtarefa is not None:
+            canal_inicial = (
+                str(getattr(subtarefa, "titulo_atividade", "") or "")
+                or str(getattr(subtarefa, "canal_entrega", "") or "")
+                or self._titulo_atividade
+            )
+        else:
+            canal_inicial = self._titulo_atividade
         var_canal = tk.StringVar(value=canal_inicial)
         var_observacao = tk.StringVar(value=(str(getattr(subtarefa, "observacao", "") or "") if subtarefa else ""))
         referencia_atual = getattr(subtarefa, "referencia_data", None) if subtarefa else self._referencia_data

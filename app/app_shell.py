@@ -1269,6 +1269,7 @@ class App(tk.Tk):
             modo_finalizacao=False,
             ao_finalizar=None,
             opcoes_canal=list(self._combo["values"]),
+            mapa_canal_para_id=dict(self._mapa_item_para_id),
         )
 
     def _executar_finalizacao_do_dia(self, relatorio_final: str) -> None:

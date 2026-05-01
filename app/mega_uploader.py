@@ -76,6 +76,11 @@ class ErroUploadCancelado(ErroUploadMega):
     """Upload cancelado pelo usuário via cancel_event."""
 
 
+class ErroPastaMegaInexistente(ErroUploadMega):
+    """Pasta lógica do banco não existe (mais) no MEGA — sincronia rompida.
+    Geralmente significa que o admin apagou a pasta manualmente no app web."""
+
+
 # =============================================================
 # Constantes
 # =============================================================
@@ -368,6 +373,32 @@ class PainelMegaApi:
                 "numero_video": str(numero_video),
                 "titulo_video": str(titulo_video),
             },
+            timeout=timeout,
+        )
+        return payload.get("dados") or {}
+
+    def obter_dados_subtarefa(self, id_subtarefa: int, timeout: float = 8.0) -> dict:
+        """GET desktop_obter_dados_subtarefa.php → dict com pasta_raiz_mega,
+        pasta_logica, arquivos[], outras_subtarefas_na_pasta. Usado pelo
+        desktop antes de excluir uma subtarefa pra saber o que limpar no MEGA.
+        """
+        url = (
+            f"{self.url_painel}/commands/mega/desktop_obter_dados_subtarefa.php"
+            f"?id_subtarefa={int(id_subtarefa)}"
+        )
+        payload = _request_painel(url, self._headers(), timeout=timeout)
+        return payload.get("dados") or {}
+
+    def marcar_pasta_logica_inativa(self, id_pasta_logica: int, timeout: float = 8.0) -> dict:
+        """POST desktop_marcar_pasta_logica_inativa.php → soft-delete da pasta
+        lógica. Idempotente.
+        """
+        url = f"{self.url_painel}/commands/mega/desktop_marcar_pasta_logica_inativa.php"
+        payload = _request_painel(
+            url,
+            self._headers(),
+            metodo="POST",
+            corpo={"id_pasta_logica": int(id_pasta_logica)},
             timeout=timeout,
         )
         return payload.get("dados") or {}
@@ -761,6 +792,79 @@ class MegaUploader:
             )
         except Exception:
             pass
+
+    def remover_pasta_recursiva(self, caminho_remoto: str) -> bool:
+        """`mega-rm -rf <caminho>`. Apaga a pasta inteira (incluindo arquivos
+        dentro). Idempotente: ignora silenciosamente se a pasta não existe.
+
+        Retorna True se removeu, False se a pasta não existia. Erros reais
+        propagam como `ErroUploadMega`.
+        """
+        if not caminho_remoto.startswith("/"):
+            caminho_remoto = "/" + caminho_remoto
+        # mega-rm não aceita path com '/' final em alguns builds — tira.
+        caminho_remoto = caminho_remoto.rstrip("/") or "/"
+        self.garantir_logado()
+        r = self._run_mega("mega-rm", "-r", "-f", caminho_remoto, timeout=60.0)
+        saida = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0:
+            return True
+        if self._eh_sessao_expirada(saida):
+            self._logado = False
+            self.garantir_logado()
+            return self.remover_pasta_recursiva(caminho_remoto)
+        if "not found" in saida.lower() or "no such file" in saida.lower():
+            return False
+        raise ErroUploadMega(f"rm -r falhou: {saida[:200]}")
+
+    def pasta_existe(self, caminho_remoto: str) -> bool:
+        """Retorna True se a pasta remota existe no MEGA. Usado para detectar
+        sincronia rompida (admin apagou a pasta manualmente no app web).
+
+        Implementação: roda `mega-ls <caminho>` e classifica:
+          - rc=0 → existe.
+          - rc!=0 com "not found" / "no such file" → não existe.
+          - outros erros → propaga como `ErroUploadMega`.
+        """
+        if not caminho_remoto.startswith("/"):
+            caminho_remoto = "/" + caminho_remoto
+        caminho_remoto = caminho_remoto.rstrip("/") or "/"
+        self.garantir_logado()
+        r = self._run_mega("mega-ls", caminho_remoto, timeout=15.0)
+        saida = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0:
+            return True
+        if self._eh_sessao_expirada(saida):
+            self._logado = False
+            self.garantir_logado()
+            return self.pasta_existe(caminho_remoto)
+        if "not found" in saida.lower() or "no such file" in saida.lower():
+            return False
+        raise ErroUploadMega(f"ls falhou: {saida[:200]}")
+
+    def remover_arquivo(self, caminho_remoto: str) -> bool:
+        """`mega-rm <caminho>`. Idempotente: ignora silenciosamente se o
+        caminho não existe (caso comum quando o arquivo já foi limpo
+        manualmente no MEGA, ou quando estamos sobrescrevendo um upload que
+        nunca chegou a concluir).
+
+        Retorna True se removeu, False se o caminho não existia. Erros reais
+        (sessão expirada, permissão, etc.) propagam como `ErroUploadMega`.
+        """
+        if not caminho_remoto.startswith("/"):
+            caminho_remoto = "/" + caminho_remoto
+        self.garantir_logado()
+        r = self._run_mega("mega-rm", "-f", caminho_remoto, timeout=20.0)
+        saida = (r.stdout or "") + (r.stderr or "")
+        if r.returncode == 0:
+            return True
+        if self._eh_sessao_expirada(saida):
+            self._logado = False
+            self.garantir_logado()
+            return self.remover_arquivo(caminho_remoto)
+        if "not found" in saida.lower() or "no such file" in saida.lower():
+            return False
+        raise ErroUploadMega(f"rm falhou: {saida[:200]}")
 
     def listar(self, caminho_remoto: str) -> list[str]:
         """`mega-ls <caminho>` → lista de nomes (não recursivo)."""

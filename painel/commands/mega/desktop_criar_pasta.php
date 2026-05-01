@@ -39,6 +39,11 @@ try {
     $pdo = obter_conexao_pdo();
     mega_garantir_estrutura($pdo);
 
+    // Defesa contra IDOR: o user precisa estar atribuído a essa atividade.
+    if (!mega_user_pertence_atividade($pdo, $user_id, $id_atividade)) {
+        responder_json(false, 'usuário não tem acesso a esta atividade', null, 403);
+    }
+
     // Confere duplicidade ANTES de inserir (UX melhor que catch 1062).
     $st = $pdo->prepare("SELECT id_pasta_logica, ativo
                            FROM mega_pasta_logica

@@ -26,6 +26,7 @@ class JanelaSubtarefas(tk.Toplevel):
         modo_finalizacao: bool = False,
         ao_finalizar: Callable[[str], None] | None = None,
         opcoes_canal: list[str] | None = None,
+        mapa_canal_para_id: dict[str, int] | None = None,
     ) -> None:
         super().__init__(mestre)
         self.title("Tarefas da Atividade")
@@ -40,6 +41,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._id_atividade = int(id_atividade)
         self._titulo_atividade = (titulo_atividade or "").strip()
         self._opcoes_canal: list[str] = opcoes_canal or []
+        self._mapa_canal_para_id: dict[str, int] = dict(mapa_canal_para_id or {})
         self._segundos_trabalhando = int(segundos_trabalhando or 0)
         self._segundos_pausado = int(segundos_pausado or 0)
         self._modo_finalizacao = bool(modo_finalizacao)
@@ -518,10 +520,106 @@ class JanelaSubtarefas(tk.Toplevel):
 
         self._var_resumo.set("Carregando...")
         user_id = self._usuario_id()
-        self._executar_em_background(
-            lambda: self._repositorio.excluir_subtarefa(user_id=user_id, id_subtarefa=id_subtarefa),
-            lambda _: self._recarregar_dados(),
-        )
+        chave = str(self._usuario.get("chave") or "").strip()
+
+        try:
+            from app.config import APP_CLIENT_DECRYPT_KEY, URL_PAINEL
+        except Exception:
+            APP_CLIENT_DECRYPT_KEY = ""
+            URL_PAINEL = ""
+
+        def _excluir_op() -> dict:
+            # Resultado: {"removidos", "falhas", "pasta_removida", "mega_aplicado"}.
+            # `mega_aplicado=False` significa que pulou o MEGA (sem auth ou sem
+            # config). Banco é fonte da verdade — sempre apaga, mesmo se MEGA falhar.
+            resultado: dict = {
+                "removidos": 0,
+                "falhas": [],
+                "pasta_removida": False,
+                "mega_aplicado": False,
+            }
+
+            if chave and APP_CLIENT_DECRYPT_KEY and URL_PAINEL:
+                from app.mega_uploader import MegaUploader, PainelMegaApi
+                api = PainelMegaApi(URL_PAINEL, user_id, chave)
+                try:
+                    dados = api.obter_dados_subtarefa(id_subtarefa)
+                except Exception as e:
+                    resultado["falhas"].append(f"falha ao buscar dados MEGA: {e}")
+                    dados = None
+
+                if dados and dados.get("upload_ativo") and dados.get("pasta_logica"):
+                    resultado["mega_aplicado"] = True
+                    pasta_raiz = str(dados.get("pasta_raiz_mega") or "").strip("/")
+                    pasta_logica_d = dados["pasta_logica"]
+                    nome_pasta = str(pasta_logica_d.get("nome_pasta") or "")
+                    arquivos = dados.get("arquivos") or []
+                    outras_subs = int(dados.get("outras_subtarefas_na_pasta") or 0)
+
+                    try:
+                        uploader = MegaUploader(URL_PAINEL, user_id, chave, APP_CLIENT_DECRYPT_KEY)
+                    except Exception as e:
+                        resultado["falhas"].append(f"erro ao iniciar MEGA: {e}")
+                        uploader = None
+
+                    if uploader is not None:
+                        if outras_subs == 0:
+                            # Sem outras subtarefas reusando: remove pasta inteira
+                            # (cobre arquivos órfãos também).
+                            caminho_pasta = f"/{pasta_raiz}/{nome_pasta}"
+                            try:
+                                if uploader.remover_pasta_recursiva(caminho_pasta):
+                                    resultado["pasta_removida"] = True
+                                    resultado["removidos"] = sum(
+                                        1 for a in arquivos
+                                        if a.get("status_upload") == "concluido"
+                                    )
+                                try:
+                                    api.marcar_pasta_logica_inativa(
+                                        int(pasta_logica_d.get("id_pasta_logica") or 0)
+                                    )
+                                except Exception as e:
+                                    resultado["falhas"].append(
+                                        f"pasta apagada no MEGA mas banco não foi atualizado: {e}"
+                                    )
+                            except Exception as e:
+                                resultado["falhas"].append(f"falha ao remover pasta MEGA: {e}")
+                        else:
+                            # Outra subtarefa reusa a pasta — apaga só os arquivos desta sub.
+                            for arq in arquivos:
+                                if arq.get("status_upload") != "concluido":
+                                    continue
+                                nome_arq = str(arq.get("nome_arquivo") or "")
+                                caminho = f"/{pasta_raiz}/{nome_pasta}/{nome_arq}"
+                                try:
+                                    if uploader.remover_arquivo(caminho):
+                                        resultado["removidos"] += 1
+                                except Exception as e:
+                                    resultado["falhas"].append(
+                                        f"falha ao remover {nome_arq}: {e}"
+                                    )
+
+            # Apaga do banco — sempre (banco é fonte da verdade).
+            self._repositorio.excluir_subtarefa(user_id=user_id, id_subtarefa=id_subtarefa)
+            return resultado
+
+        def _ok(r: object) -> None:
+            d = r if isinstance(r, dict) else {}
+            falhas = d.get("falhas") or []
+            if falhas:
+                resumo = falhas[:5]
+                extra = f"\n…e mais {len(falhas) - 5}" if len(falhas) > 5 else ""
+                messagebox.showwarning(
+                    "Subtarefa excluída — atenção MEGA",
+                    "Subtarefa apagada, mas houve problemas no MEGA:\n\n• "
+                    + "\n• ".join(resumo)
+                    + extra
+                    + "\n\nLimpe manualmente no MEGA, se necessário.",
+                    parent=self,
+                )
+            self._recarregar_dados()
+
+        self._executar_em_background(_excluir_op, _ok)
 
     def _abrir_formulario_subtarefa(self, id_subtarefa: int | None) -> None:
         """Dispatcher: busca config MEGA do canal (com timeout curto) e decide
@@ -976,6 +1074,10 @@ class JanelaSubtarefas(tk.Toplevel):
 
         # Estado mutável compartilhado pelos closures internos.
         pasta_logica = {"id_pasta_logica": 0, "nome_pasta": ""}
+        # Permite trocar o canal em runtime (tarefa 7.4): id_atividade efetiva
+        # e pasta raiz são mutáveis.
+        id_atividade_efetiva = {"id": self._id_atividade}
+        pasta_raiz_holder = {"valor": pasta_raiz_mega}
         # Por nome_campo: {"state", "id_upload", "arquivo_local", "label_status", "pbar"}
         estado_campos: dict[str, dict] = {}
 
@@ -1027,7 +1129,8 @@ class JanelaSubtarefas(tk.Toplevel):
         titulo_janela = "Editar Tarefa" if subtarefa else "Nova Tarefa (com upload obrigatório)"
         tk.Label(inner, text=titulo_janela, bg=_C, fg="#ffffff",
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 4))
-        tk.Label(inner, text=f"Pasta raiz no MEGA: /{pasta_raiz_mega}", bg=_C, fg=_D,
+        var_pasta_raiz = tk.StringVar(value=f"Pasta raiz no MEGA: /{pasta_raiz_mega}")
+        tk.Label(inner, textvariable=var_pasta_raiz, bg=_C, fg=_D,
                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 14))
 
         # ====================================================
@@ -1044,12 +1147,15 @@ class JanelaSubtarefas(tk.Toplevel):
 
         rad_frame = tk.Frame(sec_pasta, bg=_C)
         rad_frame.pack(anchor="w", pady=(4, 6))
-        tk.Radiobutton(rad_frame, text="Criar nova", variable=modo_pasta, value="criar",
-                       bg=_C, fg="#ffffff", selectcolor="#222", activebackground=_C,
-                       font=("Segoe UI", 9)).pack(side="left", padx=(0, 12))
-        tk.Radiobutton(rad_frame, text="Selecionar existente", variable=modo_pasta, value="selecionar",
-                       bg=_C, fg="#ffffff", selectcolor="#222", activebackground=_C,
-                       font=("Segoe UI", 9)).pack(side="left")
+        rad_criar = tk.Radiobutton(rad_frame, text="Criar nova", variable=modo_pasta, value="criar",
+                                   bg=_C, fg="#ffffff", selectcolor="#222", activebackground=_C,
+                                   font=("Segoe UI", 9))
+        rad_criar.pack(side="left", padx=(0, 12))
+        rad_selecionar = tk.Radiobutton(rad_frame, text="Selecionar existente", variable=modo_pasta,
+                                         value="selecionar",
+                                         bg=_C, fg="#ffffff", selectcolor="#222", activebackground=_C,
+                                         font=("Segoe UI", 9))
+        rad_selecionar.pack(side="left")
 
         # --- Modo "Criar nova" ---
         bloco_criar = tk.Frame(sec_pasta, bg=_C)
@@ -1057,16 +1163,32 @@ class JanelaSubtarefas(tk.Toplevel):
         var_numero = tk.StringVar(value="")
         var_titulo_pasta = tk.StringVar(value="")
 
+        def _calcular_proximo_numero() -> str:
+            # Calcula a partir das pastas já cadastradas no canal: max(numero_video)+1.
+            maior = 0
+            for p in pastas_existentes:
+                try:
+                    n = int(str(p.get("numero_video") or "0").strip().lstrip("0") or "0")
+                except (TypeError, ValueError):
+                    continue
+                if n > maior:
+                    maior = n
+            return str(maior + 1).zfill(2)
+
+        var_numero.set(_calcular_proximo_numero())
+
         linha_num = tk.Frame(bloco_criar, bg=_C)
         linha_num.pack(fill="x", pady=(2, 2))
         tk.Label(linha_num, text="Nº", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(side="left")
-        ent_num = ttk.Entry(linha_num, textvariable=var_numero, width=8)
-        ent_num.pack(side="left", padx=(6, 12))
+        # Read-only: número é autoritativo do banco para evitar colisão de
+        # numeração quando dois usuários abrem o form ao mesmo tempo.
+        tk.Label(linha_num, textvariable=var_numero, bg="#222", fg="#ffffff",
+                 font=("Segoe UI", 9, "bold"), padx=10, pady=2).pack(side="left", padx=(6, 12))
         tk.Label(linha_num, text="Título", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(side="left")
         ent_tit = ttk.Entry(linha_num, textvariable=var_titulo_pasta)
         ent_tit.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
-        var_preview = tk.StringVar(value="(preencha número e título)")
+        var_preview = tk.StringVar(value="(digite o título)")
         tk.Label(bloco_criar, textvariable=var_preview, bg=_C, fg=_PEND,
                  font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(4, 4))
 
@@ -1078,7 +1200,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 t_cap = (t[0].upper() + t[1:]) if t else t
                 var_preview.set(f"Será salvo como: \"{num_padded} - {t_cap}\"")
             else:
-                var_preview.set("(preencha número e título)")
+                var_preview.set("(digite o título)")
 
         var_numero.trace_add("write", _atualizar_preview)
         var_titulo_pasta.trace_add("write", _atualizar_preview)
@@ -1091,18 +1213,24 @@ class JanelaSubtarefas(tk.Toplevel):
         btn_criar_pasta = ttk.Button(bloco_criar, text="Criar pasta lógica")
         btn_criar_pasta.pack(anchor="w", pady=(6, 0))
 
-        def _criar_pasta() -> None:
+        def _criar_pasta(tentativa: int = 0) -> None:
             n = var_numero.get().strip()
             t = (var_titulo_pasta.get() or "").strip()
-            if not n.isdigit() or not t:
-                messagebox.showwarning("Atenção", "Informe número (dígitos) e título.", parent=janela)
+            if not t:
+                messagebox.showwarning("Atenção", "Digite o título.", parent=janela)
                 return
+            if not n.isdigit():
+                # Não deveria acontecer (número é setado pelo programa), mas
+                # defensivo: força recálculo e tenta de novo.
+                var_numero.set(_calcular_proximo_numero())
+                n = var_numero.get().strip()
+
             btn_criar_pasta.configure(state="disabled")
             var_status_pasta.set("Criando pasta…")
             lbl_status_pasta.configure(fg=_PEND)
 
             def _op() -> dict:
-                return api.criar_pasta_logica(self._id_atividade, n, t)
+                return api.criar_pasta_logica(id_atividade_efetiva["id"], n, t)
 
             def _ok(r: object) -> None:
                 btn_criar_pasta.configure(state="normal")
@@ -1111,16 +1239,73 @@ class JanelaSubtarefas(tk.Toplevel):
                 pasta_logica["nome_pasta"] = str(d.get("nome_pasta") or "")
                 var_status_pasta.set(f"✓ pasta criada: {pasta_logica['nome_pasta']}")
                 lbl_status_pasta.configure(fg=_OK)
+
+                # Anexa a pasta criada no cache local e atualiza o combobox.
+                pastas_existentes.append({
+                    "id_pasta_logica": pasta_logica["id_pasta_logica"],
+                    "nome_pasta": pasta_logica["nome_pasta"],
+                    "numero_video": n,
+                    "titulo_video": t,
+                })
+                cmb_pasta["values"] = [
+                    str(p.get("nome_pasta") or "") for p in pastas_existentes
+                ]
+                var_pasta_existente.set(pasta_logica["nome_pasta"])
+
+                # Switch pra "Selecionar existente" e bloqueia "Criar nova"
+                # — evita o usuário criar acidentalmente outra pasta nesta
+                # mesma janela.
+                modo_pasta.set("selecionar")
+                rad_criar.configure(state="disabled")
+
                 _atualizar_botao_salvar()
 
             def _falha(e: Exception) -> None:
+                from app.mega_uploader import ErroPainelHTTP
+                eh_409 = (
+                    isinstance(e, ErroPainelHTTP)
+                    and getattr(e, "codigo_http", None) == 409
+                )
+                if eh_409 and tentativa == 0:
+                    # Outro usuário criou uma pasta com esse número entre
+                    # nosso cálculo e o INSERT — refetch silencioso e tenta
+                    # de novo com o próximo número.
+                    var_status_pasta.set("Outro usuário criou no mesmo número — recalculando…")
+                    lbl_status_pasta.configure(fg=_PEND)
+
+                    def _refetch() -> list:
+                        cfg = api.obter_config_canal(id_atividade_efetiva["id"])
+                        return list(cfg.get("pastas_logicas") or [])
+
+                    def _ok_refetch(novas: object) -> None:
+                        if isinstance(novas, list):
+                            pastas_existentes.clear()
+                            pastas_existentes.extend(novas)
+                            cmb_pasta["values"] = [
+                                str(p.get("nome_pasta") or "") for p in pastas_existentes
+                            ]
+                            var_numero.set(_calcular_proximo_numero())
+                            _criar_pasta(tentativa=1)
+                        else:
+                            btn_criar_pasta.configure(state="normal")
+                            var_status_pasta.set(f"✗ {e}")
+                            lbl_status_pasta.configure(fg=_ERRO)
+
+                    def _falha_refetch(_e2: Exception) -> None:
+                        btn_criar_pasta.configure(state="normal")
+                        var_status_pasta.set(f"✗ {e}")
+                        lbl_status_pasta.configure(fg=_ERRO)
+
+                    self._executar_em_background(_refetch, _ok_refetch, _falha_refetch)
+                    return
+
                 btn_criar_pasta.configure(state="normal")
                 var_status_pasta.set(f"✗ {e}")
                 lbl_status_pasta.configure(fg=_ERRO)
 
             self._executar_em_background(_op, _ok, _falha)
 
-        btn_criar_pasta.configure(command=_criar_pasta)
+        btn_criar_pasta.configure(command=lambda: _criar_pasta(0))
 
         # --- Modo "Selecionar existente" ---
         bloco_selecionar = tk.Frame(sec_pasta, bg=_C)
@@ -1146,6 +1331,10 @@ class JanelaSubtarefas(tk.Toplevel):
 
         def _alternar_modo_pasta(*_a: object) -> None:
             if modo_pasta.get() == "criar":
+                # Recalcula o próximo número toda vez que entra no modo —
+                # cobre o caso de outro usuário ter criado uma pasta entre
+                # o fetch inicial e a alternância.
+                var_numero.set(_calcular_proximo_numero())
                 bloco_selecionar.pack_forget()
                 bloco_criar.pack(fill="x", pady=(2, 0))
             else:
@@ -1155,82 +1344,128 @@ class JanelaSubtarefas(tk.Toplevel):
         modo_pasta.trace_add("write", _alternar_modo_pasta)
         _alternar_modo_pasta()
 
+        def _atualizar_lock_pasta() -> None:
+            # Trava a seleção da pasta lógica enquanto houver upload em
+            # andamento ou concluído nesta janela. Sem isso, o usuário
+            # poderia trocar a pasta no meio do upload e o arquivo subiria
+            # pra pasta antiga, dessincronizando UI e MEGA.
+            bloquear = any(
+                st.get("state") in ("enviando", "concluido")
+                for st in estado_campos.values()
+            )
+            try:
+                cmb_pasta.configure(state=("disabled" if bloquear else "readonly"))
+                rad_selecionar.configure(state=("disabled" if bloquear else "normal"))
+                if bloquear:
+                    rad_criar.configure(state="disabled")
+                    btn_criar_pasta.configure(state="disabled")
+            except Exception:
+                pass
+
         # ====================================================
         # Seção 2: Uploads dinâmicos
         # ====================================================
-        tk.Frame(inner, bg="#222", height=1).pack(fill="x", pady=(8, 8))
-        tk.Label(inner, text="ARQUIVOS PARA UPLOAD", bg=_C, fg=_D,
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        # Container reconstruível: ao trocar canal, os campos exigidos do novo
+        # canal podem ser diferentes — `_construir_widgets_campos` destrói os
+        # widgets antigos e recria a partir da nova lista.
+        frame_uploads = tk.Frame(inner, bg=_C)
+        frame_uploads.pack(fill="x")
 
-        if not campos_exigidos:
-            tk.Label(inner, text="(nenhum arquivo configurado pra você neste canal — só "
-                                 "pasta lógica obrigatória)",
-                     bg=_C, fg=_D, font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(4, 0))
+        def _construir_widgets_campos(campos_lista: list) -> None:
+            for child in list(frame_uploads.winfo_children()):
+                try:
+                    child.destroy()
+                except Exception:
+                    pass
+            estado_campos.clear()
 
-        for campo in campos_exigidos:
-            label = str(campo.get("label_campo") or "")
-            ext_csv = str(campo.get("extensoes_permitidas") or "").strip()
-            obrig = bool(campo.get("obrigatorio"))
-            estado_campos[label] = {
-                "state": "pendente",
-                "id_upload": 0,
-                "arquivo_local": "",
-                "obrigatorio": obrig,
-                "cancel_event": None,  # threading.Event criado quando upload começa
-            }
+            tk.Frame(frame_uploads, bg="#222", height=1).pack(fill="x", pady=(8, 8))
+            tk.Label(frame_uploads, text="ARQUIVOS PARA UPLOAD", bg=_C, fg=_D,
+                     font=("Segoe UI", 9, "bold")).pack(anchor="w")
 
-            row = tk.Frame(inner, bg=_C)
-            row.pack(fill="x", pady=(6, 0))
+            if not campos_lista:
+                tk.Label(frame_uploads, text="(nenhum arquivo configurado pra você neste canal — só "
+                                             "pasta lógica obrigatória)",
+                         bg=_C, fg=_D, font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(4, 0))
+                return
 
-            txt_label = label + (" *" if obrig else "")
-            ext_hint = f" ({ext_csv})" if ext_csv else ""
-            tk.Label(row, text=txt_label + ext_hint, bg=_C, fg="#ffffff",
-                     font=("Segoe UI", 9, "bold"), width=28, anchor="w").pack(side="left")
+            for campo in campos_lista:
+                label = str(campo.get("label_campo") or "")
+                ext_csv = str(campo.get("extensoes_permitidas") or "").strip()
+                obrig = bool(campo.get("obrigatorio"))
+                estado_campos[label] = {
+                    "state": "pendente",
+                    "id_upload": 0,
+                    "arquivo_local": "",
+                    "obrigatorio": obrig,
+                    "cancel_event": None,
+                }
 
-            var_status_campo = tk.StringVar(value="pendente")
-            lbl_status_campo = tk.Label(row, textvariable=var_status_campo, bg=_C, fg=_PEND,
-                                        font=("Segoe UI", 9), width=24, anchor="w")
-            lbl_status_campo.pack(side="left", padx=(8, 8))
+                row = tk.Frame(frame_uploads, bg=_C)
+                row.pack(fill="x", pady=(6, 0))
 
-            # Progressbar real (determinate, 0-100). Vai virar `value=pct` durante
-            # upload via callback de progresso emitido por mega-put.
-            pbar = ttk.Progressbar(row, mode="determinate", length=140, maximum=100)
+                txt_label = label + (" *" if obrig else "")
+                ext_hint = f" ({ext_csv})" if ext_csv else ""
+                tk.Label(row, text=txt_label + ext_hint, bg=_C, fg="#ffffff",
+                         font=("Segoe UI", 9, "bold"), width=28, anchor="w").pack(side="left")
 
-            btn_sel = ttk.Button(row, text="Selecionar arquivo")
-            btn_sel.pack(side="right")
+                var_status_campo = tk.StringVar(value="pendente")
+                lbl_status_campo = tk.Label(row, textvariable=var_status_campo, bg=_C, fg=_PEND,
+                                            font=("Segoe UI", 9), width=24, anchor="w")
+                lbl_status_campo.pack(side="left", padx=(8, 8))
 
-            # Botão Cancelar: criado mas NÃO empacotado — só aparece durante upload.
-            btn_cancelar = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
+                pbar = ttk.Progressbar(row, mode="determinate", length=140, maximum=100)
 
-            estado_campos[label]["label_status"] = lbl_status_campo
-            estado_campos[label]["var_status"] = var_status_campo
-            estado_campos[label]["pbar"] = pbar
-            estado_campos[label]["botao"] = btn_sel
-            estado_campos[label]["botao_cancelar"] = btn_cancelar
+                btn_sel = ttk.Button(row, text="Selecionar arquivo")
+                btn_sel.pack(side="right")
 
-            def _fazer_handler(label_local: str, ext_local: str,
-                                pbar_local: ttk.Progressbar, btn_local: ttk.Button,
-                                btn_cancel_local: ttk.Button) -> Callable[[], None]:
-                def _handler() -> None:
-                    self._iniciar_upload_mega(
-                        janela=janela,
-                        api=api,
-                        obter_uploader=_obter_uploader,
-                        pasta_logica=pasta_logica,
-                        pasta_raiz_mega=pasta_raiz_mega,
-                        nome_campo=label_local,
-                        extensoes_csv=ext_local,
-                        estado_entry=estado_campos[label_local],
-                        pbar=pbar_local,
-                        botao=btn_local,
-                        botao_cancelar=btn_cancel_local,
-                        atualizar_botao_salvar=_atualizar_botao_salvar,
-                        filedialog=_filedialog,
-                        cores=(_OK, _ERRO, _PEND),
-                    )
-                return _handler
+                btn_pasta = ttk.Button(row, text="📁 Pasta", width=10)
+                btn_pasta.pack(side="right", padx=(0, 6))
 
-            btn_sel.configure(command=_fazer_handler(label, ext_csv, pbar, btn_sel, btn_cancelar))
+                btn_cancelar = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
+
+                estado_campos[label]["label_status"] = lbl_status_campo
+                estado_campos[label]["var_status"] = var_status_campo
+                estado_campos[label]["pbar"] = pbar
+                estado_campos[label]["botao"] = btn_sel
+                estado_campos[label]["botao_pasta"] = btn_pasta
+                estado_campos[label]["botao_cancelar"] = btn_cancelar
+
+                def _fazer_handler(label_local: str, ext_local: str,
+                                    pbar_local: ttk.Progressbar, btn_arq: ttk.Button,
+                                    btn_pasta_local: ttk.Button,
+                                    btn_cancel_local: ttk.Button,
+                                    eh_pasta: bool) -> Callable[[], None]:
+                    def _handler() -> None:
+                        self._iniciar_upload_mega(
+                            janela=janela,
+                            api=api,
+                            obter_uploader=_obter_uploader,
+                            pasta_logica=pasta_logica,
+                            pasta_raiz_mega=pasta_raiz_holder["valor"],
+                            nome_campo=label_local,
+                            extensoes_csv=ext_local,
+                            estado_entry=estado_campos[label_local],
+                            pbar=pbar_local,
+                            botao=(btn_pasta_local if eh_pasta else btn_arq),
+                            botao_outro=(btn_arq if eh_pasta else btn_pasta_local),
+                            botao_cancelar=btn_cancel_local,
+                            atualizar_botao_salvar=_atualizar_botao_salvar,
+                            atualizar_lock_pasta=_atualizar_lock_pasta,
+                            filedialog=_filedialog,
+                            cores=(_OK, _ERRO, _PEND),
+                            eh_pasta=eh_pasta,
+                        )
+                    return _handler
+
+                btn_sel.configure(command=_fazer_handler(
+                    label, ext_csv, pbar, btn_sel, btn_pasta, btn_cancelar, eh_pasta=False
+                ))
+                btn_pasta.configure(command=_fazer_handler(
+                    label, ext_csv, pbar, btn_sel, btn_pasta, btn_cancelar, eh_pasta=True
+                ))
+
+        _construir_widgets_campos(campos_exigidos)
 
         # ====================================================
         # Seção 3: Canal + Data + Observação + Tempo
@@ -1259,6 +1494,102 @@ class JanelaSubtarefas(tk.Toplevel):
         tk.Label(col_e, text="CANAL", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
         ttk.Combobox(col_e, textvariable=var_canal, values=self._opcoes_canal,
                      state="readonly").pack(fill="x", pady=(3, 8))
+
+        # Trocar canal: refetch da config (pasta raiz + pastas lógicas), reset
+        # da pasta lógica e dos estados de upload. Os widgets de campos
+        # exigidos NÃO são reconstruídos — limitação aceita: se o conjunto
+        # de campos do novo canal for diferente, o usuário deve fechar e
+        # reabrir a janela pelo menu principal.
+        canal_anterior = {"valor": canal_inicial}
+
+        def _ao_trocar_canal(*_a: object) -> None:
+            novo_canal = (var_canal.get() or "").strip()
+            if not novo_canal or novo_canal == canal_anterior["valor"]:
+                return
+
+            novo_id = int(self._mapa_canal_para_id.get(novo_canal) or 0)
+            if novo_id <= 0 or novo_id == id_atividade_efetiva["id"]:
+                canal_anterior["valor"] = novo_canal
+                return
+
+            tem_pasta = bool(pasta_logica.get("id_pasta_logica"))
+            tem_upload = any(
+                st.get("state") in ("enviando", "concluido")
+                for st in estado_campos.values()
+            )
+            if tem_pasta or tem_upload:
+                ok = messagebox.askyesno(
+                    "Trocar canal",
+                    "Trocar de canal vai descartar a pasta lógica e cancelar "
+                    "uploads em andamento. Deseja continuar?",
+                    parent=janela,
+                )
+                if not ok:
+                    var_canal.set(canal_anterior["valor"])
+                    return
+                for st in estado_campos.values():
+                    ce = st.get("cancel_event")
+                    if ce is not None:
+                        try:
+                            ce.set()
+                        except Exception:
+                            pass
+
+            var_status_pasta.set("Carregando configurações do canal…")
+            lbl_status_pasta.configure(fg=_PEND)
+
+            def _fetch() -> dict:
+                return api.obter_config_canal(novo_id)
+
+            def _ok_fetch(cfg: object) -> None:
+                d = cfg if isinstance(cfg, dict) else {}
+                if not d.get("upload_ativo"):
+                    messagebox.showwarning(
+                        "Canal sem upload obrigatório",
+                        "Este canal não tem upload obrigatório configurado. "
+                        "Feche esta janela e selecione o canal correto pelo menu principal.",
+                        parent=janela,
+                    )
+                    var_canal.set(canal_anterior["valor"])
+                    var_status_pasta.set("")
+                    return
+
+                id_atividade_efetiva["id"] = novo_id
+                pasta_raiz_holder["valor"] = str(d.get("pasta_raiz_mega") or "").strip()
+                var_pasta_raiz.set(f"Pasta raiz no MEGA: /{pasta_raiz_holder['valor']}")
+                pastas_existentes.clear()
+                pastas_existentes.extend(d.get("pastas_logicas") or [])
+                cmb_pasta["values"] = [
+                    str(p.get("nome_pasta") or "") for p in pastas_existentes
+                ]
+                pasta_logica["id_pasta_logica"] = 0
+                pasta_logica["nome_pasta"] = ""
+                var_pasta_existente.set("")
+                var_numero.set(_calcular_proximo_numero())
+                modo_pasta.set("criar")
+                rad_criar.configure(state="normal")
+                # Reconstrói widgets dos campos com a lista do novo canal —
+                # descarta widgets/estado antigos e recria a partir do que o
+                # novo canal exige (Opção B: comportamento "verdadeiro" pra
+                # quando os campos por canal são diferentes).
+                _construir_widgets_campos(list(d.get("campos_exigidos") or []))
+                var_status_pasta.set("")
+                canal_anterior["valor"] = novo_canal
+                _atualizar_lock_pasta()
+                _atualizar_botao_salvar()
+
+            def _falha_fetch(e: Exception) -> None:
+                messagebox.showerror(
+                    "Erro ao trocar canal",
+                    f"Falha ao carregar configurações do canal:\n{e}",
+                    parent=janela,
+                )
+                var_canal.set(canal_anterior["valor"])
+                var_status_pasta.set("")
+
+            self._executar_em_background(_fetch, _ok_fetch, _falha_fetch)
+
+        var_canal.trace_add("write", _ao_trocar_canal)
 
         tk.Label(col_d, text="DATA DE REFERÊNCIA", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
         ttk.Entry(col_d, textvariable=var_referencia).pack(fill="x", pady=(3, 8))
@@ -1312,6 +1643,17 @@ class JanelaSubtarefas(tk.Toplevel):
                 if st["obrigatorio"] and st["state"] != "concluido":
                     obrig_pendente.append(nome)
 
+            # Canal com MEGA ativo SEM campos configurados pra esse usuário
+            # = erro de configuração administrativa. Regra: se MEGA tá ativo,
+            # tem que subir algo. Bloqueia até admin cadastrar campos.
+            if not estado_campos:
+                var_aviso_bloqueio.set(
+                    "O admin não configurou arquivos pra você neste canal. "
+                    "Peça pra cadastrar os campos de upload no painel antes de declarar."
+                )
+                btn_salvar.configure(state="disabled")
+                var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
+                return
             if not pasta_logica["id_pasta_logica"]:
                 var_aviso_bloqueio.set("Defina a pasta lógica antes de salvar.")
                 btn_salvar.configure(state="disabled")
@@ -1351,7 +1693,11 @@ class JanelaSubtarefas(tk.Toplevel):
                 return
 
             uid = self._usuario_id()
-            id_atividade = self._id_atividade
+            # Usa id_atividade efetiva (pode ter sido trocada via combobox de
+            # canal — ver tarefa 7.4). NÃO usar self._id_atividade direto:
+            # esse continua sendo o canal de origem da janela, mas o trabalho
+            # real (pasta lógica + uploads) já foi pro canal selecionado.
+            id_atividade = id_atividade_efetiva["id"]
             titulo = pasta_logica["nome_pasta"]
             canal = var_canal.get()
             observacao = var_observacao.get()
@@ -1455,6 +1801,51 @@ class JanelaSubtarefas(tk.Toplevel):
 
         btn_salvar.configure(command=salvar)
 
+        # Edição: hidrata estado dos campos com uploads concluídos da subtarefa
+        # (em background). Sem isso, "Trocar arquivo" não saberia o caminho do
+        # anterior pra apagar — e o status visual do form abriria todo "pendente"
+        # mesmo com upload já feito.
+        if subtarefa is not None and pasta_logica.get("id_pasta_logica") and estado_campos:
+            id_sub_edit = int(getattr(subtarefa, "id_subtarefa", 0) or 0)
+            if id_sub_edit > 0:
+                def _fetch_uploads_existentes() -> dict:
+                    return api.obter_dados_subtarefa(id_sub_edit)
+
+                def _ok_uploads(d: object) -> None:
+                    dd = d if isinstance(d, dict) else {}
+                    arquivos = dd.get("arquivos") or []
+                    raiz = str(dd.get("pasta_raiz_mega") or pasta_raiz_holder["valor"]).strip("/")
+                    nome_pasta = str(pasta_logica.get("nome_pasta") or "")
+                    for arq in arquivos:
+                        if arq.get("status_upload") != "concluido":
+                            continue
+                        nome_campo = str(arq.get("nome_campo") or "")
+                        nome_arq = str(arq.get("nome_arquivo") or "")
+                        if not nome_campo or nome_campo not in estado_campos or not nome_arq:
+                            continue
+                        st = estado_campos[nome_campo]
+                        st["state"] = "concluido"
+                        st["id_upload"] = int(arq.get("id_upload") or 0)
+                        st["arquivo_local"] = nome_arq
+                        st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta}/{nome_arq}"
+                        try:
+                            st["var_status"].set("✓ enviado")
+                            st["label_status"].configure(fg=_OK)
+                            st["botao"].configure(text="Trocar arquivo")
+                        except Exception:
+                            pass
+                    _atualizar_lock_pasta()
+                    _atualizar_botao_salvar()
+
+                def _falha_uploads(_e: Exception) -> None:
+                    # Sem hidratação — usuário precisa reenviar pra ter "✓ enviado".
+                    # Best effort: silencioso (sem mensagem; vai aparecer "pendente").
+                    pass
+
+                self._executar_em_background(
+                    _fetch_uploads_existentes, _ok_uploads, _falha_uploads
+                )
+
     def _iniciar_upload_mega(
         self,
         *,
@@ -1468,21 +1859,30 @@ class JanelaSubtarefas(tk.Toplevel):
         estado_entry: dict,
         pbar: ttk.Progressbar,
         botao: ttk.Button,
+        botao_outro: ttk.Button | None = None,
         botao_cancelar: ttk.Button,
         atualizar_botao_salvar: Callable[[], None],
+        atualizar_lock_pasta: Callable[[], None] | None = None,
         filedialog: object,
         cores: tuple[str, str, str],
+        eh_pasta: bool = False,
     ) -> None:
-        """Pipeline de upload de UM arquivo:
+        """Pipeline de upload de UM arquivo OU pasta (recursivo):
         1. Filedialog → caminho local (filtrado por extensões).
         2. Pasta lógica precisa estar definida.
         3. POST `desktop_registrar_upload.php` (status=enviando) → id_upload.
         4. `MegaUploader.upload_arquivo()` em background.
         5. POST `desktop_registrar_upload.php` (status=concluido|erro).
         6. Atualiza UI (cor do label, progressbar, botão).
+
+        Quando `eh_pasta=True`, usa `askdirectory`; valida extensões em todos
+        os arquivos da pasta; e `mega-put -c <dir>` lida nativamente com
+        upload recursivo.
         """
         import threading
-        from app.mega_uploader import ErroCredencialFaltando, ErroMega, ErroUploadCancelado
+        from app.mega_uploader import (
+            ErroCredencialFaltando, ErroMega, ErroPastaMegaInexistente, ErroUploadCancelado,
+        )
         cor_ok, cor_erro, cor_pend = cores
         var_status = estado_entry["var_status"]
         lbl_status = estado_entry["label_status"]
@@ -1495,42 +1895,101 @@ class JanelaSubtarefas(tk.Toplevel):
             )
             return
 
-        # Filtra extensões pro filedialog
-        if extensoes_csv:
-            partes = [e.strip().lstrip(".") for e in extensoes_csv.split(",") if e.strip()]
-            filetypes = [(f"Arquivos {extensoes_csv}", " ".join(f"*.{e}" for e in partes)), ("Todos", "*.*")]
-        else:
-            filetypes = [("Todos", "*.*")]
+        from pathlib import Path as _Path
 
-        caminho = filedialog.askopenfilename(parent=janela, title=f"Selecionar arquivo — {nome_campo}",
-                                              filetypes=filetypes)
-        if not caminho:
-            return
-
-        # Valida extensão se restrita
-        if extensoes_csv:
-            ext_arq = caminho.rsplit(".", 1)[-1].lower() if "." in caminho else ""
-            permitidas = [e.strip().lower().lstrip(".") for e in extensoes_csv.split(",")]
-            if ext_arq not in permitidas:
-                messagebox.showwarning("Atenção",
-                    f"Extensão .{ext_arq} não permitida. Aceitas: {extensoes_csv}",
-                    parent=janela)
+        if eh_pasta:
+            caminho = filedialog.askdirectory(
+                parent=janela, title=f"Selecionar pasta — {nome_campo}"
+            )
+            if not caminho:
+                return
+            dir_local = _Path(caminho)
+            if not dir_local.is_dir():
+                messagebox.showwarning("Atenção", "Caminho selecionado não é uma pasta.", parent=janela)
                 return
 
-        from pathlib import Path as _Path
-        arquivo = _Path(caminho)
-        tamanho = arquivo.stat().st_size if arquivo.exists() else None
-        nome_arq = arquivo.name
+            # Valida extensões em todos os arquivos da pasta (recursivo).
+            permitidas: list[str] = []
+            if extensoes_csv:
+                permitidas = [e.strip().lower().lstrip(".") for e in extensoes_csv.split(",") if e.strip()]
+
+            arquivos_invalidos: list[str] = []
+            tamanho_total = 0
+            count = 0
+            for f in dir_local.rglob("*"):
+                if not f.is_file():
+                    continue
+                count += 1
+                try:
+                    tamanho_total += f.stat().st_size
+                except OSError:
+                    pass
+                if permitidas:
+                    ext = f.suffix.lower().lstrip(".")
+                    if ext not in permitidas:
+                        arquivos_invalidos.append(f.name)
+
+            if count == 0:
+                messagebox.showwarning("Atenção", "A pasta selecionada está vazia.", parent=janela)
+                return
+
+            if arquivos_invalidos:
+                amostra = ", ".join(arquivos_invalidos[:5])
+                resto = f" (e mais {len(arquivos_invalidos) - 5})" if len(arquivos_invalidos) > 5 else ""
+                messagebox.showwarning(
+                    "Extensão não permitida",
+                    f"Os seguintes arquivos têm extensão fora das permitidas ({extensoes_csv}):\n\n"
+                    f"{amostra}{resto}\n\nRemova-os ou ajuste e tente de novo.",
+                    parent=janela,
+                )
+                return
+
+            arquivo = dir_local
+            tamanho = tamanho_total or None
+            # Sufixo "/" em nome_arquivo distingue pasta vs arquivo no banco.
+            nome_arq = f"{dir_local.name}/"
+        else:
+            # Filtra extensões pro filedialog
+            if extensoes_csv:
+                partes = [e.strip().lstrip(".") for e in extensoes_csv.split(",") if e.strip()]
+                filetypes = [(f"Arquivos {extensoes_csv}", " ".join(f"*.{e}" for e in partes)), ("Todos", "*.*")]
+            else:
+                filetypes = [("Todos", "*.*")]
+
+            caminho = filedialog.askopenfilename(parent=janela, title=f"Selecionar arquivo — {nome_campo}",
+                                                  filetypes=filetypes)
+            if not caminho:
+                return
+
+            # Valida extensão se restrita
+            if extensoes_csv:
+                ext_arq = caminho.rsplit(".", 1)[-1].lower() if "." in caminho else ""
+                permitidas = [e.strip().lower().lstrip(".") for e in extensoes_csv.split(",")]
+                if ext_arq not in permitidas:
+                    messagebox.showwarning("Atenção",
+                        f"Extensão .{ext_arq} não permitida. Aceitas: {extensoes_csv}",
+                        parent=janela)
+                    return
+
+            arquivo = _Path(caminho)
+            tamanho = arquivo.stat().st_size if arquivo.exists() else None
+            nome_arq = arquivo.name
 
         cancel_event = threading.Event()
         estado_entry["arquivo_local"] = str(arquivo)
         estado_entry["state"] = "enviando"
         estado_entry["cancel_event"] = cancel_event
-        var_status.set("enviando 0%…")
+        estado_entry["eh_pasta"] = eh_pasta
+        rotulo_envio = "pasta" if eh_pasta else ""
+        var_status.set(f"enviando {rotulo_envio} 0%…".replace("  ", " ").strip())
         lbl_status.configure(fg=cor_pend)
         pbar.configure(value=0)
         pbar.pack(side="left", padx=(0, 8))
         botao.configure(state="disabled")
+        if botao_outro is not None:
+            botao_outro.configure(state="disabled")
+        if atualizar_lock_pasta is not None:
+            atualizar_lock_pasta()
 
         # Botão "Cancelar" entra no lugar visual durante o upload.
         def _cancelar() -> None:
@@ -1554,7 +2013,8 @@ class JanelaSubtarefas(tk.Toplevel):
                 pbar.configure(value=p)
                 # Mantém prefixo "cancelando…" se já clicou
                 if not cancel_event.is_set():
-                    var_status.set(f"enviando {p:.0f}%…")
+                    pref = "enviando pasta " if eh_pasta else "enviando "
+                    var_status.set(f"{pref}{p:.0f}%…")
             try:
                 self.after(0, _aplicar)
             except Exception:
@@ -1574,14 +2034,72 @@ class JanelaSubtarefas(tk.Toplevel):
             )
             estado_entry["id_upload"] = int(r.get("id_upload") or 0)
 
-            # Etapa 2: upload real (com progresso e cancelamento)
             uploader = obter_uploader()
+
+            # Defesa contra sincronia rompida (admin apagou a pasta no app
+            # web do MEGA): valida existência antes de qualquer ação. Se
+            # sumiu, marca pasta lógica como inativa no banco e levanta
+            # `ErroPastaMegaInexistente` — UX explica que o usuário precisa
+            # recriar a pasta.
+            if pasta_logica.get("id_pasta_logica"):
+                pasta_remota_check = pasta_remota.rstrip("/")
+                try:
+                    pasta_ok = uploader.pasta_existe(pasta_remota_check)  # type: ignore[attr-defined]
+                except Exception:
+                    # Falha de rede/sessão — segue (mega-put -c recria se faltar).
+                    pasta_ok = True
+                if not pasta_ok:
+                    try:
+                        api_local.marcar_pasta_logica_inativa(  # type: ignore[attr-defined]
+                            int(pasta_logica["id_pasta_logica"])
+                        )
+                    except Exception:
+                        pass
+                    raise ErroPastaMegaInexistente(
+                        f"a pasta '{pasta_logica['nome_pasta']}' foi removida no MEGA — "
+                        "feche este formulário e crie a pasta lógica de novo"
+                    )
+
+            # Dedup do upload anterior (best effort).
+            #
+            # Pra PASTA, SEMPRE limpa o destino antes do upload novo —
+            # mesmo que o caminho remoto seja idêntico ao anterior. Razão:
+            # `mega-put -c <dir>` mescla conteúdos com pasta remota
+            # existente. Sem essa limpeza prévia, arquivos que saíram da
+            # pasta local entre uploads ficam órfãos no MEGA.
+            #
+            # Pra ARQUIVO, `mega-put -c` sobrescreve naturalmente, então só
+            # precisa apagar o anterior se o caminho mudou (renomeou ou
+            # selecionou outro arquivo no mesmo campo).
+            anterior = str(estado_entry.get("arquivo_remoto_anterior") or "").strip()
+            novo_path = f"{pasta_remota}{nome_arq}"
+
+            if eh_pasta:
+                try:
+                    uploader.remover_pasta_recursiva(novo_path)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            if anterior and anterior != novo_path:
+                try:
+                    if anterior.endswith("/"):
+                        uploader.remover_pasta_recursiva(anterior)  # type: ignore[attr-defined]
+                    else:
+                        uploader.remover_arquivo(anterior)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            # Etapa 2: upload real (com progresso e cancelamento)
             uploader.upload_arquivo(  # type: ignore[attr-defined]
                 arquivo,
                 pasta_remota,
                 on_progress=_on_progress,
                 cancel_event=cancel_event,
             )
+
+            # Grava o caminho remoto novo pra próximo "trocar arquivo" saber
+            # qual remover.
+            estado_entry["arquivo_remoto_anterior"] = f"{pasta_remota}{nome_arq}"
 
             # Etapa 3: marca como concluido
             if estado_entry["id_upload"]:
@@ -1607,9 +2125,13 @@ class JanelaSubtarefas(tk.Toplevel):
             _esconder_cancelar()
             estado_entry["state"] = "concluido"
             estado_entry["cancel_event"] = None
-            var_status.set("✓ enviado")
+            var_status.set("✓ pasta enviada" if eh_pasta else "✓ enviado")
             lbl_status.configure(fg=cor_ok)
-            botao.configure(state="normal", text="Trocar arquivo")
+            botao.configure(state="normal", text="Trocar pasta" if eh_pasta else "Trocar arquivo")
+            if botao_outro is not None:
+                botao_outro.configure(state="normal")
+            if atualizar_lock_pasta is not None:
+                atualizar_lock_pasta()
             atualizar_botao_salvar()
 
         def _falha(erro: Exception) -> None:
@@ -1617,11 +2139,12 @@ class JanelaSubtarefas(tk.Toplevel):
             _esconder_cancelar()
             estado_entry["cancel_event"] = None
 
+            texto_padrao = "📁 Pasta" if eh_pasta else "Selecionar arquivo"
             if isinstance(erro, ErroUploadCancelado):
                 estado_entry["state"] = "pendente"
                 var_status.set("cancelado")
                 lbl_status.configure(fg=cor_pend)
-                botao.configure(state="normal", text="Selecionar arquivo")
+                botao.configure(state="normal", text=texto_padrao)
                 status_painel = "erro"
                 msg_painel = "cancelado pelo usuário"
             else:
@@ -1632,6 +2155,10 @@ class JanelaSubtarefas(tk.Toplevel):
                 botao.configure(state="normal", text="Tentar de novo")
                 status_painel = "erro"
                 msg_painel = str(erro)[:500]
+            if botao_outro is not None:
+                botao_outro.configure(state="normal")
+            if atualizar_lock_pasta is not None:
+                atualizar_lock_pasta()
             atualizar_botao_salvar()
 
             id_up = int(estado_entry.get("id_upload") or 0)
@@ -1653,6 +2180,12 @@ class JanelaSubtarefas(tk.Toplevel):
                     "MEGA",
                     "Credenciais MEGA (mega_email / mega_password) não configuradas no painel. "
                     "Peça ao admin pra cadastrar na aba Credenciais (modo global).",
+                    parent=janela,
+                )
+            elif isinstance(erro, ErroPastaMegaInexistente):
+                messagebox.showwarning(
+                    "Pasta MEGA não encontrada",
+                    str(erro),
                     parent=janela,
                 )
             elif isinstance(erro, ErroUploadCancelado):

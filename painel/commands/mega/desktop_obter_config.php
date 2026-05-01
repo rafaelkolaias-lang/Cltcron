@@ -20,6 +20,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../credenciais/api/_auth_cliente.php';
 require_once __DIR__ . '/_estrutura.php';
+require_once __DIR__ . '/_comum.php';
 
 try {
     $u = autenticar_cliente_ou_morrer();
@@ -32,6 +33,11 @@ try {
 
     $pdo = obter_conexao_pdo();
     mega_garantir_estrutura($pdo);
+
+    // Defesa contra IDOR: o user precisa estar atribuído a essa atividade.
+    if (!mega_user_pertence_atividade($pdo, $user_id, $id_atividade)) {
+        responder_json(false, 'usuário não tem acesso a esta atividade', null, 403);
+    }
 
     // Config do canal
     $st = $pdo->prepare("SELECT nome_pasta_mega, upload_ativo

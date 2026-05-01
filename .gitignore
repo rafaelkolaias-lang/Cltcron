@@ -45,6 +45,7 @@ CLAUDE.md
 AGENTS.md
 RULES.md
 temporary_rules.md
+reminder.md
 
 # Schema SQL (contém estrutura sensível do banco)
 dados.sql

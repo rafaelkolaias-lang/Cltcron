@@ -16,6 +16,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../credenciais/api/_auth_cliente.php';
 require_once __DIR__ . '/_estrutura.php';
+require_once __DIR__ . '/_comum.php';
 
 try {
     $u = autenticar_cliente_ou_morrer();
@@ -60,11 +61,17 @@ try {
         responder_json(true, 'upload atualizado', ['id_upload' => $id_upload, 'status_upload' => $status]);
     }
 
-    // Confere que a pasta lógica existe e está ativa.
-    $st = $pdo->prepare("SELECT 1 FROM mega_pasta_logica WHERE id_pasta_logica=? AND ativo=1 LIMIT 1");
+    // Confere que a pasta lógica existe e está ativa, E que o user pertence
+    // ao canal dela (defesa contra IDOR — sem isso qualquer user autenticado
+    // poderia injetar metadados de upload em pastas lógicas de outros canais).
+    $st = $pdo->prepare("SELECT id_atividade FROM mega_pasta_logica WHERE id_pasta_logica=? AND ativo=1 LIMIT 1");
     $st->execute([$id_pasta_logica]);
-    if (!$st->fetchColumn()) {
+    $id_ativ_pasta = (int)($st->fetchColumn() ?: 0);
+    if ($id_ativ_pasta <= 0) {
         responder_json(false, 'pasta lógica não encontrada ou inativa', null, 404);
+    }
+    if (!mega_user_pertence_atividade($pdo, $user_id, $id_ativ_pasta)) {
+        responder_json(false, 'usuário não tem acesso a esta atividade', null, 403);
     }
 
     $st = $pdo->prepare("

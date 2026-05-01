@@ -540,6 +540,7 @@ class JanelaSubtarefas(tk.Toplevel):
         except Exception:
             APP_CLIENT_DECRYPT_KEY = ""
             URL_PAINEL = ""
+
         if not chave or not user_id or not APP_CLIENT_DECRYPT_KEY or not URL_PAINEL:
             self._abrir_formulario_subtarefa_legado(subtarefa)
             return

@@ -253,6 +253,19 @@ def _request_painel_get(url: str, headers: dict[str, str], timeout: float = 15.0
         raise ErroLoginMega(str(e)) from e
 
 
+def _construir_headers_auth(user_id: str, chave: str) -> dict[str, str]:
+    # Apache+PHP-FPM em alguns hosts (incluindo o EasyPanel atual) strippa
+    # `Authorization` antes de chegar no PHP — `_auth_cliente.php` então recebe
+    # user/chave vazios e responde 401. Mandamos os 3 formatos aceitos pelo
+    # `_auth_cliente.php`; o servidor usa o primeiro que estiver presente.
+    return {
+        "Authorization": f"Bearer {user_id}:{chave}",
+        "X-User-Id": user_id,
+        "X-User-Chave": chave,
+        "Accept": "application/json",
+    }
+
+
 # =============================================================
 # Cliente para painel/commands/mega/* (consumido pelo desktop)
 # =============================================================
@@ -269,10 +282,7 @@ class PainelMegaApi:
         self.chave_user = chave_user
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.user_id}:{self.chave_user}",
-            "Accept": "application/json",
-        }
+        return _construir_headers_auth(self.user_id, self.chave_user)
 
     def obter_config_canal(self, id_atividade: int, timeout: float = 8.0) -> dict:
         """GET desktop_obter_config.php → dict com upload_ativo, pasta_raiz_mega,
@@ -422,10 +432,7 @@ class MegaUploader:
             f"{self.url_painel}/commands/credenciais/api/obter.php"
             f"?identificador={urllib.parse.quote(identificador)}"
         )
-        headers = {
-            "Authorization": f"Bearer {self.user_id}:{self.chave_user}",
-            "Accept": "application/json",
-        }
+        headers = _construir_headers_auth(self.user_id, self.chave_user)
         payload = _request_painel_get(url, headers)
         if not payload.get("ok"):
             msg = payload.get("mensagem", "erro desconhecido")

@@ -283,6 +283,10 @@ class RepositorioAtividades:
         return {
             "user_id": str(usuario["user_id"]),
             "nome_exibicao": str(usuario["nome_exibicao"] or usuario["user_id"]),
+            # Necessária pro dispatcher MEGA chamar `commands/credenciais/api/*`
+            # e `commands/mega/desktop_*` (auth Bearer user:chave). Fica só em
+            # memória; nunca é logada nem persistida em arquivo.
+            "chave": chave,
         }
 
     def listar_atividades_do_usuario(self, user_id: str) -> list[dict]:

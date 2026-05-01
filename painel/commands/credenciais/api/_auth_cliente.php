@@ -23,7 +23,29 @@ require_once __DIR__ . '/../../conexao/conexao.php';
 function _http_header(string $nome): string
 {
     $chave = 'HTTP_' . strtoupper(str_replace('-', '_', $nome));
-    return isset($_SERVER[$chave]) ? (string)$_SERVER[$chave] : '';
+    if (isset($_SERVER[$chave]) && $_SERVER[$chave] !== '') {
+        return (string)$_SERVER[$chave];
+    }
+    // Apache + PHP-FPM em alguns hosts (incluindo o EasyPanel atual) movem
+    // `Authorization` pra `REDIRECT_HTTP_AUTHORIZATION` quando passa por
+    // mod_rewrite, e em outros casos só expõem via `apache_request_headers()`.
+    // Sem este fallback, todo Authorization Bearer enviado pelo desktop chega
+    // vazio aqui e dispara 401 indistinguível de credencial inválida.
+    $chave_redirect = 'REDIRECT_' . $chave;
+    if (isset($_SERVER[$chave_redirect]) && $_SERVER[$chave_redirect] !== '') {
+        return (string)$_SERVER[$chave_redirect];
+    }
+    if (function_exists('apache_request_headers')) {
+        $todos = apache_request_headers();
+        if (is_array($todos)) {
+            foreach ($todos as $k => $v) {
+                if (strcasecmp($k, $nome) === 0 && $v !== '') {
+                    return (string)$v;
+                }
+            }
+        }
+    }
+    return '';
 }
 
 /**

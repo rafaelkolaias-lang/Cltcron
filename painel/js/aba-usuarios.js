@@ -692,10 +692,97 @@
   }
 
   let _tarefasGestaoCache = [];
+  // Ordenação manual: pagas sempre embaixo, não pagas em cima.
+  // Critério secundário escolhido pelo admin via #selectOrdemTarefasGestao.
+  let _ordemTarefasGestao = "data"; // "data" | "canal" | "tarefa"
+
+  function _ordenarTarefasGestao(lista) {
+    const ordem = _ordemTarefasGestao;
+    const copia = lista.slice();
+    copia.sort((a, b) => {
+      // 1) Não pagas (bloqueada=false) sempre antes das pagas.
+      const pagaA = a.bloqueada_pagamento ? 1 : 0;
+      const pagaB = b.bloqueada_pagamento ? 1 : 0;
+      if (pagaA !== pagaB) return pagaA - pagaB;
+
+      // 2) Critério secundário escolhido pelo admin.
+      if (ordem === "canal") {
+        const ca = (limparCanal(a.canal_entrega) || "").toLowerCase();
+        const cb = (limparCanal(b.canal_entrega) || "").toLowerCase();
+        const cmp = ca.localeCompare(cb, "pt-BR");
+        if (cmp !== 0) return cmp;
+      } else if (ordem === "tarefa") {
+        const ta = String(a.titulo || "").toLowerCase();
+        const tb = String(b.titulo || "").toLowerCase();
+        const cmp = ta.localeCompare(tb, "pt-BR");
+        if (cmp !== 0) return cmp;
+      }
+
+      // 3) Tiebreaker (e ordem default "data"): mais recente primeiro,
+      //    depois id_subtarefa decrescente.
+      const da = String(a.referencia_data || "");
+      const db = String(b.referencia_data || "");
+      if (da !== db) return db.localeCompare(da);
+      return (b.id_subtarefa || 0) - (a.id_subtarefa || 0);
+    });
+    return copia;
+  }
+
+  function _renderTarefasGestao() {
+    const tbody = document.getElementById("tbodyGestaoTarefas");
+    if (!tbody) return;
+    if (!_tarefasGestaoCache.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
+      return;
+    }
+    const ordenada = _ordenarTarefasGestao(_tarefasGestaoCache);
+    tbody.innerHTML = ordenada.map(t => {
+      const seg = t.segundos_gastos || 0;
+      const bloqueada = t.bloqueada_pagamento;
+      const btnEditar = bloqueada
+        ? `<button class="btn btn-sm btn-outline-secondary" disabled title="Bloqueada por pagamento">Editar</button>`
+        : `<button class="btn btn-sm btn-outline-light botao-mini" onclick="window.__editarTarefaGestao(${t.id_subtarefa})">Editar</button>`;
+      const obs = String(t.observacao || "").trim();
+      const obsHtml = obs
+        ? `<span title="${escapeHtmlSeguro(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${escapeHtmlSeguro(obs)}</span>`
+        : '<span class="texto-fraco">—</span>';
+      // Badge [CANCELADO] quando o canal foi cancelado — visual apenas, sub
+      // continua editável e segue contando nos cálculos.
+      const canalCancelado = String(t.status_atividade || "").toLowerCase() === "cancelada";
+      const canalBadge = canalCancelado
+        ? ' <span class="badge bg-secondary" title="Canal cancelado pelo admin — subtarefa preservada">[CANCELADO]</span>'
+        : '';
+      const linhaStyle = canalCancelado ? ' style="opacity:0.55;"' : '';
+      return `<tr${linhaStyle}>
+        <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
+        <td>${escapeHtmlSeguro(limparCanal(t.canal_entrega) || "—")}${canalBadge}</td>
+        <td>${escapeHtmlSeguro(String(t.titulo || "—"))}</td>
+        <td>${formatarHm(seg)}</td>
+        <td class="text-center">${t.concluida
+          ? '<span class="badge text-bg-success">Concluída</span>'
+          : '<span class="badge text-bg-secondary">Aberta</span>'}</td>
+        <td>${obsHtml}</td>
+        <td class="text-end">${btnEditar}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  // Wiring do select de ordenação (uma vez, idempotente).
+  function _wirarSelectOrdemTarefasGestao() {
+    const sel = document.getElementById("selectOrdemTarefasGestao");
+    if (!sel || sel.dataset.wired === "1") return;
+    sel.dataset.wired = "1";
+    sel.value = _ordemTarefasGestao;
+    sel.addEventListener("change", () => {
+      _ordemTarefasGestao = String(sel.value || "data");
+      _renderTarefasGestao();
+    });
+  }
 
   async function carregarTarefasDoUsuario(uid) {
     const tbody = document.getElementById("tbodyGestaoTarefas");
     const elTotal = document.getElementById("textoGestaoTotalTarefas");
+    _wirarSelectOrdemTarefasGestao();
 
     try {
       if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>`;
@@ -706,42 +793,7 @@
 
       if (elTotal) elTotal.textContent = `${lista.length} tarefa(s)`;
 
-      if (!tbody) return;
-
-      if (!lista.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Nenhuma tarefa declarada.</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = lista.map(t => {
-        const seg = t.segundos_gastos || 0;
-        const bloqueada = t.bloqueada_pagamento;
-        const btnEditar = bloqueada
-          ? `<button class="btn btn-sm btn-outline-secondary" disabled title="Bloqueada por pagamento">Editar</button>`
-          : `<button class="btn btn-sm btn-outline-light botao-mini" onclick="window.__editarTarefaGestao(${t.id_subtarefa})">Editar</button>`;
-        const obs = String(t.observacao || "").trim();
-        const obsHtml = obs
-          ? `<span title="${escapeHtmlSeguro(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${escapeHtmlSeguro(obs)}</span>`
-          : '<span class="texto-fraco">—</span>';
-        // Badge [CANCELADO] quando o canal foi cancelado — visual apenas, sub
-        // continua editável e segue contando nos cálculos.
-        const canalCancelado = String(t.status_atividade || "").toLowerCase() === "cancelada";
-        const canalBadge = canalCancelado
-          ? ' <span class="badge bg-secondary" title="Canal cancelado pelo admin — subtarefa preservada">[CANCELADO]</span>'
-          : '';
-        const linhaStyle = canalCancelado ? ' style="opacity:0.55;"' : '';
-        return `<tr${linhaStyle}>
-          <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
-          <td>${escapeHtmlSeguro(limparCanal(t.canal_entrega) || "—")}${canalBadge}</td>
-          <td>${escapeHtmlSeguro(String(t.titulo || "—"))}</td>
-          <td>${formatarHm(seg)}</td>
-          <td class="text-center">${t.concluida
-            ? '<span class="badge text-bg-success">Concluída</span>'
-            : '<span class="badge text-bg-secondary">Aberta</span>'}</td>
-          <td>${obsHtml}</td>
-          <td class="text-end">${btnEditar}</td>
-        </tr>`;
-      }).join("");
+      _renderTarefasGestao();
     } catch (e) {
       if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Falha ao carregar tarefas.</td></tr>`;
     }

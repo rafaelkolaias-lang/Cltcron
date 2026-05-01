@@ -446,9 +446,20 @@ header('Content-Type: text/html; charset=utf-8');
               <!-- Tarefas declaradas (full-width abaixo) -->
               <div class="col-12 mt-3">
                 <article class="cartao-grafite p-3">
-                  <div class="d-flex justify-content-between align-items-center">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h6 class="mb-0">Tarefas declaradas</h6>
-                    <span class="texto-fraco small" id="textoGestaoTotalTarefas">—</span>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      <span class="texto-fraco small">Ordenar por:</span>
+                      <select id="selectOrdemTarefasGestao" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:auto;min-width:160px;">
+                        <option value="data">Data (mais recente)</option>
+                        <option value="canal">Canal</option>
+                        <option value="tarefa">Tarefa (título)</option>
+                      </select>
+                      <span class="texto-fraco small" id="textoGestaoTotalTarefas">—</span>
+                    </div>
+                  </div>
+                  <div class="texto-fraco small mt-1">
+                    Não pagas ficam sempre no topo; pagas (bloqueadas) ficam embaixo.
                   </div>
                   <div class="table-responsive mt-2" style="max-height:500px; overflow-y:auto;">
                     <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
@@ -1253,7 +1264,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <script src="./js/aba-usuarios.js?v=8"></script>
+  <script src="./js/aba-usuarios.js?v=9"></script>
   <script src="./js/aba-atividades.js?v=7"></script>
   <script src="./js/aba-gerenciar-tarefas.js?v=9"></script>
   <script src="./js/aba-credenciais.js?v=2"></script>

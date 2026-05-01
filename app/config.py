@@ -81,6 +81,7 @@ HISTORICO_VERSOES = [
             "Botão 'Declarar Tarefa' fica como 'SINCRONIZANDO' enquanto a sincronização não termina; janela 'Tarefas da Atividade' mostra status no rodapé",
             "Recuperação automática: tarefas que ficaram pendentes por queda de energia ou fechamento abrupto agora viram tarefas ABERTAS na próxima abertura do app",
             "Fechamento do formulário MEGA com upload em andamento agora pergunta antes de cancelar e preserva o trabalho como tarefa aberta",
+            "Auto-update: distribui mais rápido (checagem a cada 2 min, aplica sozinho), pausa a sessão em vez de zerar, toca um som ao reiniciar e tenta auto-login até 3× para cobrir instabilidade de rede",
         ],
     },
     {
@@ -202,7 +203,7 @@ INTERVALO_UPSERT_RELATORIO_SEGUNDOS = 300.0  # 5 minutos
 # Só roda quando executado como .exe (PyInstaller). Se achar update, abre modal
 # informativo; se o usuário ignorar, o aviso reaparece no próximo ciclo enquanto
 # houver atualização disponível.
-INTERVALO_VERIFICAR_UPDATE_MS = 10 * 60 * 1000  # 10 minutos
+INTERVALO_VERIFICAR_UPDATE_MS = 2 * 60 * 1000  # 2 minutos (auto-aplica)
 
 ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"

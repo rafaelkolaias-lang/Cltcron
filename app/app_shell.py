@@ -9,10 +9,16 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import urllib.request
 from pathlib import Path
 from tkinter import messagebox, ttk
+
+try:
+    import winsound  # type: ignore[import-not-found]
+except Exception:  # não-Windows ou ambiente sem winsound
+    winsound = None  # type: ignore[assignment]
 
 from atividades import RepositorioAtividades
 from banco import BancoDados
@@ -556,8 +562,8 @@ class App(tk.Tk):
                 font=("Segoe UI", 13, "bold"),
             ).pack()
             tk.Label(
-                inner, text="O programa será reiniciado\nautomaticamente em instantes.",
-                bg=_C, fg="#666666", font=("Segoe UI", 9), justify="center",
+                inner, text="Sua sessão será PAUSADA e o programa\nvai reabrir sozinho. Clique em Retomar\npara continuar de onde parou.",
+                bg=_C, fg="#aaaaaa", font=("Segoe UI", 9), justify="center",
             ).pack(pady=(8, 0))
 
         def _baixar(caminho_atual: Path) -> None:
@@ -576,15 +582,31 @@ class App(tk.Tk):
                     if backup_exe.exists() and not caminho_atual.exists():
                         os.rename(str(backup_exe), str(caminho_atual))
                     return
-                # Zerar sessão antes de reiniciar (envia tudo ao servidor como se o
-                # usuário tivesse clicado em "Zerar Cronômetro")
+                # Pausa a sessão (preserva localmente) — o novo exe detecta
+                # a sessão pendente e auto-restaura como PAUSADA, basta o
+                # user clicar Retomar pra continuar.
+                pausou_sessao = False
                 try:
                     if getattr(self, "_monitor", None) is not None and getattr(self._monitor, "_id_sessao", None):
-                        self._monitor.zerar_sessao()
+                        self._monitor.pausar_e_preservar_sessao()
+                        pausou_sessao = True
                 except Exception as e:
-                    print(f"[auto-update] Falha ao zerar sessão antes do reinício: {e}")
+                    print(f"[auto-update] Falha ao pausar sessão antes do reinício: {e}")
+
+                # Aviso sonoro pro user perceber a pausa (Windows). Falha
+                # silenciosa em outros SOs / ambientes sem winsound.
+                if pausou_sessao and winsound is not None:
+                    try:
+                        winsound.MessageBeep(winsound.MB_ICONINFORMATION)
+                    except Exception:
+                        pass
+
                 subprocess.Popen([str(caminho_atual)])
-                self.after(0, lambda: os._exit(0))
+                # Sleep dá tempo do bootloader PyInstaller limpar `_MEI...`
+                # ao desligar o exe antigo. sys.exit (não os._exit) deixa o
+                # cleanup do bootloader rodar normalmente.
+                time.sleep(0.5)
+                self.after(0, lambda: sys.exit(0))
             except Exception:
                 pass
 
@@ -618,11 +640,15 @@ class App(tk.Tk):
                     tamanho_remoto = int(resp.headers.get("Content-Length", 0))
 
                 if tamanho_remoto > 0 and tamanho_remoto != tamanho_local:
-                    self.after(0, self._mostrar_aviso_update_disponivel)
+                    # Auto-aplica em vez de só mostrar modal — distribui
+                    # update mais rápido pra todos os clientes.
+                    # _verificar_atualizacao já valida frozen + faz tudo:
+                    # download, swap, pausa sessão, beep, restart.
+                    self.after(0, self._verificar_atualizacao)
             except Exception:
                 pass
             finally:
-                # Sempre reagenda — mantém o ciclo de 10 min rodando
+                # Sempre reagenda — mantém o ciclo de 2 min rodando
                 self.after(0, self._agendar_verificacao_periodica_update)
 
         threading.Thread(target=_em_thread, daemon=True).start()
@@ -673,9 +699,21 @@ class App(tk.Tk):
         self.update_idletasks()
 
         def _em_thread() -> None:
-            try:
-                usuario = self._repositorio.autenticar_usuario(user_id, chave)
-            except Exception:
+            # Retry: cobre janela de instabilidade de rede logo após o
+            # auto-update (o exe novo sobe e dispara auto-login antes do
+            # Windows estabilizar conexão). 3 tentativas, 2s entre cada.
+            usuario = None
+            ultimo_erro: Exception | None = None
+            for _tentativa in range(3):
+                try:
+                    usuario = self._repositorio.autenticar_usuario(user_id, chave)
+                    ultimo_erro = None
+                    break
+                except Exception as e:
+                    ultimo_erro = e
+                    time.sleep(2.0)
+
+            if ultimo_erro is not None:
                 self.after(0, lambda: self._var_status.set("Sem conexão com o servidor."))
                 return
 

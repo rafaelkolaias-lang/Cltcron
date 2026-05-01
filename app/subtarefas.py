@@ -1176,6 +1176,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 "id_upload": 0,
                 "arquivo_local": "",
                 "obrigatorio": obrig,
+                "cancel_event": None,  # threading.Event criado quando upload começa
             }
 
             row = tk.Frame(inner, bg=_C)
@@ -1191,18 +1192,25 @@ class JanelaSubtarefas(tk.Toplevel):
                                         font=("Segoe UI", 9), width=24, anchor="w")
             lbl_status_campo.pack(side="left", padx=(8, 8))
 
-            pbar = ttk.Progressbar(row, mode="indeterminate", length=120)
+            # Progressbar real (determinate, 0-100). Vai virar `value=pct` durante
+            # upload via callback de progresso emitido por mega-put.
+            pbar = ttk.Progressbar(row, mode="determinate", length=140, maximum=100)
 
             btn_sel = ttk.Button(row, text="Selecionar arquivo")
             btn_sel.pack(side="right")
+
+            # Botão Cancelar: criado mas NÃO empacotado — só aparece durante upload.
+            btn_cancelar = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
 
             estado_campos[label]["label_status"] = lbl_status_campo
             estado_campos[label]["var_status"] = var_status_campo
             estado_campos[label]["pbar"] = pbar
             estado_campos[label]["botao"] = btn_sel
+            estado_campos[label]["botao_cancelar"] = btn_cancelar
 
             def _fazer_handler(label_local: str, ext_local: str,
-                                pbar_local: ttk.Progressbar, btn_local: ttk.Button) -> Callable[[], None]:
+                                pbar_local: ttk.Progressbar, btn_local: ttk.Button,
+                                btn_cancel_local: ttk.Button) -> Callable[[], None]:
                 def _handler() -> None:
                     self._iniciar_upload_mega(
                         janela=janela,
@@ -1215,13 +1223,14 @@ class JanelaSubtarefas(tk.Toplevel):
                         estado_entry=estado_campos[label_local],
                         pbar=pbar_local,
                         botao=btn_local,
+                        botao_cancelar=btn_cancel_local,
                         atualizar_botao_salvar=_atualizar_botao_salvar,
                         filedialog=_filedialog,
                         cores=(_OK, _ERRO, _PEND),
                     )
                 return _handler
 
-            btn_sel.configure(command=_fazer_handler(label, ext_csv, pbar, btn_sel))
+            btn_sel.configure(command=_fazer_handler(label, ext_csv, pbar, btn_sel, btn_cancelar))
 
         # ====================================================
         # Seção 3: Canal + Data + Observação + Tempo
@@ -1459,6 +1468,7 @@ class JanelaSubtarefas(tk.Toplevel):
         estado_entry: dict,
         pbar: ttk.Progressbar,
         botao: ttk.Button,
+        botao_cancelar: ttk.Button,
         atualizar_botao_salvar: Callable[[], None],
         filedialog: object,
         cores: tuple[str, str, str],
@@ -1471,7 +1481,8 @@ class JanelaSubtarefas(tk.Toplevel):
         5. POST `desktop_registrar_upload.php` (status=concluido|erro).
         6. Atualiza UI (cor do label, progressbar, botão).
         """
-        from app.mega_uploader import ErroCredencialFaltando, ErroMega
+        import threading
+        from app.mega_uploader import ErroCredencialFaltando, ErroMega, ErroUploadCancelado
         cor_ok, cor_erro, cor_pend = cores
         var_status = estado_entry["var_status"]
         lbl_status = estado_entry["label_status"]
@@ -1511,14 +1522,43 @@ class JanelaSubtarefas(tk.Toplevel):
         tamanho = arquivo.stat().st_size if arquivo.exists() else None
         nome_arq = arquivo.name
 
+        cancel_event = threading.Event()
         estado_entry["arquivo_local"] = str(arquivo)
         estado_entry["state"] = "enviando"
-        var_status.set("enviando…")
+        estado_entry["cancel_event"] = cancel_event
+        var_status.set("enviando 0%…")
         lbl_status.configure(fg=cor_pend)
+        pbar.configure(value=0)
         pbar.pack(side="left", padx=(0, 8))
-        pbar.start(10)
         botao.configure(state="disabled")
+
+        # Botão "Cancelar" entra no lugar visual durante o upload.
+        def _cancelar() -> None:
+            if not cancel_event.is_set():
+                cancel_event.set()
+                var_status.set("cancelando…")
+                botao_cancelar.configure(state="disabled")
+        botao_cancelar.configure(command=_cancelar, state="normal")
+        botao_cancelar.pack(side="right", padx=(6, 0))
         atualizar_botao_salvar()
+
+        # Callback de progresso vem da thread daemon do `_executar_mega_put_streaming`.
+        # Marshalling pra UI thread via `self.after(0, ...)`.
+        def _on_progress(pct: float) -> None:
+            def _aplicar(p: float = pct) -> None:
+                try:
+                    if not janela.winfo_exists():
+                        return
+                except Exception:
+                    return
+                pbar.configure(value=p)
+                # Mantém prefixo "cancelando…" se já clicou
+                if not cancel_event.is_set():
+                    var_status.set(f"enviando {p:.0f}%…")
+            try:
+                self.after(0, _aplicar)
+            except Exception:
+                pass
 
         # Etapa 1: registra upload no painel (status=enviando)
         pasta_remota = f"/{pasta_raiz_mega.strip('/')}/{pasta_logica['nome_pasta']}/"
@@ -1534,9 +1574,14 @@ class JanelaSubtarefas(tk.Toplevel):
             )
             estado_entry["id_upload"] = int(r.get("id_upload") or 0)
 
-            # Etapa 2: upload real
+            # Etapa 2: upload real (com progresso e cancelamento)
             uploader = obter_uploader()
-            uploader.upload_arquivo(arquivo, pasta_remota)  # type: ignore[attr-defined]
+            uploader.upload_arquivo(  # type: ignore[attr-defined]
+                arquivo,
+                pasta_remota,
+                on_progress=_on_progress,
+                cancel_event=cancel_event,
+            )
 
             # Etapa 3: marca como concluido
             if estado_entry["id_upload"]:
@@ -1550,25 +1595,45 @@ class JanelaSubtarefas(tk.Toplevel):
                 )
             return True
 
+        def _esconder_cancelar() -> None:
+            try:
+                botao_cancelar.pack_forget()
+            except Exception:
+                pass
+
         def _ok(_: object) -> None:
-            pbar.stop()
+            pbar.configure(value=100)
             pbar.pack_forget()
+            _esconder_cancelar()
             estado_entry["state"] = "concluido"
+            estado_entry["cancel_event"] = None
             var_status.set("✓ enviado")
             lbl_status.configure(fg=cor_ok)
             botao.configure(state="normal", text="Trocar arquivo")
             atualizar_botao_salvar()
 
         def _falha(erro: Exception) -> None:
-            pbar.stop()
             pbar.pack_forget()
-            estado_entry["state"] = "erro"
-            msg_curta = str(erro)[:60]
-            var_status.set(f"✗ {msg_curta}")
-            lbl_status.configure(fg=cor_erro)
-            botao.configure(state="normal", text="Tentar de novo")
+            _esconder_cancelar()
+            estado_entry["cancel_event"] = None
+
+            if isinstance(erro, ErroUploadCancelado):
+                estado_entry["state"] = "pendente"
+                var_status.set("cancelado")
+                lbl_status.configure(fg=cor_pend)
+                botao.configure(state="normal", text="Selecionar arquivo")
+                status_painel = "erro"
+                msg_painel = "cancelado pelo usuário"
+            else:
+                estado_entry["state"] = "erro"
+                msg_curta = str(erro)[:60]
+                var_status.set(f"✗ {msg_curta}")
+                lbl_status.configure(fg=cor_erro)
+                botao.configure(state="normal", text="Tentar de novo")
+                status_painel = "erro"
+                msg_painel = str(erro)[:500]
             atualizar_botao_salvar()
-            # Reporta no painel também, melhor effort
+
             id_up = int(estado_entry.get("id_upload") or 0)
             if id_up:
                 try:
@@ -1577,12 +1642,12 @@ class JanelaSubtarefas(tk.Toplevel):
                         id_pasta_logica=int(pasta_logica["id_pasta_logica"]),
                         nome_campo=nome_campo,
                         nome_arquivo=nome_arq,
-                        status_upload="erro",
-                        mensagem_erro=str(erro)[:500],
+                        status_upload=status_painel,
+                        mensagem_erro=msg_painel,
                     )
                 except Exception:
                     pass
-            # Erros críticos: aviso explícito
+
             if isinstance(erro, ErroCredencialFaltando):
                 messagebox.showerror(
                     "MEGA",
@@ -1590,6 +1655,8 @@ class JanelaSubtarefas(tk.Toplevel):
                     "Peça ao admin pra cadastrar na aba Credenciais (modo global).",
                     parent=janela,
                 )
+            elif isinstance(erro, ErroUploadCancelado):
+                pass  # já mostrou status na UI; sem messagebox
             elif isinstance(erro, ErroMega):
                 messagebox.showerror("MEGA", str(erro), parent=janela)
 

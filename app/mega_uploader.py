@@ -30,14 +30,17 @@ import base64
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,10 @@ class ErroSessaoExpiradaMega(ErroMega):
 
 class ErroUploadMega(ErroMega):
     """Falha em mkdir/put/ls do MEGA."""
+
+
+class ErroUploadCancelado(ErroUploadMega):
+    """Upload cancelado pelo usuário via cancel_event."""
 
 
 # =============================================================
@@ -107,19 +114,67 @@ def _executar_silencioso(
     cwd: Path | None = None,
     capturar_saida: bool = True,
 ) -> subprocess.CompletedProcess:
+    # IMPORTANTE: NÃO usar `capture_output=True` (PIPE) com MEGAcmd no Windows.
+    # `mega-*.bat` invoca `MEGAcmdShell.exe` que pode spawn `MEGAcmdServer.exe`
+    # como daemon. O daemon herda os fds dos pipes do PIPE original. Como
+    # `subprocess.run` lê os pipes via `Popen.communicate()` que espera todos
+    # os escritores fecharem, o read NUNCA termina (server fica vivo segurando
+    # o fd). Resultado: trava infinita mesmo após o cmd.exe principal sair.
+    # Solução: redirecionar stdout/stderr pra arquivos temporários — daemons
+    # podem herdar mas `subprocess.run` retorna quando o processo principal
+    # termina, sem esperar os pipes fecharem.
     flags, si = _flags_sem_console()
-    return subprocess.run(
-        comando,
-        cwd=str(cwd) if cwd else None,
-        capture_output=capturar_saida,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        creationflags=flags,
-        startupinfo=si,
-        shell=False,
-    )
+    if not capturar_saida:
+        return subprocess.run(
+            comando,
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            creationflags=flags,
+            startupinfo=si,
+            shell=False,
+        )
+
+    f_out = tempfile.NamedTemporaryFile(prefix="mega_out_", suffix=".log", delete=False)
+    f_err = tempfile.NamedTemporaryFile(prefix="mega_err_", suffix=".log", delete=False)
+    out_path, err_path = f_out.name, f_err.name
+    f_out.close()
+    f_err.close()
+    try:
+        with open(out_path, "wb") as fo, open(err_path, "wb") as fe:
+            try:
+                proc = subprocess.run(
+                    comando,
+                    cwd=str(cwd) if cwd else None,
+                    stdout=fo,
+                    stderr=fe,
+                    timeout=timeout,
+                    creationflags=flags,
+                    startupinfo=si,
+                    shell=False,
+                )
+            except subprocess.TimeoutExpired as e:
+                # Re-empacota com a saída parcial dos arquivos pra debugging
+                fo.flush(); fe.flush()
+                raise
+
+        with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+            stdout = f.read()
+        with open(err_path, "r", encoding="utf-8", errors="replace") as f:
+            stderr = f.read()
+        # subprocess.CompletedProcess permite atribuição direta dos campos
+        proc.stdout = stdout
+        proc.stderr = stderr
+        return proc
+    finally:
+        # MEGAcmdServer pode estar segurando o handle (daemon herdou) — silenciar
+        # PermissionError; o arquivo será limpo na próxima execução do TEMP cleanup.
+        for p in (out_path, err_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 # =============================================================
@@ -490,10 +545,12 @@ class MegaUploader:
         #   - argv só visível por outros processos do mesmo usuário Windows;
         #   - flags ocultam janela;
         #   - logger nunca escreve a senha.
-        r = self._run_mega("mega-login", email, senha, timeout=30.0)
-        saida = (r.stdout or "") + (r.stderr or "")
-        if r.returncode != 0 or "Login complete" not in saida and "logged in" not in saida.lower():
-            # Filtra a senha de qualquer mensagem antes de propagar.
+        # MEGAcmd 2.5.2+ não emite mais "Login complete" — imprime só o progresso
+        # de "Fetching nodes" e termina com rc=0. Critério canônico de sucesso é
+        # o exit code: rc=0 (login feito) ou rc=54 ("already logged in").
+        r = self._run_mega("mega-login", email, senha, timeout=60.0)
+        if r.returncode not in (0, 54):
+            saida = (r.stdout or "") + (r.stderr or "")
             saida_limpa = saida.replace(senha, "***")
             raise ErroLoginMega(f"mega-login falhou (rc={r.returncode}): {saida_limpa[:200]}")
 
@@ -520,10 +577,18 @@ class MegaUploader:
         self,
         arquivo_local: Path | str,
         pasta_remota: str,
-        on_progress=None,
+        on_progress: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
         timeout: float = TIMEOUT_UPLOAD_PADRAO_SEG,
     ) -> bool:
-        """`mega-put <local> <pasta_remota>/`. Sobrescreve se já existir."""
+        """`mega-put <local> <pasta_remota>/`. Sobrescreve se já existir.
+
+        - `on_progress(pct)` é chamado de uma thread daemon a cada update do
+          MEGAcmd (campo "X.XX %" em stderr). NÃO é thread-safe na UI — o caller
+          precisa marshalling (ex: tk `widget.after(0, ...)`).
+        - `cancel_event` permite abortar o upload mid-way; quando set, o
+          processo é morto via `taskkill /F /T` (mata árvore inteira).
+        """
         arquivo = Path(arquivo_local)
         if not arquivo.exists():
             raise ErroUploadMega(f"arquivo local não encontrado: {arquivo}")
@@ -533,36 +598,169 @@ class MegaUploader:
             pasta_remota += "/"
 
         self.garantir_logado()
-        # MEGAcmd não emite progresso fácil de parsear via stdout sem um modo
-        # interativo; on_progress hoje é apenas marcador (chamado no início e
-        # no fim). Plumbing real fica pra Fase 3 se necessário.
         if on_progress:
             try:
-                on_progress(0, arquivo.stat().st_size)
+                on_progress(0.0)
             except Exception:
                 pass
 
-        r = self._run_mega(
-            "mega-put",
-            "-c",  # cria pasta destino se faltar
-            str(arquivo),
-            pasta_remota,
-            timeout=timeout,
+        rc, saida = self._executar_mega_put_streaming(
+            arquivo, pasta_remota, on_progress, cancel_event, timeout
         )
-        saida = (r.stdout or "") + (r.stderr or "")
-        if r.returncode != 0:
+        if rc != 0:
             if self._eh_sessao_expirada(saida):
                 self._logado = False
                 self.garantir_logado()
-                return self.upload_arquivo(arquivo, pasta_remota, on_progress, timeout)
-            raise ErroUploadMega(f"upload falhou: {saida[:200]}")
+                return self.upload_arquivo(arquivo, pasta_remota, on_progress, cancel_event, timeout)
+            raise ErroUploadMega(f"upload falhou (rc={rc}): {saida[:200]}")
 
         if on_progress:
             try:
-                on_progress(arquivo.stat().st_size, arquivo.stat().st_size)
+                on_progress(100.0)
             except Exception:
                 pass
         return True
+
+    # Regex que pega o "XX.XX %" no progresso do MEGAcmd. Match em stderr:
+    #   TRANSFERRING ||########.................||(2/10 MB:  20.00 %)
+    _REGEX_PROGRESSO = re.compile(r"\(\s*\d+(?:\.\d+)?/\d+(?:\.\d+)?\s*[KMGT]?B:\s*(\d+(?:\.\d+)?)\s*%\s*\)")
+
+    def _executar_mega_put_streaming(
+        self,
+        arquivo: Path,
+        pasta_remota: str,
+        on_progress: Callable[[float], None] | None,
+        cancel_event: threading.Event | None,
+        timeout: float,
+    ) -> tuple[int, str]:
+        """Roda `mega-put -c` com Popen, lendo stderr em paralelo pra extrair
+        progresso. Retorna `(returncode, stderr_completa)`. Em cancelamento via
+        `cancel_event`, mata a árvore com `taskkill /F /T` e levanta
+        `ErroUploadCancelado`.
+        """
+        bat = self._bat("mega-put")
+        if not bat.exists():
+            raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
+        comando = ["cmd.exe", "/c", str(bat), "-c", str(arquivo), pasta_remota]
+
+        flags, si = _flags_sem_console()
+        # Arquivo temp pra stderr — ler em paralelo via tail. Evita o bug do
+        # PIPE + daemon herdeiro descrito em `_executar_silencioso`.
+        f_err = tempfile.NamedTemporaryFile(prefix="mega_put_err_", suffix=".log", delete=False)
+        err_path = f_err.name
+        f_err.close()
+
+        proc: subprocess.Popen | None = None
+        cancelado = False
+        try:
+            with open(err_path, "wb") as fe:
+                proc = subprocess.Popen(
+                    comando,
+                    stdout=subprocess.DEVNULL,
+                    stderr=fe,
+                    creationflags=flags,
+                    startupinfo=si,
+                    shell=False,
+                )
+
+            def _tail() -> None:
+                """Tail do err_path, parseia progresso e dispara on_progress."""
+                ultimo_pct = -1.0
+                with open(err_path, "rb") as f:
+                    while True:
+                        if proc is not None and proc.poll() is not None:
+                            # Drena resto e sai
+                            resto = f.read().decode("utf-8", errors="replace")
+                            self._extrair_e_emitir_progresso(resto, on_progress, ultimo_pct)
+                            return
+                        bloco = f.read(4096)
+                        if not bloco:
+                            time.sleep(0.15)
+                            continue
+                        texto = bloco.decode("utf-8", errors="replace")
+                        ultimo_pct = self._extrair_e_emitir_progresso(texto, on_progress, ultimo_pct)
+
+            t_tail = threading.Thread(target=_tail, daemon=True, name="mega-put-tail")
+            t_tail.start()
+
+            # Aguarda o processo, polling cancel_event a cada 200ms.
+            inicio = time.monotonic()
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelado = True
+                    self._matar_arvore(proc.pid)
+                    break
+                if (time.monotonic() - inicio) > timeout:
+                    self._matar_arvore(proc.pid)
+                    raise subprocess.TimeoutExpired(comando, timeout)
+                time.sleep(0.2)
+
+            try:
+                proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                self._matar_arvore(proc.pid)
+                proc.wait(timeout=2.0)
+
+            t_tail.join(timeout=2.0)
+
+            with open(err_path, "r", encoding="utf-8", errors="replace") as f:
+                stderr = f.read()
+
+            if cancelado:
+                raise ErroUploadCancelado("upload cancelado pelo usuário")
+
+            return (proc.returncode or 0), stderr
+        finally:
+            try:
+                os.unlink(err_path)
+            except OSError:
+                pass
+
+    def _extrair_e_emitir_progresso(
+        self,
+        texto: str,
+        on_progress: Callable[[float], None] | None,
+        ultimo_pct: float,
+    ) -> float:
+        """Encontra o último match de progresso no texto e dispara callback se
+        mudou (>= 0.5% diferença evita flooding da UI). Retorna o último pct.
+        """
+        if not on_progress or not texto:
+            return ultimo_pct
+        ultimo = ultimo_pct
+        for m in self._REGEX_PROGRESSO.finditer(texto):
+            try:
+                pct = float(m.group(1))
+            except (TypeError, ValueError):
+                continue
+            if pct - ultimo >= 0.5 or pct == 100.0:
+                try:
+                    on_progress(pct)
+                except Exception:
+                    pass
+                ultimo = pct
+        return ultimo
+
+    @staticmethod
+    def _matar_arvore(pid: int) -> None:
+        """Mata o processo e todos os filhos (Windows). `taskkill /F /T` cobre
+        cmd.exe → MEGAcmdShell.exe → ... mas NÃO mata o MEGAcmdServer (daemon)
+        de propósito — ele continua útil pra próxima sessão."""
+        if sys.platform != "win32":
+            return
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5.0,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
 
     def listar(self, caminho_remoto: str) -> list[str]:
         """`mega-ls <caminho>` → lista de nomes (não recursivo)."""

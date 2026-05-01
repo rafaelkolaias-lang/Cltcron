@@ -70,9 +70,19 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.9.3"
+VERSAO_APLICACAO = "v2.9.4"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v2.9.4",
+        "data": "01/05/2026",
+        "notas": [
+            "Sincronização automática das pastas MEGA com o banco ao iniciar o cronômetro (60 s após Iniciar, em segundo plano, 1× ao dia)",
+            "Botão 'Declarar Tarefa' fica como 'SINCRONIZANDO' enquanto a sincronização não termina; janela 'Tarefas da Atividade' mostra status no rodapé",
+            "Recuperação automática: tarefas que ficaram pendentes por queda de energia ou fechamento abrupto agora viram tarefas ABERTAS na próxima abertura do app",
+            "Fechamento do formulário MEGA com upload em andamento agora pergunta antes de cancelar e preserva o trabalho como tarefa aberta",
+        ],
+    },
     {
         "versao": "v2.9.1",
         "data": "30/04/2026",
@@ -198,5 +208,71 @@ ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"
 ARQUIVO_FILA_OFFLINE = Path.home() / ".cronometro_leve_fila_offline.json"
 ARQUIVO_REGRESSIVA = Path.home() / ".cronometro_leve_regressiva.json"
+ARQUIVO_MEGA_SYNC = Path.home() / ".cronometro_leve_mega_sync.json"
 
 TOLERANCIA_VALIDACAO_SEGUNDOS = 1
+
+
+# =========================
+# Estado local da sincronização MEGA (Tarefa 2)
+# =========================
+# Sincroniza pastas lógicas do banco com o que de fato existe na raiz do canal
+# no MEGA. Roda 1x/dia em background, agendada 60s após clicar Iniciar.
+# Estados:
+#   - "nao_sincronizado": ainda não rodou hoje. Bloqueia Declarar Tarefa.
+#   - "sincronizando":    em andamento. Bloqueia Declarar Tarefa, label SINCRONIZANDO.
+#   - "sincronizado":     terminou ok hoje. Libera Declarar Tarefa.
+#   - "erro":             última tentativa falhou. Bloqueia Declarar Tarefa, mostra erro.
+#
+# Por user_id: o arquivo é compartilhado entre logins distintos no mesmo PC, então
+# guardamos um dict {user_id: {...}} no JSON pra evitar contaminação entre contas.
+def carregar_estado_mega_sync(user_id: str) -> dict:
+    """Lê estado da sync MEGA do usuário. Retorna dict com chaves padrão
+    quando não há nada salvo (status='nao_sincronizado')."""
+    padrao = {
+        "status": "nao_sincronizado",
+        "ultima_sync_ok": None,        # ISO 8601 da última sync bem-sucedida
+        "ultima_tentativa": None,      # ISO 8601 da última tentativa (sucesso OU erro)
+        "mensagem_erro": "",
+        "data_sync_ok": None,          # YYYY-MM-DD da última sync ok (controle 1x/dia)
+    }
+    try:
+        if not ARQUIVO_MEGA_SYNC.exists():
+            return padrao
+        with open(ARQUIVO_MEGA_SYNC, "r", encoding="utf-8") as f:
+            todos = json.load(f)
+        if not isinstance(todos, dict):
+            return padrao
+        st = todos.get(str(user_id))
+        if not isinstance(st, dict):
+            return padrao
+        return {**padrao, **st}
+    except Exception:
+        return padrao
+
+
+def salvar_estado_mega_sync(user_id: str, estado: dict) -> None:
+    """Persiste estado da sync MEGA do usuário no JSON local. Best-effort —
+    falha de I/O é silenciada (não trava o app)."""
+    try:
+        todos = {}
+        if ARQUIVO_MEGA_SYNC.exists():
+            try:
+                with open(ARQUIVO_MEGA_SYNC, "r", encoding="utf-8") as f:
+                    todos = json.load(f)
+                if not isinstance(todos, dict):
+                    todos = {}
+            except Exception:
+                todos = {}
+        todos[str(user_id)] = dict(estado)
+        with open(ARQUIVO_MEGA_SYNC, "w", encoding="utf-8") as f:
+            json.dump(todos, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def precisa_sincronizar_mega_hoje(user_id: str) -> bool:
+    """True se ainda não houve sync bem-sucedida hoje pra este user."""
+    st = carregar_estado_mega_sync(user_id)
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    return st.get("data_sync_ok") != hoje

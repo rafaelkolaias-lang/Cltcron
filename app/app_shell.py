@@ -78,6 +78,12 @@ class App(tk.Tk):
         # T25: modal de aviso de update evita empilhamento quando o user ignora
         self._modal_update_aberto: bool = False
 
+        # Tarefa 1: recovery de uploads órfãos (queda abrupta) roda 1x por login.
+        self._recovery_orfaos_executado: bool = False
+        # Tarefa 2: trigger da sync MEGA agendado roda 1x por login (after 60s
+        # após Iniciar). Reset no logout.
+        self._sync_mega_agendada: bool = False
+
         self._ultimo_segundo_renderizado = -1
         self._ultimo_status_renderizado = ""
 
@@ -685,6 +691,10 @@ class App(tk.Tk):
                 self._verificar_atualizacao()
                 self._agendar_verificacao_periodica_update()
                 self._montar_tela_principal()
+                # Recovery de uploads órfãos roda em background (não bloqueia
+                # a UI). Cria 1 subtarefa aberta por pasta lógica que tinha
+                # uploads pendurados de uma queda anterior.
+                self.after(2000, self._disparar_recovery_uploads_orfaos)
 
             self.after(0, _na_ui)
 
@@ -699,6 +709,9 @@ class App(tk.Tk):
         self._fechar_fixado()
 
         self._usuario = None
+        # Reset dos flags de sync/recovery — próximo login dispara de novo.
+        self._recovery_orfaos_executado = False
+        self._sync_mega_agendada = False
         self._var_status.set("Faça login.")
         self._var_tempo.set("00:00:00")
         self._var_erro.set("")
@@ -818,9 +831,178 @@ class App(tk.Tk):
         self._var_status.set("Iniciando...")
         self._rodar_em_background(
             lambda: self._monitor.iniciar(self._usuario["user_id"], self._usuario["nome_exibicao"], id_atividade, titulo),
-            lambda: self._var_status.set("TRABALHANDO"),
+            lambda: (self._var_status.set("TRABALHANDO"), self._agendar_sync_mega_se_necessario()),
             lambda e: (self._var_status.set("ERRO"), messagebox.showerror("Erro", str(e))),
         )
+
+    # ---------------------------------------------------------------
+    # Tarefa 2 — Sincronização das pastas lógicas com o MEGA
+    # ---------------------------------------------------------------
+    def _agendar_sync_mega_se_necessario(self) -> None:
+        """Agendado pelo `_iniciar()` ao começar o cronômetro. Dispara a sync
+        MEGA 60s após o clique em Iniciar (não bloqueia o início do trabalho).
+        Só roda uma vez por sessão e só se ainda não sincronizou hoje."""
+        if self._sync_mega_agendada or not self._usuario:
+            return
+        self._sync_mega_agendada = True
+
+        user_id = str(self._usuario.get("user_id") or "")
+        if not user_id:
+            return
+
+        try:
+            from app.config import precisa_sincronizar_mega_hoje
+        except Exception:
+            return
+        if not precisa_sincronizar_mega_hoje(user_id):
+            # Já sincronizou hoje — força status "sincronizado" pra UI
+            # desbloquear Declarar Tarefa quando carregar o estado.
+            try:
+                from app import mega_sync
+                from app.config import carregar_estado_mega_sync, salvar_estado_mega_sync
+                est = carregar_estado_mega_sync(user_id)
+                if est.get("status") != "sincronizado":
+                    est["status"] = "sincronizado"
+                    salvar_estado_mega_sync(user_id, est)
+                    # Notifica listeners pra atualizar UI já aberta.
+                    mega_sync._notificar(user_id, est)  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            return
+
+        LOG_TEC.log("MEGA_SYNC", "agendada_60s", {"user_id": user_id})
+        self.after(60_000, self._disparar_sync_mega_em_background)
+
+    def _disparar_sync_mega_em_background(self) -> None:
+        if not self._usuario:
+            return
+        user_id = str(self._usuario.get("user_id") or "")
+        chave = str(self._usuario.get("chave") or "")
+        if not user_id or not chave:
+            return
+        try:
+            from app import mega_sync
+            from app.config import APP_CLIENT_DECRYPT_KEY, URL_PAINEL
+            from app.mega_uploader import MegaUploader, PainelMegaApi
+
+            api = PainelMegaApi(URL_PAINEL, user_id, chave)
+            uploader = MegaUploader(URL_PAINEL, user_id, chave, APP_CLIENT_DECRYPT_KEY)
+            mega_sync.executar_sincronizacao_async(user_id, uploader, api)
+        except Exception as e:
+            LOG_TEC.log("MEGA_SYNC", "falha_disparar", {"erro": str(e)})
+
+    # ---------------------------------------------------------------
+    # Tarefa 1 — Recovery de uploads órfãos após queda abrupta
+    # ---------------------------------------------------------------
+    def _disparar_recovery_uploads_orfaos(self) -> None:
+        """Após login: detecta uploads em mega_uploads sem subtarefa vinculada
+        (resíduo de queda de energia / erro fatal / fechamento abrupto durante
+        upload) e cria 1 subtarefa aberta por pasta lógica. Roda 1x por login,
+        em background."""
+        if self._recovery_orfaos_executado or not self._usuario:
+            return
+        self._recovery_orfaos_executado = True
+
+        user_id = str(self._usuario.get("user_id") or "")
+        chave = str(self._usuario.get("chave") or "")
+        if not user_id or not chave:
+            return
+
+        def _worker():
+            try:
+                from app.config import URL_PAINEL
+                from app.mega_uploader import PainelMegaApi
+                api = PainelMegaApi(URL_PAINEL, user_id, chave)
+                pastas_orfas = api.uploads_orfaos_listar()
+            except Exception as e:
+                LOG_TEC.log("MEGA_RECOVERY", "falha_listar", {"erro": str(e)})
+                return
+
+            if not pastas_orfas:
+                return
+
+            # Recovery roda na UI thread pra criar a sub via repositorio
+            # (mesma camada usada no resto do app).
+            self.after(0, lambda: self._aplicar_recovery_uploads_orfaos(pastas_orfas))
+
+        threading.Thread(target=_worker, name="MegaRecovery", daemon=True).start()
+
+    def _aplicar_recovery_uploads_orfaos(self, pastas_orfas: list[dict]) -> None:
+        """Cria subtarefa aberta pra cada pasta órfã + vincula uploads via
+        desktop_registrar_upload. Roda na UI thread.
+
+        Não pergunta ao user — auto-recovery silencioso (com messagebox final
+        informativo). A sub é criada como ABERTA (concluida=False), com tempo
+        zero e título = nome_pasta. O user pode editar/concluir depois.
+        """
+        if not self._usuario:
+            return
+        user_id = str(self._usuario.get("user_id") or "")
+        chave = str(self._usuario.get("chave") or "")
+        if not user_id or not chave:
+            return
+
+        from datetime import date as _date
+        from app.config import URL_PAINEL
+        from app.mega_uploader import PainelMegaApi, ErroPainelHTTP
+
+        api = PainelMegaApi(URL_PAINEL, user_id, chave)
+        criadas = 0
+        falhas = 0
+        for pasta in pastas_orfas:
+            try:
+                id_atividade = int(pasta.get("id_atividade") or 0)
+                nome_pasta = str(pasta.get("nome_pasta") or "").strip()
+                uploads = pasta.get("uploads") or []
+                if id_atividade <= 0 or not nome_pasta or not uploads:
+                    continue
+
+                # Cria a subtarefa aberta direto no banco via repositório.
+                # `criar_subtarefa` já grava com concluida=0 e segundos=0.
+                id_sub = self._repositorio_declaracoes.criar_subtarefa(
+                    user_id=user_id,
+                    id_atividade=id_atividade,
+                    titulo=nome_pasta,
+                    referencia_data=_date.today().isoformat(),
+                    observacao="Recuperada após fechamento abrupto. Edite ou conclua.",
+                )
+
+                # Vincula cada upload órfão à nova subtarefa.
+                for up in uploads:
+                    id_upload = int(up.get("id_upload") or 0)
+                    if id_upload <= 0:
+                        continue
+                    try:
+                        api.registrar_upload(
+                            id_pasta_logica=int(pasta.get("id_pasta_logica") or 0),
+                            nome_campo=str(up.get("nome_campo") or ""),
+                            nome_arquivo=str(up.get("nome_arquivo") or ""),
+                            id_upload=id_upload,
+                            id_subtarefa=int(id_sub),
+                            status_upload=str(up.get("status_upload") or "concluido"),
+                        )
+                    except ErroPainelHTTP as e:
+                        LOG_TEC.log("MEGA_RECOVERY", "falha_vincular_upload",
+                                    {"id_upload": id_upload, "erro": str(e)})
+
+                criadas += 1
+            except Exception as e:
+                falhas += 1
+                LOG_TEC.log("MEGA_RECOVERY", "falha_pasta",
+                            {"nome_pasta": pasta.get("nome_pasta"), "erro": str(e)})
+
+        if criadas > 0:
+            try:
+                messagebox.showinfo(
+                    "Recuperação automática",
+                    f"Foram recuperadas {criadas} tarefas que ficaram pendentes "
+                    f"de uma sessão anterior (queda de energia ou fechamento abrupto).\n\n"
+                    f"Elas estão na lista 'Tarefas da Atividade' como ABERTAS — "
+                    f"abra para revisar, editar e concluir.",
+                )
+            except Exception:
+                pass
+            LOG_TEC.log("MEGA_RECOVERY", "ok", {"criadas": criadas, "falhas": falhas})
 
     def _pausar(self) -> None:
         estado = self._monitor.obter_estado()

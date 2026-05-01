@@ -61,7 +61,27 @@ class JanelaSubtarefas(tk.Toplevel):
         self._var_resumo = tk.StringVar(value="")
         self._var_trava = tk.StringVar(value="Carregando...")
 
+        # Tarefa 2: status da sincronização MEGA. Atualizado por listener
+        # registrado em mega_sync; controla habilitar/desabilitar do botão
+        # "Declarar Tarefa".
+        self._var_status_sync_mega = tk.StringVar(value="")
+        self._btn_declarar: ttk.Button | None = None
+        self._listener_mega_sync = self._ao_mudar_estado_mega_sync
+
         self._montar_tela()
+
+        # Aplica estado inicial de sync MEGA + se inscreve nas mudanças.
+        try:
+            from app import mega_sync
+            mega_sync.registrar_listener(self._listener_mega_sync)
+            estado_inicial = mega_sync.obter_estado_atual_mega_sync(self._usuario_id())
+            self._aplicar_estado_mega_sync_na_ui(estado_inicial)
+        except Exception:
+            pass
+
+        # Garante remoção do listener quando a janela fechar (Fechar/Cancelar
+        # ou WM_DELETE_WINDOW). bind WM_DELETE pra cobrir o "X" também.
+        self.protocol("WM_DELETE_WINDOW", self._ao_fechar_janela_subs)
 
         # Bloqueios e abatimentos de pagamento são gravados pelo painel web
         # (painel/commands/pagamentos/_aplicar_pagamento.php) no momento do pagamento.
@@ -71,6 +91,64 @@ class JanelaSubtarefas(tk.Toplevel):
 
     def _usuario_id(self) -> str:
         return str(self._usuario.get("user_id") or "").strip()
+
+    # ---------------------------------------------------------------
+    # Tarefa 2 — UI da sincronização MEGA
+    # ---------------------------------------------------------------
+    def _ao_mudar_estado_mega_sync(self, user_id: str, estado: dict) -> None:
+        """Callback registrado em mega_sync — chamado em thread arbitrária.
+        Marshall pra UI thread via after()."""
+        if str(user_id) != self._usuario_id():
+            return
+        try:
+            self.after(0, lambda: self._aplicar_estado_mega_sync_na_ui(estado))
+        except Exception:
+            pass
+
+    def _aplicar_estado_mega_sync_na_ui(self, estado: dict) -> None:
+        """Aplica o estado de sync MEGA: habilita/desabilita botão Declarar
+        Tarefa e ajusta seu texto + status do rodapé."""
+        if not self.winfo_exists():
+            return
+        status = str(estado.get("status") or "nao_sincronizado").lower()
+        msg_erro = str(estado.get("mensagem_erro") or "").strip()
+        ultima_ok = str(estado.get("ultima_sync_ok") or "").strip()
+
+        btn = self._btn_declarar
+        if btn is None:
+            return
+
+        if status == "sincronizando":
+            try: btn.configure(text="SINCRONIZANDO", state="disabled")
+            except Exception: pass
+            self._var_status_sync_mega.set("Sincronizando pastas MEGA…")
+        elif status == "erro":
+            try: btn.configure(text="Declarar Tarefa", state="disabled")
+            except Exception: pass
+            resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
+            self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
+        elif status == "sincronizado":
+            try: btn.configure(text="Declarar Tarefa", state="normal")
+            except Exception: pass
+            self._var_status_sync_mega.set(
+                f"Pastas MEGA sincronizadas em {ultima_ok}" if ultima_ok else ""
+            )
+        else:  # "nao_sincronizado"
+            try: btn.configure(text="Declarar Tarefa", state="disabled")
+            except Exception: pass
+            self._var_status_sync_mega.set("Aguardando sincronização MEGA…")
+
+    def _ao_fechar_janela_subs(self) -> None:
+        """Cleanup ao fechar a janela: desregistra listener da sync MEGA."""
+        try:
+            from app import mega_sync
+            mega_sync.remover_listener(self._listener_mega_sync)
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
 
     def _executar_em_background(
         self,
@@ -147,7 +225,8 @@ class JanelaSubtarefas(tk.Toplevel):
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))
 
-        ttk.Button(barra_acoes, text="Declarar Tarefa", style="Primario.TButton", command=self._nova_subtarefa).pack(side="left")
+        self._btn_declarar = ttk.Button(barra_acoes, text="Declarar Tarefa", style="Primario.TButton", command=self._nova_subtarefa)
+        self._btn_declarar.pack(side="left")
         ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Excluir", style="Perigo.TButton", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados).pack(side="right")
@@ -212,9 +291,18 @@ class JanelaSubtarefas(tk.Toplevel):
                 style="Primario.TButton",
                 command=self._enviar_e_finalizar,
             ).pack(side="right")
-            ttk.Button(botoes_finais, text="Cancelar", command=self.destroy).pack(side="right", padx=(0, 8))
+            ttk.Button(botoes_finais, text="Cancelar", command=self._ao_fechar_janela_subs).pack(side="right", padx=(0, 8))
         else:
-            ttk.Button(botoes_finais, text="Fechar", command=self.destroy).pack(side="right")
+            ttk.Button(botoes_finais, text="Fechar", command=self._ao_fechar_janela_subs).pack(side="right")
+
+        # Label de status da sincronização MEGA — fica à esquerda do botão
+        # Fechar pra ficar visível enquanto SINCRONIZANDO ou em ERRO.
+        ttk.Label(
+            botoes_finais,
+            textvariable=self._var_status_sync_mega,
+            font=("Segoe UI", 9),
+            foreground="#f0c075",
+        ).pack(side="right", padx=(0, 12))
 
     def _formatar_data(self, valor: object) -> str:
         if valor is None:
@@ -1723,6 +1811,35 @@ class JanelaSubtarefas(tk.Toplevel):
         var_texto_botao = tk.StringVar(value="Salvar")
 
         def _ao_fechar_janela() -> None:
+            # Tarefa 1 (Opção A): se há upload em andamento, perguntar antes
+            # de fechar. Se confirmar, cancela o upload e segue. A subtarefa
+            # já foi auto-criada como Aberta no início do primeiro upload
+            # (v2.9.3), então o trabalho NÃO é perdido — o user pode
+            # voltar nela depois pra concluir.
+            uploads_em_andamento = [
+                (nome, st) for nome, st in estado_campos.items()
+                if st.get("state") == "enviando" and st.get("cancel_event") is not None
+            ]
+            if uploads_em_andamento:
+                resp = messagebox.askyesno(
+                    "Upload em andamento",
+                    "Há upload em andamento.\n\n"
+                    "Se sair agora, o upload atual será cancelado, mas a tarefa "
+                    "ficará salva como ABERTA — você pode voltar depois pra "
+                    "continuar de onde parou.\n\nSair mesmo?",
+                    parent=janela,
+                )
+                if not resp:
+                    return
+                # Sinaliza cancel pra cada upload em andamento.
+                for _nome, st in uploads_em_andamento:
+                    try:
+                        ev = st.get("cancel_event")
+                        if ev is not None and not ev.is_set():
+                            ev.set()
+                    except Exception:
+                        pass
+
             # Cleanup: se em modo "nova", o user criou uma pasta lógica e
             # NÃO houve nenhum upload concluído nem sub criada, marca a
             # pasta como inativa. Evita pasta órfã queimando número.

@@ -80,7 +80,7 @@ class App(tk.Tk):
 
         # Tarefa 1: recovery de uploads órfãos (queda abrupta) roda 1x por login.
         self._recovery_orfaos_executado: bool = False
-        # Tarefa 2: trigger da sync MEGA agendado roda 1x por login (after 60s
+        # Tarefa 2: trigger da sync MEGA agendado roda 1x por login (after 5s
         # após Iniciar). Reset no logout.
         self._sync_mega_agendada: bool = False
 
@@ -757,7 +757,10 @@ class App(tk.Tk):
     def _obter_id_atividade_selecionada(self) -> tuple[int, str]:
         item = (self._var_atividade.get() or "").strip()
         if not item or item not in self._mapa_item_para_id:
-            raise RuntimeError("Selecione uma atividade.")
+            raise RuntimeError(
+                "Você não tem nenhum canal atribuído. "
+                "Peça pro admin atribuir você a pelo menos um canal antes de iniciar."
+            )
         id_atividade = int(self._mapa_item_para_id[item])
         titulo = item.split(" - ", 1)[1] if " - " in item else item
         return id_atividade, titulo
@@ -840,7 +843,7 @@ class App(tk.Tk):
     # ---------------------------------------------------------------
     def _agendar_sync_mega_se_necessario(self) -> None:
         """Agendado pelo `_iniciar()` ao começar o cronômetro. Dispara a sync
-        MEGA 60s após o clique em Iniciar (não bloqueia o início do trabalho).
+        MEGA 5s após o clique em Iniciar (não bloqueia o início do trabalho).
         Só roda uma vez por sessão e só se ainda não sincronizou hoje."""
         if self._sync_mega_agendada or not self._usuario:
             return
@@ -870,8 +873,8 @@ class App(tk.Tk):
                 pass
             return
 
-        LOG_TEC.log("MEGA_SYNC", "agendada_60s", {"user_id": user_id})
-        self.after(60_000, self._disparar_sync_mega_em_background)
+        LOG_TEC.log("MEGA_SYNC", "agendada_5s", {"user_id": user_id})
+        self.after(5_000, self._disparar_sync_mega_em_background)
 
     def _disparar_sync_mega_em_background(self) -> None:
         if not self._usuario:

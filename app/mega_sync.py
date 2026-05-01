@@ -4,7 +4,7 @@ Compara `mega_pasta_logica` (banco, ativas) com a listagem real da raiz de cada
 canal no MEGA. Pastas que sumiram do MEGA (admin apagou manualmente) viram
 inativas no banco em lote.
 
-Tarefa 2 do !executar.md. Roda 1x/dia, 60s após clicar Iniciar, em thread
+Tarefa 2 do !executar.md. Roda 1x/dia, 5s após clicar Iniciar, em thread
 separada, lotes de 300. Falha de listagem de qualquer canal → aborta sem
 inativar nada (defesa contra inativação em massa indevida quando MEGA
 está offline / login falhou).

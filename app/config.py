@@ -70,14 +70,14 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.9.4"
+VERSAO_APLICACAO = "v3.0"
 
 HISTORICO_VERSOES = [
     {
-        "versao": "v2.9.4",
+        "versao": "v3.0",
         "data": "01/05/2026",
         "notas": [
-            "Sincronização automática das pastas MEGA com o banco ao iniciar o cronômetro (60 s após Iniciar, em segundo plano, 1× ao dia)",
+            "Sincronização automática das pastas MEGA com o banco ao iniciar o cronômetro (5 s após Iniciar, em segundo plano, 1× ao dia)",
             "Botão 'Declarar Tarefa' fica como 'SINCRONIZANDO' enquanto a sincronização não termina; janela 'Tarefas da Atividade' mostra status no rodapé",
             "Recuperação automática: tarefas que ficaram pendentes por queda de energia ou fechamento abrupto agora viram tarefas ABERTAS na próxima abertura do app",
             "Fechamento do formulário MEGA com upload em andamento agora pergunta antes de cancelar e preserva o trabalho como tarefa aberta",
@@ -217,7 +217,7 @@ TOLERANCIA_VALIDACAO_SEGUNDOS = 1
 # Estado local da sincronização MEGA (Tarefa 2)
 # =========================
 # Sincroniza pastas lógicas do banco com o que de fato existe na raiz do canal
-# no MEGA. Roda 1x/dia em background, agendada 60s após clicar Iniciar.
+# no MEGA. Roda 1x/dia em background, agendada 5s após clicar Iniciar.
 # Estados:
 #   - "nao_sincronizado": ainda não rodou hoje. Bloqueia Declarar Tarefa.
 #   - "sincronizando":    em andamento. Bloqueia Declarar Tarefa, label SINCRONIZANDO.

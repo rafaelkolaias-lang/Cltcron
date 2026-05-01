@@ -192,7 +192,7 @@ class JanelaSubtarefas(tk.Toplevel):
 
         ttk.Label(
             topo,
-            text=f"Tarefas declaradas — todos os canais  ·  Sessão atual em: {self._titulo_atividade}",
+            text="Tarefas declaradas — todos os canais",
             font=("Segoe UI", 12, "bold"),
         ).pack(anchor="w")
         ttk.Label(
@@ -213,12 +213,9 @@ class JanelaSubtarefas(tk.Toplevel):
         ).pack(anchor="w", pady=(6, 0))
         ttk.Label(
             topo,
-            text=(
-                "Cadastre as subtarefas executadas nesta atividade. "
-                "Preencha o Tempo gasto no formulário para salvar como Concluída. "
-                "Clique nos cabeçalhos para ordenar (↑ crescente / ↓ decrescente / 3º clique restaura ordem). "
-                "Depois do pagamento, subtarefas ficam travadas e não podem ser alteradas."
-            ),
+            textvariable=self._var_status_sync_mega,
+            font=("Segoe UI", 9),
+            foreground="#f0c075",
             wraplength=1160,
         ).pack(anchor="w", pady=(6, 0))
 
@@ -294,15 +291,6 @@ class JanelaSubtarefas(tk.Toplevel):
             ttk.Button(botoes_finais, text="Cancelar", command=self._ao_fechar_janela_subs).pack(side="right", padx=(0, 8))
         else:
             ttk.Button(botoes_finais, text="Fechar", command=self._ao_fechar_janela_subs).pack(side="right")
-
-        # Label de status da sincronização MEGA — fica à esquerda do botão
-        # Fechar pra ficar visível enquanto SINCRONIZANDO ou em ERRO.
-        ttk.Label(
-            botoes_finais,
-            textvariable=self._var_status_sync_mega,
-            font=("Segoe UI", 9),
-            foreground="#f0c075",
-        ).pack(side="right", padx=(0, 12))
 
     def _formatar_data(self, valor: object) -> str:
         if valor is None:

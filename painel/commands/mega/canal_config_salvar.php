@@ -27,10 +27,14 @@ try {
     mega_garantir_estrutura($pdo);
 
     // Confere que a atividade existe (defensivo — UI já só mostra existentes).
-    $st = $pdo->prepare("SELECT 1 FROM atividades WHERE id_atividade=? LIMIT 1");
+    $st = $pdo->prepare("SELECT status FROM atividades WHERE id_atividade=? LIMIT 1");
     $st->execute([$id_atividade]);
-    if (!$st->fetchColumn()) {
+    $status_atividade = $st->fetchColumn();
+    if ($status_atividade === false) {
         responder_json(false, 'atividade não encontrada', null, 404);
+    }
+    if (strtolower((string)$status_atividade) === 'cancelada') {
+        responder_json(false, 'canal cancelado não pode ser configurado no MEGA', null, 409);
     }
 
     $st = $pdo->prepare("

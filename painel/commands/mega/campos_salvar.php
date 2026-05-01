@@ -36,6 +36,34 @@ try {
     $pdo = obter_conexao_pdo();
     mega_garantir_estrutura($pdo);
 
+    $st = $pdo->prepare("
+        SELECT status_conta, COALESCE(ocultar_dashboard, 0) AS ocultar_dashboard
+          FROM usuarios
+         WHERE user_id = ?
+         LIMIT 1
+    ");
+    $st->execute([$user_id]);
+    $usuario = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$usuario) {
+        responder_json(false, 'usuário não encontrado', null, 404);
+    }
+    if (strtolower((string)$usuario['status_conta']) !== 'ativa') {
+        responder_json(false, 'usuário inativo não pode receber campos de upload', null, 409);
+    }
+    if ((int)$usuario['ocultar_dashboard'] === 1) {
+        responder_json(false, 'usuário oculto não pode receber campos de upload no MEGA', null, 409);
+    }
+
+    $st = $pdo->prepare("SELECT status FROM atividades WHERE id_atividade = ? LIMIT 1");
+    $st->execute([$id_atividade]);
+    $status_atividade = $st->fetchColumn();
+    if ($status_atividade === false) {
+        responder_json(false, 'atividade não encontrada', null, 404);
+    }
+    if (strtolower((string)$status_atividade) === 'cancelada') {
+        responder_json(false, 'canal cancelado não pode receber campos de upload', null, 409);
+    }
+
     if ($id_campo > 0) {
         $st = $pdo->prepare("
             UPDATE mega_campos_upload

@@ -115,7 +115,7 @@ try {
 
     // valida usuários (evita FK quebrar)
     $placeholders = implode(',', array_fill(0, count($ids_validos), '?'));
-    $stU = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE id_usuario IN ($placeholders)");
+    $stU = $pdo->prepare("SELECT id_usuario FROM usuarios WHERE status_conta = 'ativa' AND id_usuario IN ($placeholders)");
     $stU->execute($ids_validos);
     $encontrados = $stU->fetchAll(PDO::FETCH_COLUMN) ?: [];
     $encontrados = array_map('intval', $encontrados);

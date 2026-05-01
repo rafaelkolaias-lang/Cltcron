@@ -25,6 +25,9 @@ try {
     if ($user_id !== '')      { $where[] = 'c.user_id = ?';      $params[] = $user_id; }
     if ($id_atividade > 0)    { $where[] = 'c.id_atividade = ?'; $params[] = $id_atividade; }
     if (!$incluir_inativos)   { $where[] = 'c.ativo = 1'; }
+    $where[] = "u.status_conta = 'ativa'";
+    $where[] = 'COALESCE(u.ocultar_dashboard, 0) = 0';
+    $where[] = "a.status <> 'cancelada'";
 
     $sql = "
         SELECT c.id_campo, c.user_id, c.id_atividade,
@@ -34,8 +37,8 @@ try {
                u.nome_exibicao,
                a.titulo AS titulo_atividade
         FROM mega_campos_upload c
-        LEFT JOIN usuarios   u ON u.user_id      = c.user_id
-        LEFT JOIN atividades a ON a.id_atividade = c.id_atividade
+        JOIN usuarios   u ON u.user_id      = c.user_id
+        JOIN atividades a ON a.id_atividade = c.id_atividade
     ";
     if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
     $sql .= ' ORDER BY u.nome_exibicao ASC, a.titulo ASC, c.ordem ASC, c.id_campo ASC';

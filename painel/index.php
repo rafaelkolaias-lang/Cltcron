@@ -1241,10 +1241,10 @@ header('Content-Type: text/html; charset=utf-8');
 
   <script src="./js/aba-usuarios.js?v=7"></script>
   <script src="./js/aba-atividades.js?v=7"></script>
-  <script src="./js/aba-gerenciar-tarefas.js?v=7"></script>
-  <script src="./js/aba-credenciais.js?v=1"></script>
+  <script src="./js/aba-gerenciar-tarefas.js?v=8"></script>
+  <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=3"></script>
+  <script src="./js/aba-mega.js?v=4"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

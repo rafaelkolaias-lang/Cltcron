@@ -22,13 +22,14 @@ try {
     $params = [];
     if ($id_atividade > 0) { $where[] = 'p.id_atividade = ?'; $params[] = $id_atividade; }
     if (!$incluir_inativas) { $where[] = 'p.ativo = 1'; }
+    $where[] = "a.status <> 'cancelada'";
 
     $sql = "
         SELECT p.id_pasta_logica, p.id_atividade, p.nome_pasta,
                p.numero_video, p.titulo_video, p.criado_por, p.criado_em, p.ativo,
                a.titulo AS titulo_atividade
         FROM mega_pasta_logica p
-        LEFT JOIN atividades a ON a.id_atividade = p.id_atividade
+        JOIN atividades a ON a.id_atividade = p.id_atividade
     ";
     if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
     $sql .= ' ORDER BY a.titulo ASC, p.numero_video ASC, p.criado_em DESC';

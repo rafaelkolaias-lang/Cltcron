@@ -70,7 +70,8 @@
         fetch(URL_ATIVIDADES).then(r => r.json()),
       ]);
       _cacheUsuarios   = (rU.dados  || []);
-      _cacheAtividades = (rA.dados  || []);
+      _cacheAtividades = (rA.dados || [])
+        .filter(a => String(a.status || "").toLowerCase() !== "cancelada");
       _preencherSelectFiltroUsuario();
       _preencherSelectFiltroAtividade();
     } catch (_) {}

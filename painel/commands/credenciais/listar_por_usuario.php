@@ -19,11 +19,16 @@ try {
 
     $pdo = obter_conexao_pdo();
 
-    // Confirma que o usuário existe
-    $stm = $pdo->prepare("SELECT user_id FROM usuarios WHERE user_id=? LIMIT 1");
+    // Confirma que o usuário existe e está ativo. Usuário inativo não deve
+    // aparecer em listas operacionais de Credenciais e APIs.
+    $stm = $pdo->prepare("SELECT user_id, status_conta FROM usuarios WHERE user_id=? LIMIT 1");
     $stm->execute([$user_id]);
-    if (!$stm->fetch()) {
+    $usuario = $stm->fetch(PDO::FETCH_ASSOC);
+    if (!$usuario) {
         responder_json(false, 'usuário não encontrado', null, 404);
+    }
+    if (strtolower((string)$usuario['status_conta']) !== 'ativa') {
+        responder_json(true, 'OK', []);
     }
 
     $sql = "SELECT m.id_modelo, m.identificador, m.nome_exibicao, m.categoria, m.descricao,

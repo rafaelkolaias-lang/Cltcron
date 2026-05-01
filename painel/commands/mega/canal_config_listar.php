@@ -24,6 +24,7 @@ try {
             mc.atualizado_em
         FROM atividades a
         LEFT JOIN mega_canal_config mc ON mc.id_atividade = a.id_atividade
+        WHERE a.status <> 'cancelada'
         ORDER BY a.titulo ASC
     ";
     $st = $pdo->query($sql);

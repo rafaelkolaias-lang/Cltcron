@@ -95,7 +95,8 @@
   async function carregarAtividadesComUsuarios() {
     try {
       const dados = await requisitar('./commands/atividades/listar.php');
-      estado.atividadesComUsuarios = Array.isArray(dados) ? dados : [];
+      estado.atividadesComUsuarios = (Array.isArray(dados) ? dados : [])
+        .filter((a) => String(a.status || '').toLowerCase() !== 'cancelada');
       atualizarSelectCanaisPorUsuario();
     } catch (e) {
       console.warn('[mega] falha ao carregar atividades+usuarios:', e?.message || e);
@@ -161,7 +162,11 @@
   async function carregarUsuarios() {
     try {
       const dados = await requisitar('./commands/usuarios/listar.php');
-      estado.usuarios = Array.isArray(dados) ? dados : (Array.isArray(dados?.usuarios) ? dados.usuarios : []);
+      const usuarios = Array.isArray(dados) ? dados : (Array.isArray(dados?.usuarios) ? dados.usuarios : []);
+      estado.usuarios = usuarios.filter((u) =>
+        String(u.status_conta || '').toLowerCase() === 'ativa' &&
+        Number(u.ocultar_dashboard || 0) !== 1
+      );
       atualizarSelectUsuarios();
     } catch (e) {
       console.warn('[mega] falha ao carregar usuarios:', e?.message || e);
@@ -176,10 +181,13 @@
       estado.usuarios.map((u) => {
         const uid = u.user_id || '';
         const nome = u.nome_exibicao || uid;
-        const inat = String(u.status_conta || '').toLowerCase() !== 'ativa' ? ' [inativo]' : '';
-        return `<option value="${esc(uid)}">${esc(nome)}${inat}</option>`;
+        return `<option value="${esc(uid)}">${esc(nome)}</option>`;
       }).join('');
-    if (atual) sel.value = atual;
+    if (atual && estado.usuarios.some((u) => String(u.user_id || '') === atual)) {
+      sel.value = atual;
+    } else if (atual) {
+      estado.filtroUserId = '';
+    }
   }
 
   // Bloco "Pastas lógicas cadastradas": filtro opcional, todos os canais.
@@ -209,6 +217,7 @@
     }
 
     const canaisDoUsuario = estado.atividadesComUsuarios.filter((a) =>
+      String(a.status || '').toLowerCase() !== 'cancelada' &&
       Array.isArray(a.usuarios) && a.usuarios.some((u) => String(u.user_id || '') === userId)
     );
 

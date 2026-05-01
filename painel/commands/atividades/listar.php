@@ -31,7 +31,8 @@ try {
                ON u.id_usuario = au.id_usuario
               AND u.status_conta = 'ativa'
         GROUP BY a.id_atividade
-        ORDER BY a.criado_em DESC, a.id_atividade DESC
+        ORDER BY FIELD(a.status, 'aberta', 'em_andamento', 'concluida', 'cancelada'),
+                 a.criado_em DESC, a.id_atividade DESC
     ");
     $st->execute();
 

@@ -9,9 +9,11 @@ require_once __DIR__ . '/../conexao/conexao.php';
 try {
     $pdo = obter_conexao_pdo();
 
+    // Ordena por status_conta (ativa primeiro, depois inativa/bloqueada),
+    // empate por nome_exibicao. FIELD() força a ordem do enum.
     $sql = "SELECT id_usuario, user_id, nome_exibicao, nivel, valor_hora, chave, status_conta, ocultar_dashboard, criado_em, atualizado_em
             FROM usuarios
-            ORDER BY user_id ASC";
+            ORDER BY FIELD(status_conta, 'ativa', 'inativa', 'bloqueada'), nome_exibicao ASC, user_id ASC";
     $stm = $pdo->prepare($sql);
     $stm->execute();
 

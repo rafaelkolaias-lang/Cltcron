@@ -70,7 +70,8 @@ try {
             s.criada_em,
             s.atualizada_em,
             u.nome_exibicao,
-            a.titulo AS atividade_titulo
+            a.titulo AS atividade_titulo,
+            a.status AS status_atividade
         FROM atividades_subtarefas s
         LEFT JOIN usuarios u ON u.user_id = s.user_id
         LEFT JOIN atividades a ON a.id_atividade = s.id_atividade

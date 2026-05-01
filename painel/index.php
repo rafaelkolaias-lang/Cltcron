@@ -1253,9 +1253,9 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <script src="./js/aba-usuarios.js?v=7"></script>
+  <script src="./js/aba-usuarios.js?v=8"></script>
   <script src="./js/aba-atividades.js?v=7"></script>
-  <script src="./js/aba-gerenciar-tarefas.js?v=8"></script>
+  <script src="./js/aba-gerenciar-tarefas.js?v=9"></script>
   <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
   <script src="./js/aba-mega.js?v=5"></script>

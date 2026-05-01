@@ -723,9 +723,16 @@
         const obsHtml = obs
           ? `<span title="${escapeHtmlSeguro(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${escapeHtmlSeguro(obs)}</span>`
           : '<span class="texto-fraco">—</span>';
-        return `<tr>
+        // Badge [CANCELADO] quando o canal foi cancelado — visual apenas, sub
+        // continua editável e segue contando nos cálculos.
+        const canalCancelado = String(t.status_atividade || "").toLowerCase() === "cancelada";
+        const canalBadge = canalCancelado
+          ? ' <span class="badge bg-secondary" title="Canal cancelado pelo admin — subtarefa preservada">[CANCELADO]</span>'
+          : '';
+        const linhaStyle = canalCancelado ? ' style="opacity:0.55;"' : '';
+        return `<tr${linhaStyle}>
           <td>${escapeHtmlSeguro(dataIsoParaBrSeguro(String(t.referencia_data || "")))}</td>
-          <td>${escapeHtmlSeguro(limparCanal(t.canal_entrega) || "—")}</td>
+          <td>${escapeHtmlSeguro(limparCanal(t.canal_entrega) || "—")}${canalBadge}</td>
           <td>${escapeHtmlSeguro(String(t.titulo || "—"))}</td>
           <td>${formatarHm(seg)}</td>
           <td class="text-center">${t.concluida

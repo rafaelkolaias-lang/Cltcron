@@ -165,6 +165,13 @@
         .replace(/\s*\([^)]*\)\s*$/, "")
         .trim();
       const canal = canalLimpo ? esc(canalLimpo) : '<span class="texto-fraco">—</span>';
+      // Badge [CANCELADO] quando o canal está cancelado — visual apenas; subtarefa
+      // continua editável e segue contando nos cálculos (preserva histórico de pagamento).
+      const canalCancelado = String(t.status_atividade || "").toLowerCase() === "cancelada";
+      const canalBadge = canalCancelado
+        ? ' <span class="badge bg-secondary" title="Canal cancelado pelo admin — subtarefa preservada">[CANCELADO]</span>'
+        : '';
+      const linhaStyle = canalCancelado ? ' style="opacity:0.55;"' : '';
       const obs = String(t.observacao || "").trim();
       const obsHtml = obs
         ? `<span title="${esc(obs)}" style="display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">${esc(obs)}</span>`
@@ -174,10 +181,10 @@
         : `<button class="btn btn-sm btn-outline-light botao-mini" onclick="gtAbrirEdicao(${t.id_subtarefa})">Editar</button>`;
 
       return `
-        <tr>
+        <tr${linhaStyle}>
           <td class="small">${esc(dataIsoBr(t.referencia_data))}</td>
           <td class="small">${esc(t.nome_exibicao || t.user_id)}</td>
-          <td class="small">${canal}</td>
+          <td class="small">${canal}${canalBadge}</td>
           <td class="small">${esc(t.titulo)}${travaBadge}</td>
           <td class="small">${tempo}</td>
           <td class="small">${obsHtml}</td>

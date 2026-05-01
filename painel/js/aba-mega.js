@@ -62,6 +62,7 @@
     atividadesComUsuarios: [],
     campos: [],
     pastas: [],
+    modelosCampos: [], // templates globais (mega_campos_modelos)
     filtroUserId: '',
     filtroIdAtividade: 0,
     filtroCanalPastas: 0,
@@ -250,6 +251,7 @@
       if (b) b.textContent = '—';
       const btn = document.getElementById('megaBotaoNovoCampo');
       if (btn) btn.disabled = true;
+      atualizarBotoesModelos();
       return;
     }
 
@@ -264,6 +266,7 @@
       const btn = document.getElementById('megaBotaoNovoCampo');
       if (btn) btn.disabled = false;
       renderizarCampos();
+      atualizarBotoesModelos();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
@@ -396,6 +399,151 @@
   }
 
   // ===========================================================
+  // BLOCO 2.5 — Modelos reutilizáveis de campos (templates globais)
+  // ===========================================================
+  // Atalho de preenchimento: admin salva valores comuns como modelo e aplica
+  // numa linha editável de outro user/canal. Aplicar NÃO grava — só insere a
+  // linha pré-preenchida; o admin ainda precisa clicar em "Salvar" pra
+  // persistir o campo daquele user+canal.
+  async function carregarModelosCampos() {
+    try {
+      const dados = await requisitar(API + 'campos_modelos_listar.php');
+      estado.modelosCampos = Array.isArray(dados) ? dados : [];
+    } catch (e) {
+      estado.modelosCampos = [];
+      console.warn('[mega] falha ao carregar modelos de campo:', e?.message || e);
+    }
+    atualizarSelectModelosCampos();
+  }
+
+  function atualizarSelectModelosCampos() {
+    const sel = document.getElementById('megaSelectModelo');
+    if (!sel) return;
+    sel.disabled = false;
+    if (!estado.modelosCampos.length) {
+      sel.innerHTML = '<option value="">Nenhum modelo cadastrado</option>';
+    } else {
+      sel.innerHTML = '<option value="">Selecione um modelo…</option>' +
+        estado.modelosCampos.map((m) => `<option value="${m.id_modelo}">${esc(m.nome_modelo)}</option>`).join('');
+    }
+    atualizarBotoesModelos();
+  }
+
+  function atualizarBotoesModelos() {
+    const btnUsar = document.getElementById('megaBotaoUsarModelo');
+    const btnSalvar = document.getElementById('megaBotaoSalvarComoModelo');
+    if (btnUsar) {
+      btnUsar.disabled = !(estado.filtroUserId && estado.filtroIdAtividade && estado.modelosCampos.length);
+    }
+    if (btnSalvar) {
+      // Habilita só quando há linha em edição visível.
+      const tbody = document.getElementById('tbodyMegaCampos');
+      const temLinhaEdicao = !!tbody?.querySelector('tr[data-modo="edicao"]');
+      btnSalvar.disabled = !temLinhaEdicao;
+    }
+  }
+
+  function aplicarModeloCampoSelecionado() {
+    if (!estado.filtroUserId || !estado.filtroIdAtividade) {
+      alerta('erro', 'MEGA', 'Selecione usuário e canal antes de aplicar um modelo.');
+      return;
+    }
+    const sel = document.getElementById('megaSelectModelo');
+    const idModelo = parseInt(sel?.value, 10) || 0;
+    const modelo = estado.modelosCampos.find((m) => m.id_modelo === idModelo);
+    if (!modelo) {
+      alerta('erro', 'MEGA', 'Selecione um modelo válido.');
+      return;
+    }
+    const tbody = document.getElementById('tbodyMegaCampos');
+    if (!tbody) return;
+    // Não duplica se já existir uma linha "novo campo".
+    if (tbody.querySelector('tr[data-id-campo="0"]')) {
+      alerta('erro', 'MEGA', 'Já existe uma linha em edição. Salve ou cancele antes de aplicar outro modelo.');
+      return;
+    }
+    // id_campo=0 força INSERT no usuário/canal atuais quando o admin clicar Salvar.
+    const novo = {
+      id_campo: 0,
+      label_campo: modelo.label_campo,
+      extensoes_permitidas: modelo.extensoes_permitidas || '',
+      quantidade_maxima: modelo.quantidade_maxima,
+      obrigatorio: !!modelo.obrigatorio,
+      ordem: modelo.ordem || 0,
+      ativo: true, // ao aplicar, sempre cria como ativo (mesmo se modelo inativo)
+    };
+    tbody.insertAdjacentHTML('afterbegin', linhaCampoEditavel(novo));
+    bindCamposActions();
+    atualizarBotoesModelos();
+  }
+
+  async function salvarLinhaComoModelo() {
+    const tbody = document.getElementById('tbodyMegaCampos');
+    const tr = tbody?.querySelector('tr[data-modo="edicao"]');
+    if (!tr) {
+      alerta('erro', 'MEGA', 'Nenhuma linha em edição.');
+      return;
+    }
+    const label = tr.querySelector('.mega-campo-label')?.value?.trim() || '';
+    if (!label) {
+      alerta('erro', 'MEGA', 'Preencha o label do campo antes de salvar como modelo.');
+      return;
+    }
+    const sugestao = label;
+    const nome = (window.prompt('Nome do modelo:', sugestao) || '').trim();
+    if (!nome) return;
+
+    const payload = {
+      nome_modelo: nome,
+      label_campo: label,
+      extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
+      quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 0),
+      obrigatorio: !!tr.querySelector('.mega-campo-obrig')?.checked,
+      ordem: parseInt(tr.querySelector('.mega-campo-ordem')?.value, 10) || 0,
+      ativo: true,
+    };
+    try {
+      await requisitar(API + 'campos_modelos_salvar.php', 'POST', payload);
+      alerta('sucesso', 'MEGA', 'Modelo salvo.');
+      carregarModelosCampos();
+    } catch (e) {
+      alerta('erro', 'MEGA', e.message);
+    }
+  }
+
+  async function gerenciarModelos() {
+    // Lista textual + prompt pra desativar — UX simples sem modal pesado.
+    try {
+      const dados = await requisitar(API + 'campos_modelos_listar.php?incluir_inativos=1');
+      const lista = Array.isArray(dados) ? dados : [];
+      if (!lista.length) {
+        alerta('info', 'MEGA', 'Nenhum modelo cadastrado.');
+        return;
+      }
+      const linhas = lista.map((m) => {
+        const status = m.ativo ? '✓' : '✗';
+        const ext = m.extensoes_permitidas || 'qualquer';
+        const qtd = m.quantidade_maxima === 0 ? 'ilim.' : m.quantidade_maxima;
+        const obr = m.obrigatorio ? 'obrig' : 'opc';
+        return `[${m.id_modelo}] ${status} ${m.nome_modelo} → label="${m.label_campo}" ext=${ext} qtd=${qtd} ${obr}`;
+      }).join('\n');
+      const idStr = window.prompt(
+        'Modelos cadastrados (✓ ativo / ✗ inativo):\n\n' + linhas +
+        '\n\nDigite o ID do modelo para desativar (cancela em branco):',
+        ''
+      );
+      const idModelo = parseInt(idStr, 10);
+      if (!idModelo) return;
+      if (!window.confirm(`Desativar modelo #${idModelo}?`)) return;
+      await requisitar(API + 'campos_modelos_excluir.php', 'POST', { id_modelo: idModelo });
+      alerta('sucesso', 'MEGA', 'Modelo desativado.');
+      carregarModelosCampos();
+    } catch (e) {
+      alerta('erro', 'MEGA', e.message);
+    }
+  }
+
+  // ===========================================================
   // BLOCO 3 — Pastas lógicas (read-only)
   // ===========================================================
   async function carregarPastas() {
@@ -464,7 +612,12 @@
       if (tbody.querySelector('tr[data-id-campo="0"]')) return;
       tbody.insertAdjacentHTML('afterbegin', linhaCampoEditavel(null));
       bindCamposActions();
+      atualizarBotoesModelos();
     });
+
+    document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', aplicarModeloCampoSelecionado);
+    document.getElementById('megaBotaoSalvarComoModelo')?.addEventListener('click', salvarLinhaComoModelo);
+    document.getElementById('megaBotaoGerenciarModelos')?.addEventListener('click', gerenciarModelos);
   }
 
   let _eventosBindados = false;
@@ -482,11 +635,13 @@
         carregarCanais(),
         carregarUsuarios(),
         carregarAtividadesComUsuarios(),
+        carregarModelosCampos(),
       ]);
       carregarPastas();
     } else {
       carregarCanais();
       carregarAtividadesComUsuarios();
+      carregarModelosCampos();
       carregarPastas();
     }
   }

@@ -960,6 +960,20 @@ header('Content-Type: text/html; charset=utf-8');
                 Sem campos configurados → nenhum upload é exigido daquele usuário no canal.
               </div>
 
+              <!-- Barra de modelos (templates) reutilizáveis -->
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-2 p-2 rounded" style="background:rgba(255,255,255,0.04);">
+                <span class="texto-fraco small">Modelos:</span>
+                <select id="megaSelectModelo" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:200px;" disabled>
+                  <option value="">Carregando…</option>
+                </select>
+                <button class="btn btn-sm btn-light" type="button" id="megaBotaoUsarModelo" disabled
+                        title="Insere uma nova linha editável já preenchida com este modelo (você ainda precisa clicar em Salvar)">Usar modelo</button>
+                <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoSalvarComoModelo" disabled
+                        title="Salva a linha em edição como um novo modelo global">+ Salvar linha como modelo</button>
+                <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoGerenciarModelos"
+                        title="Listar e desativar modelos">Gerenciar</button>
+              </div>
+
               <div class="table-responsive">
                 <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
                   <thead>
@@ -1244,7 +1258,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-gerenciar-tarefas.js?v=8"></script>
   <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=4"></script>
+  <script src="./js/aba-mega.js?v=5"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=7"></script>
   <script src="./js/painel.js?v=7"></script>

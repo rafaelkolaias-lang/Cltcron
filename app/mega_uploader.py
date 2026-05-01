@@ -403,6 +403,55 @@ class PainelMegaApi:
         )
         return payload.get("dados") or {}
 
+    def pastas_logicas_para_sync(self, timeout: float = 15.0) -> list[dict]:
+        """GET desktop_pastas_logicas_para_sync.php → lista de canais (com
+        upload_ativo=1) que o user pertence, cada um com pasta_raiz_mega +
+        pastas_logicas[].
+
+        Retorna [] se nenhum canal aplicável.
+        """
+        url = f"{self.url_painel}/commands/mega/desktop_pastas_logicas_para_sync.php"
+        payload = _request_painel(url, self._headers(), timeout=timeout)
+        dados = payload.get("dados") or {}
+        canais = dados.get("canais") or []
+        return canais if isinstance(canais, list) else []
+
+    def marcar_pastas_logicas_inativas_lote(
+        self, ids_pasta_logica: list[int], timeout: float = 15.0
+    ) -> dict:
+        """POST desktop_marcar_pastas_logicas_inativas_lote.php → soft-delete em
+        lote. Servidor limita a 1000 IDs por chamada — caller deve fatiar.
+
+        Retorna {solicitados, inativadas, ids_ignorados}.
+        """
+        ids = [int(i) for i in ids_pasta_logica if int(i) > 0]
+        if not ids:
+            return {"solicitados": 0, "inativadas": 0, "ids_ignorados": []}
+        url = f"{self.url_painel}/commands/mega/desktop_marcar_pastas_logicas_inativas_lote.php"
+        payload = _request_painel(
+            url,
+            self._headers(),
+            metodo="POST",
+            corpo={"ids_pasta_logica": ids},
+            timeout=timeout,
+        )
+        return payload.get("dados") or {}
+
+    def uploads_orfaos_listar(self, timeout: float = 15.0) -> list[dict]:
+        """GET desktop_uploads_orfaos_listar.php → lista de pastas lógicas que
+        têm uploads sem subtarefa vinculada (recovery após queda abrupta).
+
+        Cada item: {id_pasta_logica, id_atividade, titulo_atividade,
+        nome_pasta, numero_video, titulo_video, pasta_raiz_mega, pasta_ativa,
+        uploads:[{id_upload, nome_campo, nome_arquivo, tamanho_bytes,
+        status_upload, criado_em, atualizado_em}]}.
+        """
+        url = f"{self.url_painel}/commands/mega/desktop_uploads_orfaos_listar.php"
+        payload = _request_painel(url, self._headers(), timeout=timeout)
+        dados = payload.get("dados") or {}
+        pastas = dados.get("pastas") or []
+        return pastas if isinstance(pastas, list) else []
+
     def registrar_upload(
         self,
         *,

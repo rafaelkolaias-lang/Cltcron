@@ -7,6 +7,9 @@ declare(strict_types=1);
  * dedicada do MEGA.
  *
  * Idempotente. Chamado pelos endpoints do módulo MEGA antes de qualquer query.
+ *
+ * Tabelas criadas: mega_canal_config, mega_campos_upload, mega_campos_modelos
+ * (templates globais reutilizáveis), mega_pasta_logica, mega_uploads.
  */
 
 require_once __DIR__ . '/../conexao/conexao.php';
@@ -63,6 +66,27 @@ function mega_garantir_estrutura(?PDO $pdo = null): void
             ativo           TINYINT(1) NOT NULL DEFAULT 1,
             UNIQUE KEY uk_atividade_pasta (id_atividade, nome_pasta),
             KEY idx_atividade (id_atividade)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    ");
+
+    // E. Modelos reutilizáveis de campos de upload (templates globais).
+    //    Não cria campo em ninguém — é só um atalho de preenchimento que o admin
+    //    aplica linha por linha em mega_campos_upload (cada aplicação salva
+    //    explicitamente). Soft-delete via `ativo`.
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS mega_campos_modelos (
+            id_modelo             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            nome_modelo           VARCHAR(120) NOT NULL,
+            label_campo           VARCHAR(120) NOT NULL,
+            extensoes_permitidas  VARCHAR(255) NULL,
+            quantidade_maxima     SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+            obrigatorio           TINYINT(1) NOT NULL DEFAULT 1,
+            ativo                 TINYINT(1) NOT NULL DEFAULT 1,
+            ordem                 SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+            criado_em             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            atualizado_em         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_nome_modelo (nome_modelo),
+            KEY idx_ativo_ordem (ativo, ordem, nome_modelo)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 

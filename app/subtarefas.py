@@ -297,8 +297,12 @@ class JanelaSubtarefas(tk.Toplevel):
                 int(getattr(s, "id_subtarefa", 0)): s for s in subtarefas
             }
 
-            # Configurar tag visual para linhas de pagamento
+            # Configurar tag visual para linhas de pagamento e tarefas Abertas.
+            # "Aberta" = sub criada automaticamente após primeiro upload mas
+            # ainda sem tempo declarado (concluida=0). Visual chamativo pra
+            # lembrar o usuário de finalizar (preencher tempo + Salvar).
             self._arvore.tag_configure("pagamento", foreground="#00cc66", background="#1a2e1a")
+            self._arvore.tag_configure("aberta", foreground="#ff6b6b", background="#3a1a1a")
 
             for item in self._arvore.get_children():
                 self._arvore.delete(item)
@@ -324,11 +328,14 @@ class JanelaSubtarefas(tk.Toplevel):
                 _segundos = int(getattr(subtarefa, "segundos_gastos", 0) or 0)
                 _obs = str(getattr(subtarefa, "observacao", "") or "")
                 _bloqueio = "Pago" if bool(getattr(subtarefa, "bloqueada_pagamento", False)) else ""
+                # Tag "aberta" deixa a linha em vermelho discreto — só aplica
+                # a subs com concluida=0 (sem tempo informado ainda).
+                _tags: tuple = ("aberta",) if not bool(getattr(subtarefa, "concluida", False)) else ()
                 itens_mesclados.append((
                     dt_ord,
                     f"subtarefa_{id_sub}",
                     (_titulo, _canal, _status, self._formatar_data(ref), formatar_hhmmss(_segundos), _obs, _bloqueio),
-                    (),
+                    _tags,
                     {
                         "titulo": _titulo.lower(),
                         "canal": _canal.lower(),
@@ -1112,6 +1119,46 @@ class JanelaSubtarefas(tk.Toplevel):
                 id_inicial = id_sub_ativ
         id_atividade_efetiva = {"id": id_inicial}
         pasta_raiz_holder = {"valor": pasta_raiz_mega}
+
+        def _criar_sub_aberta_se_necessario() -> int:
+            """Garante que existe uma subtarefa criada (concluida=0) pra
+            vincular o upload. Chamado do `_op` do `_iniciar_upload_mega`
+            depois que o upload concluiu com sucesso.
+
+            Retorna o id_subtarefa final (0 se algo falhar).
+
+            Em modo edição (subtarefa is not None) reusa a sub existente.
+            Em modo "nova" cria a sub Aberta na primeira chamada e cacheia
+            em `self._id_subtarefa_criada_nesta_janela` pra uploads
+            subsequentes reusarem.
+            """
+            if subtarefa is not None:
+                return int(getattr(subtarefa, "id_subtarefa", 0) or 0)
+            if self._id_subtarefa_criada_nesta_janela is not None:
+                return int(self._id_subtarefa_criada_nesta_janela)
+
+            # Coleta dados do form pra criar a sub
+            try:
+                referencia = self._converter_texto_para_data(var_referencia.get())
+            except Exception:
+                referencia = self._referencia_data
+            titulo = pasta_logica.get("nome_pasta") or ""
+            canal = (var_canal.get() or "").strip()
+            observacao = (var_observacao.get() or "").strip()
+
+            try:
+                novo_id = self._repositorio.criar_subtarefa(
+                    user_id=self._usuario_id(),
+                    referencia_data=referencia,
+                    id_atividade=id_atividade_efetiva["id"],
+                    titulo=titulo,
+                    canal_entrega=canal,
+                    observacao=observacao,
+                )
+                self._id_subtarefa_criada_nesta_janela = int(novo_id)
+                return int(novo_id)
+            except Exception:
+                return 0
         # Por nome_campo: {"state", "id_upload", "arquivo_local", "label_status", "pbar"}
         estado_campos: dict[str, dict] = {}
 
@@ -1486,6 +1533,7 @@ class JanelaSubtarefas(tk.Toplevel):
                             botao_cancelar=btn_cancel_local,
                             atualizar_botao_salvar=_atualizar_botao_salvar,
                             atualizar_lock_pasta=_atualizar_lock_pasta,
+                            criar_sub_aberta=_criar_sub_aberta_se_necessario,
                             filedialog=_filedialog,
                             cores=(_OK, _ERRO, _PEND),
                             eh_pasta=eh_pasta,
@@ -1674,7 +1722,35 @@ class JanelaSubtarefas(tk.Toplevel):
 
         var_texto_botao = tk.StringVar(value="Salvar")
 
-        btn_cancelar = ttk.Button(rodape, text="Cancelar", command=janela.destroy)
+        def _ao_fechar_janela() -> None:
+            # Cleanup: se em modo "nova", o user criou uma pasta lógica e
+            # NÃO houve nenhum upload concluído nem sub criada, marca a
+            # pasta como inativa. Evita pasta órfã queimando número.
+            try:
+                sub_foi_criada = self._id_subtarefa_criada_nesta_janela is not None
+                tem_upload_concluido = any(
+                    st.get("state") == "concluido" for st in estado_campos.values()
+                )
+                if (
+                    subtarefa is None
+                    and pasta_logica.get("id_pasta_logica")
+                    and not sub_foi_criada
+                    and not tem_upload_concluido
+                ):
+                    try:
+                        api.marcar_pasta_logica_inativa(
+                            int(pasta_logica["id_pasta_logica"])
+                        )
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    janela.destroy()
+                except Exception:
+                    pass
+
+        janela.protocol("WM_DELETE_WINDOW", _ao_fechar_janela)
+        btn_cancelar = ttk.Button(rodape, text="Cancelar", command=_ao_fechar_janela)
         btn_cancelar.pack(side="right")
         btn_salvar = ttk.Button(rodape, textvariable=var_texto_botao, style="Primario.TButton")
         btn_salvar.pack(side="right", padx=(0, 8))
@@ -1707,6 +1783,21 @@ class JanelaSubtarefas(tk.Toplevel):
                 btn_salvar.configure(state="disabled")
                 var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
                 return
+
+            # Regra de negócio: se subiu pelo menos 1 arquivo, exige tempo > 0
+            # pra concluir a tarefa. Tempo=0 só é permitido quando NÃO subiu
+            # nenhum arquivo (sub fica como Aberta só com pasta).
+            tem_upload_concluido = any(
+                st.get("state") == "concluido" for st in estado_campos.values()
+            )
+            if tem_upload_concluido and not tempo and not subtarefa_concluida:
+                var_aviso_bloqueio.set(
+                    "Você subiu arquivo(s). Preencha o tempo gasto pra concluir a tarefa."
+                )
+                btn_salvar.configure(state="disabled")
+                var_texto_botao.set("Salvar e Concluir")
+                return
+
             var_aviso_bloqueio.set("")
             btn_salvar.configure(state="normal")
             if tempo and not subtarefa_concluida:
@@ -1762,7 +1853,8 @@ class JanelaSubtarefas(tk.Toplevel):
 
             def _operacao() -> int:
                 if subtarefa is None:
-                    if self._id_subtarefa_criada_nesta_janela is None:
+                    sub_ja_criada = self._id_subtarefa_criada_nesta_janela is not None
+                    if not sub_ja_criada:
                         self._id_subtarefa_criada_nesta_janela = self._repositorio.criar_subtarefa(
                             user_id=uid,
                             referencia_data=referencia_data,
@@ -1772,6 +1864,20 @@ class JanelaSubtarefas(tk.Toplevel):
                             observacao=observacao,
                         )
                     novo_id = self._id_subtarefa_criada_nesta_janela
+                    # Se a sub foi criada antes (pelo upload, modelo "Aberta
+                    # automática"), atualiza os campos com o que está no
+                    # form agora — o user pode ter editado observação/canal/
+                    # data depois do upload.
+                    if sub_ja_criada and novo_id:
+                        try:
+                            self._repositorio.atualizar_subtarefa(
+                                user_id=uid, id_subtarefa=int(novo_id),
+                                titulo=titulo, canal_entrega=canal,
+                                observacao=observacao,
+                                referencia_data=referencia_data,
+                            )
+                        except Exception:
+                            pass  # se falhar atualização, segue pra concluir
                     if deve_concluir:
                         self._repositorio.concluir_subtarefa(
                             user_id=uid,
@@ -1906,6 +2012,7 @@ class JanelaSubtarefas(tk.Toplevel):
         botao_cancelar: ttk.Button,
         atualizar_botao_salvar: Callable[[], None],
         atualizar_lock_pasta: Callable[[], None] | None = None,
+        criar_sub_aberta: Callable[[], int] | None = None,
         filedialog: object,
         cores: tuple[str, str, str],
         eh_pasta: bool = False,
@@ -2144,7 +2251,16 @@ class JanelaSubtarefas(tk.Toplevel):
             # qual remover.
             estado_entry["arquivo_remoto_anterior"] = f"{pasta_remota}{nome_arq}"
 
-            # Etapa 3: marca como concluido
+            # Cria sub Aberta no banco no PRIMEIRO upload concluído desta
+            # janela (se modo "nova"). Subs em modo edição já existem.
+            id_sub_para_vincular = 0
+            if criar_sub_aberta is not None:
+                try:
+                    id_sub_para_vincular = int(criar_sub_aberta() or 0)
+                except Exception:
+                    id_sub_para_vincular = 0
+
+            # Etapa 3: marca como concluido + vincula a id_subtarefa.
             if estado_entry["id_upload"]:
                 api_local.registrar_upload(  # type: ignore[attr-defined]
                     id_upload=int(estado_entry["id_upload"]),
@@ -2153,6 +2269,7 @@ class JanelaSubtarefas(tk.Toplevel):
                     nome_arquivo=nome_arq,
                     status_upload="concluido",
                     tamanho_bytes=tamanho,
+                    id_subtarefa=id_sub_para_vincular if id_sub_para_vincular > 0 else None,
                 )
             return True
 

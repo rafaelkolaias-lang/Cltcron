@@ -70,7 +70,7 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v2.9.2"
+VERSAO_APLICACAO = "v2.9.3"
 
 HISTORICO_VERSOES = [
     {

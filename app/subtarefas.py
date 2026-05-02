@@ -1564,6 +1564,46 @@ class JanelaSubtarefas(tk.Toplevel):
                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 14))
 
         # ====================================================
+        # Seção 0: Canal + Data de referência (no topo)
+        # StringVars criadas aqui pra que os widgets fiquem acima da pasta
+        # lógica. O `_ao_trocar_canal` e o `var_canal.trace_add` continuam
+        # mais abaixo (precisam dos widgets da pasta lógica/uploads que ainda
+        # não existem nesse ponto do construtor).
+        # ====================================================
+        # Edição: prioriza titulo_atividade (canal real da sub via JOIN no
+        # backend) sobre canal_entrega (texto livre, pode estar desatualizado).
+        if subtarefa is not None:
+            canal_inicial = (
+                str(getattr(subtarefa, "titulo_atividade", "") or "")
+                or str(getattr(subtarefa, "canal_entrega", "") or "")
+                or self._titulo_atividade
+            )
+        else:
+            canal_inicial = self._titulo_atividade
+        var_canal = tk.StringVar(value=canal_inicial)
+        referencia_atual = getattr(subtarefa, "referencia_data", None) if subtarefa else self._referencia_data
+        var_referencia = tk.StringVar(
+            value=(referencia_atual.strftime("%d/%m/%Y") if isinstance(referencia_atual, date) else self._referencia_data.strftime("%d/%m/%Y"))
+        )
+
+        linha = tk.Frame(inner, bg=_C)
+        linha.pack(fill="x", pady=(0, 6))
+        col_e = tk.Frame(linha, bg=_C)
+        col_e.pack(side="left", fill="x", expand=True)
+        col_d = tk.Frame(linha, bg=_C)
+        col_d.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        tk.Label(col_e, text="CANAL", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Combobox(col_e, textvariable=var_canal, values=self._opcoes_canal,
+                     state="readonly").pack(fill="x", pady=(3, 8))
+
+        tk.Label(col_d, text="DATA DE REFERÊNCIA", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Entry(col_d, textvariable=var_referencia).pack(fill="x", pady=(3, 8))
+
+        # Separador entre Canal/Data e a Pasta lógica.
+        tk.Frame(inner, bg="#222", height=1).pack(fill="x", pady=(6, 12))
+
+        # ====================================================
         # Seção 1: Pasta lógica do vídeo
         # ====================================================
         sec_pasta = tk.Frame(inner, bg=_C)
@@ -1899,41 +1939,16 @@ class JanelaSubtarefas(tk.Toplevel):
         _construir_widgets_campos(campos_exigidos)
 
         # ====================================================
-        # Seção 3: Canal + Data + Observação + Tempo
+        # Seção 3: Observação + Tempo
+        # (Canal + Data de referência ficam no topo do form)
         # ====================================================
         tk.Frame(inner, bg="#222", height=1).pack(fill="x", pady=(12, 8))
 
-        # Edição: prioriza titulo_atividade (canal real da sub via JOIN no
-        # backend) sobre canal_entrega (texto livre, pode estar desatualizado).
-        if subtarefa is not None:
-            canal_inicial = (
-                str(getattr(subtarefa, "titulo_atividade", "") or "")
-                or str(getattr(subtarefa, "canal_entrega", "") or "")
-                or self._titulo_atividade
-            )
-        else:
-            canal_inicial = self._titulo_atividade
-        var_canal = tk.StringVar(value=canal_inicial)
         var_observacao = tk.StringVar(value=(str(getattr(subtarefa, "observacao", "") or "") if subtarefa else ""))
-        referencia_atual = getattr(subtarefa, "referencia_data", None) if subtarefa else self._referencia_data
-        var_referencia = tk.StringVar(
-            value=(referencia_atual.strftime("%d/%m/%Y") if isinstance(referencia_atual, date) else self._referencia_data.strftime("%d/%m/%Y"))
-        )
         subtarefa_concluida = bool(getattr(subtarefa, "concluida", False)) if subtarefa else False
         var_tempo = tk.StringVar(
             value=(formatar_hhmmss(int(getattr(subtarefa, "segundos_gastos", 0) or 0)) if subtarefa_concluida else "00:00:00")
         )
-
-        linha = tk.Frame(inner, bg=_C)
-        linha.pack(fill="x")
-        col_e = tk.Frame(linha, bg=_C)
-        col_e.pack(side="left", fill="x", expand=True)
-        col_d = tk.Frame(linha, bg=_C)
-        col_d.pack(side="left", fill="x", expand=True, padx=(12, 0))
-
-        tk.Label(col_e, text="CANAL", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        ttk.Combobox(col_e, textvariable=var_canal, values=self._opcoes_canal,
-                     state="readonly").pack(fill="x", pady=(3, 8))
 
         # Trocar canal: refetch da config (pasta raiz + pastas lógicas), reset
         # da pasta lógica e dos estados de upload. Os widgets de campos
@@ -2030,9 +2045,6 @@ class JanelaSubtarefas(tk.Toplevel):
             self._executar_em_background(_fetch, _ok_fetch, _falha_fetch)
 
         var_canal.trace_add("write", _ao_trocar_canal)
-
-        tk.Label(col_d, text="DATA DE REFERÊNCIA", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        ttk.Entry(col_d, textvariable=var_referencia).pack(fill="x", pady=(3, 8))
 
         tk.Label(inner, text="OBSERVAÇÃO", bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w")
         ttk.Entry(inner, textvariable=var_observacao).pack(fill="x", pady=(3, 8))

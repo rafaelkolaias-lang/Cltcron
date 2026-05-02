@@ -68,11 +68,57 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 
 
 # =========================
+# Preferências locais do usuário (persistidas em arquivo simples)
+# =========================
+ARQUIVO_PREFS = Path.home() / ".cronometro_leve_prefs.json"
+_PREFS_DEFAULTS: dict[str, object] = {
+    "ocultar_tarefas_pagas": True,
+}
+
+
+def carregar_prefs() -> dict[str, object]:
+    """Lê prefs do disco; em qualquer falha retorna defaults. Defaults também
+    preenchem chaves novas em arquivos antigos."""
+    prefs = dict(_PREFS_DEFAULTS)
+    try:
+        if ARQUIVO_PREFS.exists():
+            data = json.loads(ARQUIVO_PREFS.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                prefs.update(data)
+    except Exception:
+        pass
+    return prefs
+
+
+def salvar_pref(chave: str, valor: object) -> None:
+    """Atualiza uma chave de prefs em disco. Falha silenciosa — pref é
+    cosmético, não pode quebrar fluxo principal."""
+    try:
+        prefs = carregar_prefs()
+        prefs[chave] = valor
+        ARQUIVO_PREFS.write_text(
+            json.dumps(prefs, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+# =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.1"
+VERSAO_APLICACAO = "v3.1.2"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.2",
+        "data": "02/05/2026",
+        "notas": [
+            "Checkbox 'Ocultar tarefas pagas' na janela 'Tarefas da Atividade' — habilitado por padrão, esconde subtarefas já travadas por pagamento",
+            "Canal sem upload MEGA configurado bloqueia declaração de tarefas novas: aviso vermelho + botão Salvar desativado",
+            "Combo CANAL no formulário legado fica readonly: pra trocar de canal, fechar e selecionar pelo menu principal (combo era cosmético — nem mudava o id_atividade salvo)",
+            "Campo CANAL movido pro topo do formulário 'Nova Tarefa' legado",
+        ],
+    },
     {
         "versao": "v3.1.1",
         "data": "01/05/2026",

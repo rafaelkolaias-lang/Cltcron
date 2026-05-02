@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from tkinter import messagebox, ttk
 
+from app.config import carregar_prefs, salvar_pref
 from app.win32_utils import formatar_hhmmss
 from declaracoes_dia import RepositorioDeclaracoesDia
 
@@ -111,6 +112,12 @@ class JanelaSubtarefas(tk.Toplevel):
 
         self._var_resumo = tk.StringVar(value="")
         self._var_trava = tk.StringVar(value="Carregando...")
+
+        # Pref local: ocultar tarefas pagas da lista. Default True (esconde).
+        _prefs = carregar_prefs()
+        self._var_ocultar_pagas = tk.BooleanVar(
+            value=bool(_prefs.get("ocultar_tarefas_pagas", True))
+        )
 
         # Tarefa 2: status da sincronização MEGA. Atualizado por listener
         # registrado em mega_sync; controla habilitar/desabilitar do botão
@@ -254,6 +261,11 @@ class JanelaSubtarefas(tk.Toplevel):
                 "Já existe uma sincronização em andamento. Aguarde terminar.",
                 parent=self,
             )
+
+    def _ao_alternar_ocultar_pagas(self) -> None:
+        """Persiste a pref e re-renderiza a lista (sem refetch — só recria a árvore)."""
+        salvar_pref("ocultar_tarefas_pagas", bool(self._var_ocultar_pagas.get()))
+        self._recarregar_dados()
 
     def _abrir_modal_configurar_pix(self) -> None:
         """Abre modal "Configurar Pix" — só puxa a chave atual do servidor ao abrir.
@@ -514,6 +526,13 @@ class JanelaSubtarefas(tk.Toplevel):
             ttk.Button(botoes_finais, text="Fechar", command=self._ao_fechar_janela_subs).pack(side="right")
             ttk.Button(botoes_finais, text="Configurar Pix", command=self._abrir_modal_configurar_pix).pack(side="right", padx=(0, 8))
 
+        ttk.Checkbutton(
+            botoes_finais,
+            text="Ocultar tarefas pagas",
+            variable=self._var_ocultar_pagas,
+            command=self._ao_alternar_ocultar_pagas,
+        ).pack(side="right", padx=(0, 8))
+
     def _formatar_data(self, valor: object) -> str:
         if valor is None:
             return ""
@@ -610,7 +629,12 @@ class JanelaSubtarefas(tk.Toplevel):
             _DT_MIN = datetime.min
             itens_mesclados: list[tuple] = []
 
+            # Pref do user: ocultar subs pagas (bloqueada_pagamento=True). Default True.
+            _ocultar_pagas = bool(self._var_ocultar_pagas.get())
+
             for subtarefa in subtarefas:
+                if _ocultar_pagas and bool(getattr(subtarefa, "bloqueada_pagamento", False)):
+                    continue
                 id_sub = int(getattr(subtarefa, "id_subtarefa", 0))
                 ref = getattr(subtarefa, "referencia_data", None)
                 criada = getattr(subtarefa, "criada_em", None)
@@ -972,11 +996,24 @@ class JanelaSubtarefas(tk.Toplevel):
             if cfg and cfg.get("upload_ativo"):
                 self._abrir_formulario_subtarefa_mega(subtarefa, cfg)
             else:
-                aviso = (
-                    "Este canal ainda não tem upload obrigatório no MEGA configurado."
-                    if cfg is not None else None
+                # Canal sem upload MEGA definido: bloqueia declaração de
+                # tarefas novas (regra: toda tarefa precisa subir algo no
+                # MEGA). Edição de subs já existentes segue permitida.
+                config_ausente = cfg is not None and not cfg.get("upload_ativo")
+                bloquear_criacao = config_ausente and subtarefa is None
+                if config_ausente:
+                    aviso = (
+                        "Este canal não tem upload obrigatório no MEGA configurado. "
+                        "Não é possível declarar novas tarefas até o administrador "
+                        "configurar os campos de upload na aba MEGA do painel."
+                    )
+                else:
+                    aviso = None  # falha de fetch (offline/timeout): não pune
+                self._abrir_formulario_subtarefa_legado(
+                    subtarefa,
+                    aviso_mega=aviso,
+                    bloquear_sem_upload=bloquear_criacao,
                 )
-                self._abrir_formulario_subtarefa_legado(subtarefa, aviso_mega=aviso)
 
         self._executar_em_background(_buscar_config, _despachar)
 
@@ -985,17 +1022,22 @@ class JanelaSubtarefas(tk.Toplevel):
         subtarefa: object | None,
         *,
         aviso_mega: str | None = None,
+        bloquear_sem_upload: bool = False,
     ) -> None:
         """Formulário tradicional (pré-MEGA): número + título + checkbox de drive.
 
         Mantido para canais sem `mega_canal_config` (ou com `upload_ativo=0`).
-        Quando `aviso_mega` é passado, exibe um label suave informando que o
-        canal ainda não tem upload obrigatório configurado — útil pra admin
-        identificar onde falta configurar.
+        Quando `aviso_mega` é passado, exibe um label informando que o canal
+        ainda não tem upload obrigatório configurado — útil pra admin
+        identificar onde falta configurar. Quando `bloquear_sem_upload` é True,
+        o botão Salvar/Salvar e Concluir fica desativado: a regra de negócio
+        exige que toda tarefa nova suba algo no MEGA, então canal sem upload
+        configurado não pode receber declaração nova (edição de subs antigas
+        segue permitida).
         """
         janela = tk.Toplevel(self)
         janela.title("Declarar Tarefa")
-        janela.geometry("700x460" if not aviso_mega else "700x490")
+        janela.geometry("700x460" if not aviso_mega else "700x510")
         janela.resizable(False, False)
         janela.transient(self)
         janela.grab_set()
@@ -1086,10 +1128,31 @@ class JanelaSubtarefas(tk.Toplevel):
                  font=("Segoe UI", 13, "bold")).pack(anchor="w", pady=(0, 16))
 
         if aviso_mega:
+            cor_aviso = "#e55555" if bloquear_sem_upload else "#f0a500"
             tk.Label(
-                inner, text=f"⚠ {aviso_mega}", bg=_C, fg="#f0a500",
-                font=("Segoe UI", 9), wraplength=600, justify="left",
+                inner, text=f"⚠ {aviso_mega}", bg=_C, fg=cor_aviso,
+                font=("Segoe UI", 9, "bold" if bloquear_sem_upload else "normal"),
+                wraplength=600, justify="left",
             ).pack(anchor="w", pady=(0, 10))
+
+        # Canal + Data (lado a lado) — canal vem primeiro pra forçar
+        # escolha do contexto antes de preencher o resto.
+        linha_superior = tk.Frame(inner, bg=_C)
+        linha_superior.pack(fill="x")
+        coluna_esquerda = tk.Frame(linha_superior, bg=_C)
+        coluna_esquerda.pack(side="left", fill="x", expand=True)
+        coluna_direita = tk.Frame(linha_superior, bg=_C)
+        coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        _label_com_ajuda(coluna_esquerda, "CANAL",
+                         "Canal da tarefa. Para mudar de canal, feche esta "
+                         "janela e selecione outro canal pelo menu principal.")
+        combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="disabled")
+        combo_canal.pack(fill="x", pady=(3, 12))
+
+        tk.Label(coluna_direita, text="DATA DE REFERÊNCIA", bg=_C, fg=_D,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        ttk.Entry(coluna_direita, textvariable=var_referencia, width=18).pack(fill="x", pady=(3, 12))
 
         # Nº do vídeo + Tarefa (lado a lado)
         linha_tarefa = tk.Frame(inner, bg=_C)
@@ -1102,7 +1165,7 @@ class JanelaSubtarefas(tk.Toplevel):
         _label_com_ajuda(col_numero, "Nº DO VÍDEO",
                          "Número da pasta do Drive.")
         entry_numero = ttk.Entry(col_numero, textvariable=var_numero, width=10)
-        entry_numero.pack(fill="x", pady=(3, 12))
+        entry_numero.pack(fill="x", pady=(3, 10))
 
         def _on_key_numero(event: tk.Event) -> str:  # type: ignore[type-arg]
             if event.keysym in ("BackSpace", "Delete", "Left", "Right", "Tab", "ISO_Left_Tab"):
@@ -1121,24 +1184,7 @@ class JanelaSubtarefas(tk.Toplevel):
 
         _label_com_ajuda(col_titulo, "TAREFA",
                          "Nome/Tema do vídeo ou tarefa.")
-        ttk.Entry(col_titulo, textvariable=var_titulo, width=60).pack(fill="x", pady=(3, 12))
-
-        # Canal + Data (lado a lado)
-        linha_superior = tk.Frame(inner, bg=_C)
-        linha_superior.pack(fill="x")
-        coluna_esquerda = tk.Frame(linha_superior, bg=_C)
-        coluna_esquerda.pack(side="left", fill="x", expand=True)
-        coluna_direita = tk.Frame(linha_superior, bg=_C)
-        coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
-
-        _label_com_ajuda(coluna_esquerda, "CANAL",
-                         "Escolha o canal correspondente ao trabalho declarado.")
-        combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="readonly")
-        combo_canal.pack(fill="x", pady=(3, 10))
-
-        tk.Label(coluna_direita, text="DATA DE REFERÊNCIA", bg=_C, fg=_D,
-                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
-        ttk.Entry(coluna_direita, textvariable=var_referencia, width=18).pack(fill="x", pady=(3, 10))
+        ttk.Entry(col_titulo, textvariable=var_titulo, width=60).pack(fill="x", pady=(3, 10))
 
         # Observação
         tk.Label(inner, text="OBSERVAÇÃO", bg=_C, fg=_D,
@@ -1198,6 +1244,9 @@ class JanelaSubtarefas(tk.Toplevel):
         var_texto_botao = tk.StringVar()
 
         def _atualizar_texto_botao(*_args: object) -> None:
+            if bloquear_sem_upload:
+                var_texto_botao.set("Configurar canal antes de declarar")
+                return
             tempo = (var_tempo.get() or "").strip()
             if not subtarefa_concluida and tempo:
                 var_texto_botao.set("Salvar e Concluir")
@@ -1211,6 +1260,8 @@ class JanelaSubtarefas(tk.Toplevel):
         btn_cancelar.pack(side="right")
         btn_salvar = ttk.Button(rodape, textvariable=var_texto_botao, style="Primario.TButton")
         btn_salvar.pack(side="right", padx=(0, 8))
+        if bloquear_sem_upload:
+            btn_salvar.configure(state="disabled")
 
         def salvar() -> None:
             # Captura intenção ANTES de alterar o texto do botão

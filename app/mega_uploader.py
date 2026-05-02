@@ -93,6 +93,20 @@ CAMINHOS_PADRAO_MEGACMD = [
     Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "MEGAcmd",
 ]
 
+# Wrappers .bat que o código realmente usa. Se qualquer um faltar no diretório,
+# tratamos a instalação como incompleta/corrompida e disparamos reinstalação.
+# Já vimos casos (PC do Marcus) onde MEGAclient.exe estava presente mas os .bat
+# não — a detecção passava e a primeira chamada quebrava com "comando não
+# encontrado". Validar os .bat aqui faz o auto-installer rodar de novo.
+BATS_OBRIGATORIOS_MEGACMD = (
+    "mega-whoami.bat",
+    "mega-login.bat",
+    "mega-mkdir.bat",
+    "mega-put.bat",
+    "mega-rm.bat",
+    "mega-ls.bat",
+)
+
 TIMEOUT_INSTALL_SEG = 180.0
 TIMEOUT_COMANDO_PADRAO_SEG = 30.0
 TIMEOUT_UPLOAD_PADRAO_SEG = 60 * 60.0   # 1h por arquivo (uploads grandes)
@@ -185,10 +199,26 @@ def _executar_silencioso(
 # =============================================================
 # Localização / instalação do MEGAcmd
 # =============================================================
+def _instalacao_completa(base: Path) -> bool:
+    """Verifica se o diretório tem MEGAclient.exe + todos os wrappers .bat
+    que o código usa. Retorna False se faltar qualquer um (instalação parcial
+    ou corrompida)."""
+    if not (base / "MEGAclient.exe").exists():
+        return False
+    for nome in BATS_OBRIGATORIOS_MEGACMD:
+        if not (base / nome).exists():
+            return False
+    return True
+
+
 def _localizar_megacmd() -> Path | None:
-    """Retorna o diretório de instalação do MEGAcmd ou None."""
+    """Retorna o diretório de instalação do MEGAcmd ou None.
+
+    Só considera "instalado" se todos os wrappers .bat necessários estiverem
+    presentes — assim instalações parciais disparam reinstalação automática.
+    """
     for base in CAMINHOS_PADRAO_MEGACMD:
-        if base.exists() and (base / "MEGAclient.exe").exists():
+        if base.exists() and _instalacao_completa(base):
             return base
     return None
 

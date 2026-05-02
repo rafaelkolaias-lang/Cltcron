@@ -127,7 +127,7 @@ def _flags_sem_console() -> tuple[int, subprocess.STARTUPINFO | None]:
 
 
 def _executar_silencioso(
-    comando: list[str],
+    comando: list[str] | str,
     *,
     timeout: float = TIMEOUT_COMANDO_PADRAO_SEG,
     cwd: Path | None = None,
@@ -586,9 +586,11 @@ class MegaUploader:
         if not bat.exists():
             raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
 
-        # .bat precisa de cmd.exe — usamos cmd /c, mantendo creationflags pra
-        # esconder a janela.
-        comando = ["cmd.exe", "/c", str(bat), *args]
+        # cmd /c com aspas externas envolvendo a linha inteira: quando o caminho
+        # do .bat tem espaço (ex.: "C:\Users\Marcus Vinicius\..."), cmd.exe
+        # descarta as aspas internas se houver mais de um par e quebra no espaço.
+        linha = subprocess.list2cmdline([str(bat), *args])
+        comando = f'cmd.exe /c "{linha}"'
         return _executar_silencioso(comando, timeout=timeout)
 
     def _buscar_segredo(self, identificador: str) -> str:
@@ -751,7 +753,9 @@ class MegaUploader:
         bat = self._bat("mega-put")
         if not bat.exists():
             raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
-        comando = ["cmd.exe", "/c", str(bat), "-c", str(arquivo), pasta_remota]
+        # Aspas externas envolvendo a linha inteira — vide _run_mega para o motivo.
+        linha = subprocess.list2cmdline([str(bat), "-c", str(arquivo), pasta_remota])
+        comando = f'cmd.exe /c "{linha}"'
 
         flags, si = _flags_sem_console()
         # Arquivo temp pra stderr — ler em paralelo via tail. Evita o bug do

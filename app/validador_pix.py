@@ -35,11 +35,11 @@ def _validar_cnpj(digitos: str) -> bool:
         return False
     pesos1 = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
     pesos2 = [6] + pesos1
-    soma = sum(int(d) * p for d, p in zip(digitos[:12], pesos1))
+    soma = sum(int(d) * p for d, p in zip(digitos[:12], pesos1, strict=False))
     dv1 = 0 if soma % 11 < 2 else 11 - (soma % 11)
     if dv1 != int(digitos[12]):
         return False
-    soma = sum(int(d) * p for d, p in zip(digitos[:13], pesos2))
+    soma = sum(int(d) * p for d, p in zip(digitos[:13], pesos2, strict=False))
     dv2 = 0 if soma % 11 < 2 else 11 - (soma % 11)
     return dv2 == int(digitos[13])
 

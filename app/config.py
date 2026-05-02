@@ -248,7 +248,7 @@ def carregar_estado_mega_sync(user_id: str) -> dict:
     try:
         if not ARQUIVO_MEGA_SYNC.exists():
             return padrao
-        with open(ARQUIVO_MEGA_SYNC, "r", encoding="utf-8") as f:
+        with open(ARQUIVO_MEGA_SYNC, encoding="utf-8") as f:
             todos = json.load(f)
         if not isinstance(todos, dict):
             return padrao
@@ -267,7 +267,7 @@ def salvar_estado_mega_sync(user_id: str, estado: dict) -> None:
         todos = {}
         if ARQUIVO_MEGA_SYNC.exists():
             try:
-                with open(ARQUIVO_MEGA_SYNC, "r", encoding="utf-8") as f:
+                with open(ARQUIVO_MEGA_SYNC, encoding="utf-8") as f:
                     todos = json.load(f)
                 if not isinstance(todos, dict):
                     todos = {}

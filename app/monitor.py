@@ -15,8 +15,6 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from banco import BancoDados
-
 from app.config import (
     ARQUIVO_ESTADO_SESSAO,
     ARQUIVO_FILA_OFFLINE,
@@ -38,6 +36,7 @@ from app.win32_utils import (
     obter_aplicativo_em_foco,
     obter_segundos_ocioso_windows,
 )
+from banco import BancoDados
 
 
 @dataclass

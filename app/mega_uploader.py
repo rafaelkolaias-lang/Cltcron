@@ -39,8 +39,8 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ TIMEOUT_UPLOAD_PADRAO_SEG = 60 * 60.0   # 1h por arquivo (uploads grandes)
 # =============================================================
 # Subprocess sem console visível (Windows)
 # =============================================================
-def _flags_sem_console() -> tuple[int, "subprocess.STARTUPINFO | None"]:
+def _flags_sem_console() -> tuple[int, subprocess.STARTUPINFO | None]:
     """Retorna `(creationflags, startupinfo)` que escondem qualquer janela."""
     if sys.platform != "win32":
         return 0, None
@@ -159,14 +159,14 @@ def _executar_silencioso(
                     startupinfo=si,
                     shell=False,
                 )
-            except subprocess.TimeoutExpired as e:
+            except subprocess.TimeoutExpired:
                 # Re-empacota com a saída parcial dos arquivos pra debugging
                 fo.flush(); fe.flush()
                 raise
 
-        with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(out_path, encoding="utf-8", errors="replace") as f:
             stdout = f.read()
-        with open(err_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(err_path, encoding="utf-8", errors="replace") as f:
             stderr = f.read()
         # subprocess.CompletedProcess permite atribuição direta dos campos
         proc.stdout = stdout
@@ -786,7 +786,7 @@ class MegaUploader:
 
             t_tail.join(timeout=2.0)
 
-            with open(err_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(err_path, encoding="utf-8", errors="replace") as f:
                 stderr = f.read()
 
             if cancelado:

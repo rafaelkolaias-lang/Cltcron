@@ -20,14 +20,10 @@ try:
 except Exception:  # não-Windows ou ambiente sem winsound
     winsound = None  # type: ignore[assignment]
 
-from atividades import RepositorioAtividades
-from banco import BancoDados
-from declaracoes_dia import RepositorioDeclaracoesDia
-
 from app.config import (
+    ARQUIVO_LOG_TECNICO,
     ARQUIVO_LOGIN_SALVO,
     ARQUIVO_REGRESSIVA,
-    ARQUIVO_LOG_TECNICO,
     HISTORICO_VERSOES,
     INTERVALO_UI_MILISSEGUNDOS,
     INTERVALO_VERIFICAR_UPDATE_MS,
@@ -41,6 +37,9 @@ from app.config import (
 from app.monitor import MonitorDeUso
 from app.subtarefas import JanelaSubtarefas
 from app.win32_utils import formatar_hhmmss
+from atividades import RepositorioAtividades
+from banco import BancoDados
+from declaracoes_dia import RepositorioDeclaracoesDia
 
 
 class App(tk.Tk):
@@ -851,8 +850,9 @@ class App(tk.Tk):
                 operacao()
                 self.after(0, lambda: ao_concluir() if self.winfo_exists() else None)
             except Exception as e:
+                erro = e
                 if ao_falhar:
-                    self.after(0, lambda: ao_falhar(e) if self.winfo_exists() else None)
+                    self.after(0, lambda: ao_falhar(erro) if self.winfo_exists() else None)
         threading.Thread(target=_thread, daemon=True).start()
 
     def _iniciar(self) -> None:
@@ -984,8 +984,9 @@ class App(tk.Tk):
             return
 
         from datetime import date as _date
+
         from app.config import URL_PAINEL
-        from app.mega_uploader import PainelMegaApi, ErroPainelHTTP
+        from app.mega_uploader import ErroPainelHTTP, PainelMegaApi
 
         api = PainelMegaApi(URL_PAINEL, user_id, chave)
         criadas = 0

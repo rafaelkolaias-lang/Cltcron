@@ -16,8 +16,8 @@ nao_sincronizado}.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable, Optional
 
 from app import config as _cfg
 from app.mega_uploader import (
@@ -35,7 +35,7 @@ LOTE_INATIVAR = 300
 # Lock interno: garante que não rolem 2 syncs ao mesmo tempo (after timer +
 # clique manual em "Iniciar" repetido).
 _lock_execucao = threading.Lock()
-_thread_atual: Optional[threading.Thread] = None
+_thread_atual: threading.Thread | None = None
 
 # Callbacks da UI que querem ser notificados a cada mudança de status.
 # `JanelaSubtarefas` registra um callback ao abrir e desregistra ao fechar.

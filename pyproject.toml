@@ -18,6 +18,9 @@ ignore = [
     "E501",   # line too long (tratamos com line-length)
     "E741",   # ambiguous variable name
     "B028",   # no explicit stacklevel
+    "E701",   # múltiplas declarações na mesma linha (colon) — estilo usado pelo projeto em try/except curtos
+    "E702",   # múltiplas declarações na mesma linha (semicolon) — idem
+    "E402",   # import não no topo — usado intencionalmente em app/config.py para evitar ciclo de import
 ]
 
 [tool.ruff.lint.per-file-ignores]

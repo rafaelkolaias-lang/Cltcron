@@ -10,9 +10,8 @@ from collections.abc import Callable
 from datetime import date, datetime
 from tkinter import messagebox, ttk
 
-from declaracoes_dia import RepositorioDeclaracoesDia
-
 from app.win32_utils import formatar_hhmmss
+from declaracoes_dia import RepositorioDeclaracoesDia
 
 
 def _headers_auth_pix(user_id: str, chave: str) -> dict[str, str]:
@@ -274,7 +273,8 @@ class JanelaSubtarefas(tk.Toplevel):
                         pass
                 modal.after(0, aplicar)
             except Exception as e:
-                modal.after(0, lambda: _aplicar_status(f"Falha ao carregar: {e}", "#ef4444"))
+                msg_err = str(e)
+                modal.after(0, lambda: _aplicar_status(f"Falha ao carregar: {msg_err}", "#ef4444"))
 
         threading.Thread(target=_carregar_atual, daemon=True).start()
 
@@ -301,13 +301,14 @@ class JanelaSubtarefas(tk.Toplevel):
                         messagebox.showinfo("Configurar Pix", "Chave Pix salva com sucesso.", parent=self)
                     modal.after(0, ok)
                 except Exception as e:
+                    msg_err = str(e)
                     def fail() -> None:
                         try:
                             btn_salvar.configure(state="normal")
                             btn_cancelar.configure(state="normal")
                         except Exception:
                             pass
-                        _aplicar_status(f"Falha ao salvar: {e}", "#ef4444")
+                        _aplicar_status(f"Falha ao salvar: {msg_err}", "#ef4444")
                     modal.after(0, fail)
 
             threading.Thread(target=worker, daemon=True).start()
@@ -2301,8 +2302,12 @@ class JanelaSubtarefas(tk.Toplevel):
         upload recursivo.
         """
         import threading
+
         from app.mega_uploader import (
-            ErroCredencialFaltando, ErroMega, ErroPastaMegaInexistente, ErroUploadCancelado,
+            ErroCredencialFaltando,
+            ErroMega,
+            ErroPastaMegaInexistente,
+            ErroUploadCancelado,
         )
         cor_ok, cor_erro, cor_pend = cores
         var_status = estado_entry["var_status"]

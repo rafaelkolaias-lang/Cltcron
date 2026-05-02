@@ -201,6 +201,60 @@ class JanelaSubtarefas(tk.Toplevel):
         except Exception:
             pass
 
+    def _forcar_sync_mega_debug(self) -> None:
+        """Botão de debug: dispara `mega_sync.executar_sincronizacao_async`
+        ignorando o controle "1× ao dia" (limpa `data_sync_ok` antes).
+        """
+        user_id = str(self._usuario.get("user_id") or "").strip()
+        chave = str(self._usuario.get("chave") or "").strip()
+        if not user_id or not chave:
+            messagebox.showerror("Atualizar MEGA", "Login não disponível.", parent=self)
+            return
+
+        try:
+            from app import mega_sync
+            from app.config import (
+                APP_CLIENT_DECRYPT_KEY,
+                URL_PAINEL,
+                carregar_estado_mega_sync,
+                salvar_estado_mega_sync,
+            )
+            from app.mega_uploader import MegaUploader, PainelMegaApi
+        except Exception as e:
+            messagebox.showerror("Atualizar MEGA", f"Falha ao importar dependências:\n{e}", parent=self)
+            return
+
+        if not URL_PAINEL or not APP_CLIENT_DECRYPT_KEY:
+            messagebox.showerror(
+                "Atualizar MEGA",
+                "URL do painel ou chave de cliente ausente — sync indisponível neste ambiente.",
+                parent=self,
+            )
+            return
+
+        # Reseta o flag "1× ao dia" pra forçar a execução agora.
+        try:
+            estado = carregar_estado_mega_sync(user_id)
+            estado["data_sync_ok"] = None
+            salvar_estado_mega_sync(user_id, estado)
+        except Exception:
+            pass
+
+        try:
+            api = PainelMegaApi(URL_PAINEL, user_id, chave)
+            uploader = MegaUploader(URL_PAINEL, user_id, chave, APP_CLIENT_DECRYPT_KEY)
+            iniciado = mega_sync.executar_sincronizacao_async(user_id, uploader, api)
+        except Exception as e:
+            messagebox.showerror("Atualizar MEGA", f"Falha ao disparar sync:\n{e}", parent=self)
+            return
+
+        if not iniciado:
+            messagebox.showinfo(
+                "Atualizar MEGA",
+                "Já existe uma sincronização em andamento. Aguarde terminar.",
+                parent=self,
+            )
+
     def _abrir_modal_configurar_pix(self) -> None:
         """Abre modal "Configurar Pix" — só puxa a chave atual do servidor ao abrir.
 
@@ -392,6 +446,7 @@ class JanelaSubtarefas(tk.Toplevel):
         ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Excluir", style="Perigo.TButton", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
         ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados).pack(side="right")
+        ttk.Button(barra_acoes, text="Atualizar MEGA", command=self._forcar_sync_mega_debug).pack(side="right", padx=(0, 8))
 
         tabela_frame = ttk.Frame(quadro)
         tabela_frame.pack(fill="both", expand=True)

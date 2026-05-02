@@ -70,9 +70,16 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1"
+VERSAO_APLICACAO = "v3.1.1"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.1",
+        "data": "01/05/2026",
+        "notas": [
+            "Botão de debug 'Atualizar MEGA' ao lado do botão 'Atualizar' em Tarefas da Atividade — força a sincronização das pastas MEGA na hora",
+        ],
+    },
     {
         "versao": "v3.1",
         "data": "01/05/2026",

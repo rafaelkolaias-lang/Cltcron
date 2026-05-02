@@ -16,7 +16,7 @@ if (file_exists($arquivo)) {
 }
 
 // Fallback: redireciona para a release mais recente no GitHub
-$url_release = 'https://github.com/LucasLgomes/Cltcron/releases/latest/download/CronometroLeve.exe';
+$url_release = 'https://github.com/rafaelkolaias-lang/Cltcron/releases/latest/download/CronometroLeve.exe';
 
 header('Location: ' . $url_release, true, 302);
 exit;

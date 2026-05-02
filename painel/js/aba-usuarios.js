@@ -155,6 +155,7 @@
       nivel: String(u.nivel || ""),
       valor_hora: Number(u.valor_hora || 0),
       chave: String(u.chave || ""),
+      chave_pix: u.chave_pix == null ? "" : String(u.chave_pix),
       status_conta: String(u.status_conta || ""),
       ocultar_dashboard: Number(u.ocultar_dashboard || 0) ? 1 : 0,
       atualizado_em: String(u.atualizado_em || ""),
@@ -212,6 +213,49 @@
               data-oculto-atual="${oculto ? 1 : 0}">
         <span style="font-size: 0.95rem; line-height: 1; opacity: ${oculto ? "0.5" : "1"};">${icone}</span>
       </button>
+    `;
+  }
+
+  function classificarTipoPix(valor) {
+    const v = String(valor || "").trim();
+    if (!v) return null;
+    if (v.includes("@")) return "email";
+    const d = v.replace(/\D+/g, "");
+    if (d.length === 14) return "cnpj";
+    if (d.length === 10 || d.length === 11) return "celular";
+    return null;
+  }
+
+  function rotuloTipoPix(tipo) {
+    if (tipo === "cnpj") return "CNPJ";
+    if (tipo === "celular") return "Celular";
+    if (tipo === "email") return "E-mail";
+    return "";
+  }
+
+  function renderCelulaChavePix(u) {
+    const uid = escapeHtmlSeguro(u.user_id);
+    const valor = String(u.chave_pix || "").trim();
+    if (!valor) {
+      return `<span class="texto-fraco small">Não cadastrada</span>`;
+    }
+    const tipo = classificarTipoPix(valor);
+    const rotulo = rotuloTipoPix(tipo);
+    const valorEsc = escapeHtmlSeguro(valor);
+    const rotuloHtml = rotulo ? `<span class="texto-fraco small me-1">${rotulo}</span>` : "";
+    return `
+      <div class="d-inline-flex align-items-center gap-2 chave-pix-celula" data-uid="${uid}" data-revelado="0">
+        ${rotuloHtml}
+        <span class="texto-mono small chave-pix-valor" data-valor="${valorEsc}">••••••••</span>
+        <button class="btn btn-sm btn-outline-light px-2 py-0"
+                type="button"
+                title="Mostrar/ocultar chave Pix"
+                aria-label="Mostrar/ocultar chave Pix"
+                data-acao-usuario="alternar-pix"
+                data-uid="${uid}">
+          <span style="font-size:0.95rem; line-height:1;">👁</span>
+        </button>
+      </div>
     `;
   }
 
@@ -369,6 +413,10 @@
           </td>
 
           <td class="text-center">
+            ${renderCelulaChavePix(u)}
+          </td>
+
+          <td class="text-center">
             <div class="d-inline-flex align-items-center gap-2">
               ${badgeStatusConta(u.status_conta)}
               ${botaoVisibilidadeDashboard(u)}
@@ -407,6 +455,20 @@
       const uid = btn.getAttribute("data-uid");
       if (acao === "abrir-gestao") {
         await abrirModalGestaoUsuario(uid);
+        return;
+      }
+      if (acao === "alternar-pix") {
+        const celula = btn.closest(".chave-pix-celula");
+        const valorEl = celula ? celula.querySelector(".chave-pix-valor") : null;
+        if (!celula || !valorEl) return;
+        const revelado = celula.getAttribute("data-revelado") === "1";
+        if (revelado) {
+          valorEl.textContent = "••••••••";
+          celula.setAttribute("data-revelado", "0");
+        } else {
+          valorEl.textContent = valorEl.getAttribute("data-valor") || "";
+          celula.setAttribute("data-revelado", "1");
+        }
         return;
       }
       if (acao === "alternar-visibilidade-dashboard") {
@@ -605,6 +667,7 @@
     const elNaoDecl = document.getElementById("gestaoResumoNaoDeclarado");
     const elOcioso = document.getElementById("gestaoResumoOcioso");
     const elAPagar = document.getElementById("gestaoResumoAPagar");
+    const elPago = document.getElementById("gestaoResumoPago");
 
     try {
       const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}&resumo_periodo=${encodeURIComponent(_resumoPeriodoAtivo)}`);
@@ -624,12 +687,14 @@
       if (elNaoDecl) elNaoDecl.textContent = formatarHm(naoDeclarado);
       if (elOcioso) elOcioso.textContent = formatarHm(ocioso);
       if (elAPagar) elAPagar.textContent = formatarDinheiroBr(aPagar);
+      if (elPago) elPago.textContent = formatarDinheiroBr(totalPago);
     } catch (_) {
       if (elTrab) elTrab.textContent = "—";
       if (elDecl) elDecl.textContent = "—";
       if (elNaoDecl) elNaoDecl.textContent = "—";
       if (elOcioso) elOcioso.textContent = "—";
       if (elAPagar) elAPagar.textContent = "—";
+      if (elPago) elPago.textContent = "—";
     }
   }
 

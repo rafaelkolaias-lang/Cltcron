@@ -70,9 +70,17 @@ LOG_TEC = LogTecnico(ARQUIVO_LOG_TECNICO)
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.0"
+VERSAO_APLICACAO = "v3.1"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1",
+        "data": "01/05/2026",
+        "notas": [
+            "Configurar chave Pix pelo botão 'Configurar Pix' na janela 'Tarefas da Atividade' — aceita CNPJ, celular ou e-mail",
+            "Cronometradas no rodapé agora reseta automaticamente a cada pagamento registrado",
+        ],
+    },
     {
         "versao": "v3.0",
         "data": "01/05/2026",

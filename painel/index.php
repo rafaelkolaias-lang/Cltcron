@@ -159,6 +159,7 @@ header('Content-Type: text/html; charset=utf-8');
                       <th style="min-width: 260px;">Usuário</th>
                       <th class="text-center" style="min-width: 140px;">Nível</th>
                       <th class="text-center" style="min-width: 120px;">R$/hora</th>
+                      <th class="text-center" style="min-width: 180px;">Chave Pix</th>
                       <th class="text-center" style="min-width: 140px;">Status</th>
                       <th class="text-center" style="min-width: 170px;">Atualizado</th>
                       <th class="text-end" style="min-width: 220px;">Ações</th>
@@ -166,7 +167,7 @@ header('Content-Type: text/html; charset=utf-8');
                   </thead>
                   <tbody id="tbodyUsuarios">
                     <tr>
-                      <td colspan="6" class="texto-fraco">Carregando…</td>
+                      <td colspan="7" class="texto-fraco">Carregando…</td>
                     </tr>
                   </tbody>
                 </table>
@@ -382,8 +383,14 @@ header('Content-Type: text/html; charset=utf-8');
                         <div class="card-metrica__valor text-info" id="gestaoResumoAPagar">—</div>
                       </div>
                     </div>
+                    <div class="col-6 col-md-4 col-xl">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Pago</div>
+                        <div class="card-metrica__valor" style="color:#a78bfa" id="gestaoResumoPago">—</div>
+                      </div>
+                    </div>
                   </div>
-                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos.</div>
+                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos. Pago = total já pago no período.</div>
                 </article>
 
                 <!-- Registrar pagamento -->

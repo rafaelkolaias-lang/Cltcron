@@ -620,23 +620,40 @@ class RepositorioDeclaracoesDia:
             return 0
 
     def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int) -> int:
-        """Total cronometrado = trabalhando + ocioso (todo histórico).
+        """Total cronometrado = trabalhando + ocioso, do ciclo atual.
 
         Métrica neutra para a UI: não revela saldo declarável.
         `id_atividade <= 0` = soma de todas as atividades do user (overview).
+
+        Reseta a cada pagamento: soma só relatórios com `criado_em >= MAX(data_pagamento)`
+        do mesmo user (e atividade, se filtrado). Sem pagamento = soma todo o histórico.
+        Granularidade por dia (DATE vs DATETIME) — ver !projeto.md.
         """
         self._garantir_estrutura()
         try:
             id_ativ = int(id_atividade)
+            uid_norm = self._normalizar_user_id(user_id)
+
+            sql_pag = "SELECT MAX(data_pagamento) AS ultimo FROM Pagamentos WHERE user_id = %s"
+            params_pag: list[Any] = [uid_norm]
+            if id_ativ > 0:
+                sql_pag += " AND id_atividade = %s"
+                params_pag.append(id_ativ)
+            linha_pag = self._banco.consultar_um(sql_pag, params_pag)
+            ultimo_pagamento = (linha_pag or {}).get("ultimo")
+
             sql = """
                 SELECT COALESCE(SUM(segundos_trabalhando + segundos_ocioso), 0) AS total
                 FROM cronometro_relatorios
                 WHERE user_id = %s
             """
-            params: list[Any] = [self._normalizar_user_id(user_id)]
+            params: list[Any] = [uid_norm]
             if id_ativ > 0:
                 sql += " AND id_atividade = %s"
                 params.append(id_ativ)
+            if ultimo_pagamento is not None:
+                sql += " AND criado_em >= %s"
+                params.append(ultimo_pagamento)
             linha = self._banco.consultar_um(sql, params)
             return int((linha or {}).get("total") or 0)
         except Exception:

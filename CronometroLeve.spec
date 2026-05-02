@@ -22,6 +22,7 @@ a = Analysis(
         'app.mega_uploader',
         'app.monitor',
         'app.subtarefas',
+        'app.validador_pix',
         'app.win32_utils',
         'app.segredos',
         *_nacl_hiddenimports,

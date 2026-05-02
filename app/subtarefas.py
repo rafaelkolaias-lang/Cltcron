@@ -1,8 +1,11 @@
 """Janela "Tarefas da Atividade" / "Declarar Tarefa"."""
 from __future__ import annotations
 
+import json as _json
 import threading
 import tkinter as tk
+import urllib.error
+import urllib.request
 from collections.abc import Callable
 from datetime import date, datetime
 from tkinter import messagebox, ttk
@@ -10,6 +13,55 @@ from tkinter import messagebox, ttk
 from declaracoes_dia import RepositorioDeclaracoesDia
 
 from app.win32_utils import formatar_hhmmss
+
+
+def _headers_auth_pix(user_id: str, chave: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {user_id}:{chave}",
+        "X-User-Id": user_id,
+        "X-User-Chave": chave,
+        "Accept": "application/json",
+    }
+
+
+def _http_pix_obter(url_painel: str, user_id: str, chave: str, timeout: float = 8.0) -> dict:
+    url = f"{url_painel.rstrip('/')}/commands/usuarios/api/obter_pix.php"
+    req = urllib.request.Request(url, headers=_headers_auth_pix(user_id, chave), method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (URL controlada por config)
+        corpo = resp.read().decode("utf-8", errors="replace")
+    try:
+        payload = _json.loads(corpo)
+    except _json.JSONDecodeError as e:
+        raise RuntimeError(f"resposta inválida do servidor: {corpo[:120]}") from e
+    if not payload.get("ok"):
+        raise RuntimeError(str(payload.get("mensagem") or "erro desconhecido"))
+    return dict(payload.get("dados") or {})
+
+
+def _http_pix_salvar(url_painel: str, user_id: str, chave: str, valor: str, timeout: float = 8.0) -> dict:
+    url = f"{url_painel.rstrip('/')}/commands/usuarios/api/salvar_pix.php"
+    corpo_req = _json.dumps({"chave_pix": valor}).encode("utf-8")
+    headers = _headers_auth_pix(user_id, chave)
+    headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=corpo_req, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            corpo = resp.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as e:
+        # Lê corpo do erro pra extrair a mensagem (ex: 400 "CNPJ inválido…")
+        try:
+            corpo_err = e.read().decode("utf-8", errors="replace")
+            payload_err = _json.loads(corpo_err)
+            raise RuntimeError(str(payload_err.get("mensagem") or e.reason)) from e
+        except (_json.JSONDecodeError, AttributeError):
+            raise RuntimeError(str(e.reason)) from e
+    try:
+        payload = _json.loads(corpo)
+    except _json.JSONDecodeError as e:
+        raise RuntimeError(f"resposta inválida do servidor: {corpo[:120]}") from e
+    if not payload.get("ok"):
+        raise RuntimeError(str(payload.get("mensagem") or "erro desconhecido"))
+    return dict(payload.get("dados") or {})
 
 
 class JanelaSubtarefas(tk.Toplevel):
@@ -150,6 +202,118 @@ class JanelaSubtarefas(tk.Toplevel):
         except Exception:
             pass
 
+    def _abrir_modal_configurar_pix(self) -> None:
+        """Abre modal "Configurar Pix" — só puxa a chave atual do servidor ao abrir.
+
+        Fluxo: vazio → campo vazio. Já cadastrada → mostra em texto aberto pra editar.
+        Validação local antes de enviar (CNPJ, celular, e-mail; recusa CPF/aleatória).
+        """
+        try:
+            from app.config import URL_PAINEL
+        except Exception:
+            URL_PAINEL = ""
+        user_id = str(self._usuario.get("user_id") or "").strip()
+        chave_user = str(self._usuario.get("chave") or "").strip()
+        if not URL_PAINEL or not user_id or not chave_user:
+            messagebox.showerror("Configurar Pix", "Login não disponível para acessar o servidor.", parent=self)
+            return
+
+        modal = tk.Toplevel(self)
+        modal.title("Configurar chave Pix")
+        modal.configure(bg="#111111")
+        modal.transient(self)
+        modal.grab_set()
+        modal.resizable(False, False)
+        modal.geometry("520x280")
+
+        ttk.Label(modal, text="Chave Pix do usuário", font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=16, pady=(16, 4))
+        ttk.Label(
+            modal,
+            text="Tipos aceitos: CNPJ, celular ou e-mail. CPF e chave aleatória não são aceitos.",
+            wraplength=480,
+        ).pack(anchor="w", padx=16, pady=(0, 8))
+
+        var_chave = tk.StringVar()
+        entrada = ttk.Entry(modal, textvariable=var_chave, width=58)
+        entrada.pack(padx=16, pady=(0, 6), fill="x")
+
+        var_status = tk.StringVar(value="Carregando chave atual…")
+        lbl_status = ttk.Label(modal, textvariable=var_status, foreground="#9ca3af")
+        lbl_status.pack(anchor="w", padx=16, pady=(0, 8))
+
+        rodape = ttk.Frame(modal)
+        rodape.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
+
+        btn_salvar = ttk.Button(rodape, text="Salvar", style="Primario.TButton")
+        btn_cancelar = ttk.Button(rodape, text="Cancelar", command=modal.destroy)
+        btn_cancelar.pack(side="right")
+        btn_salvar.pack(side="right", padx=(0, 8))
+
+        def _aplicar_status(texto: str, cor: str = "#9ca3af") -> None:
+            try:
+                var_status.set(texto)
+                lbl_status.configure(foreground=cor)
+            except Exception:
+                pass
+
+        def _carregar_atual() -> None:
+            try:
+                resultado = _http_pix_obter(URL_PAINEL, user_id, chave_user)
+                def aplicar() -> None:
+                    valor = (resultado.get("chave_pix") or "") if isinstance(resultado, dict) else ""
+                    var_chave.set(valor)
+                    if valor:
+                        tipo = (resultado.get("tipo") or "").strip()
+                        rotulo = {"cnpj": "CNPJ", "celular": "Celular", "email": "E-mail"}.get(tipo, "")
+                        _aplicar_status(f"Chave atual ({rotulo}). Edite e clique Salvar." if rotulo else "Chave atual carregada. Edite e clique Salvar.", "#9ca3af")
+                    else:
+                        _aplicar_status("Nenhuma chave cadastrada. Digite sua chave Pix.", "#9ca3af")
+                    try:
+                        entrada.focus_set()
+                    except Exception:
+                        pass
+                modal.after(0, aplicar)
+            except Exception as e:
+                modal.after(0, lambda: _aplicar_status(f"Falha ao carregar: {e}", "#ef4444"))
+
+        threading.Thread(target=_carregar_atual, daemon=True).start()
+
+        def _salvar() -> None:
+            from app.validador_pix import ErroPixInvalido, validar_pix
+            valor_bruto = var_chave.get()
+            try:
+                tipo, valor_norm = validar_pix(valor_bruto)
+            except ErroPixInvalido as e:
+                _aplicar_status(str(e), "#ef4444")
+                return
+            btn_salvar.configure(state="disabled")
+            btn_cancelar.configure(state="disabled")
+            _aplicar_status("Salvando…", "#9ca3af")
+
+            def worker() -> None:
+                try:
+                    _http_pix_salvar(URL_PAINEL, user_id, chave_user, valor_norm)
+                    def ok() -> None:
+                        try:
+                            modal.destroy()
+                        except Exception:
+                            pass
+                        messagebox.showinfo("Configurar Pix", "Chave Pix salva com sucesso.", parent=self)
+                    modal.after(0, ok)
+                except Exception as e:
+                    def fail() -> None:
+                        try:
+                            btn_salvar.configure(state="normal")
+                            btn_cancelar.configure(state="normal")
+                        except Exception:
+                            pass
+                        _aplicar_status(f"Falha ao salvar: {e}", "#ef4444")
+                    modal.after(0, fail)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        btn_salvar.configure(command=_salvar)
+
     def _executar_em_background(
         self,
         funcao: Callable[[], object],
@@ -289,8 +453,10 @@ class JanelaSubtarefas(tk.Toplevel):
                 command=self._enviar_e_finalizar,
             ).pack(side="right")
             ttk.Button(botoes_finais, text="Cancelar", command=self._ao_fechar_janela_subs).pack(side="right", padx=(0, 8))
+            ttk.Button(botoes_finais, text="Configurar Pix", command=self._abrir_modal_configurar_pix).pack(side="right", padx=(0, 8))
         else:
             ttk.Button(botoes_finais, text="Fechar", command=self._ao_fechar_janela_subs).pack(side="right")
+            ttk.Button(botoes_finais, text="Configurar Pix", command=self._abrir_modal_configurar_pix).pack(side="right", padx=(0, 8))
 
     def _formatar_data(self, valor: object) -> str:
         if valor is None:

@@ -740,34 +740,36 @@ class RepositorioDeclaracoesDia:
         self,
         user_id: str,
         referencia_data: date,
-        id_atividade: int,
         segundos_novos: int,
         *,
         id_subtarefa_ignorar: int | None = None,
         segundos_monitorados_adicionais: int = 0,
     ) -> None:
-        # Validação por acumulado total da atividade (independente da data de referência)
+        # Validação global por usuário (cronometro eh neutro: horas trabalhadas
+        # podem ser declaradas em qualquer atividade do mesmo user). Alinhado
+        # com painel/commands/atividades_subtarefas/editar.php, que ja valida
+        # no total.
         segundos_novos = self._validar_segundos(segundos_novos)
-        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, id_atividade)
+        monitorado = self.obter_segundos_monitorados_do_dia(user_id, None, 0)
         monitorado += max(0, int(segundos_monitorados_adicionais or 0))
-        abatimento = self.obter_abatimento_total_atividade(user_id, id_atividade)
+        abatimento = self.obter_abatimento_total_atividade(user_id, 0)
         disponivel = max(0, monitorado - abatimento)
 
         if disponivel <= 0 and segundos_novos > 0:
             raise RuntimeError(
-                "Não existe tempo monitorado disponível no cronômetro para esta atividade."
+                "Não existe tempo monitorado disponível no cronômetro."
             )
 
         ja_declarado = self.obter_segundos_declarados_do_dia(
             user_id,
             None,
-            id_atividade,
+            0,
             id_subtarefa_ignorar=id_subtarefa_ignorar,
         )
         total_resultante = ja_declarado + segundos_novos
         if total_resultante > disponivel:
             raise RuntimeError(
-                f"Você está tentando declarar {formatar_hhmmss(total_resultante)}, mas o total disponível nesta atividade é {formatar_hhmmss(disponivel)}."
+                f"Você está tentando declarar {formatar_hhmmss(total_resultante)}, mas o total disponível é {formatar_hhmmss(disponivel)}."
             )
 
     # ==========================================================
@@ -1038,7 +1040,6 @@ class RepositorioDeclaracoesDia:
                 self._validar_tempo_contra_monitoramento(
                     user_id,
                     referencia_nova or date.today(),
-                    int(antes["id_atividade"]),
                     segundos_int,
                     id_subtarefa_ignorar=int(id_subtarefa),
                     segundos_monitorados_adicionais=segundos_monitorados_adicionais,
@@ -1096,7 +1097,6 @@ class RepositorioDeclaracoesDia:
         self._validar_tempo_contra_monitoramento(
             user_id,
             referencia,
-            int(antes["id_atividade"]),
             segundos_int,
             id_subtarefa_ignorar=int(id_subtarefa),
             segundos_monitorados_adicionais=segundos_monitorados_adicionais,
@@ -1401,7 +1401,6 @@ class RepositorioDeclaracoesDia:
             self._validar_tempo_contra_monitoramento(
                 user_id,
                 referencia_data,
-                int(id_atividade),
                 soma_segundos,
             )
 

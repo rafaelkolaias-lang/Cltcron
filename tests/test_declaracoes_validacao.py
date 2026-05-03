@@ -86,42 +86,42 @@ class TestValidacaoAntiFragude:
         """Declarar 0 segundos deve sempre passar."""
         self._montar_respostas(banco_fake, monitorado=0, ja_declarado=0)
         # Nao deve lancar excecao
-        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 0)
+        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 0)
 
     def test_declarar_sem_monitoramento_falha(self, repo, banco_fake):
         """Se nao tem tempo monitorado, nao pode declarar."""
         self._montar_respostas(banco_fake, monitorado=0, ja_declarado=0)
         with pytest.raises(RuntimeError, match="Não existe tempo monitorado"):
-            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 100)
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 100)
 
     def test_declarar_exatamente_monitorado_passa(self, repo, banco_fake):
         """Declarar exatamente o tempo monitorado deve passar."""
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0)
-        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 3600)
+        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 3600)
 
     def test_declarar_acima_monitorado_falha(self, repo, banco_fake):
         """Declarar mais que o monitorado deve falhar."""
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0)
         with pytest.raises(RuntimeError, match="Você está tentando declarar"):
-            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 3601)
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 3601)
 
     def test_declarar_com_parcial_ja_declarado_no_limite(self, repo, banco_fake):
         """Ja declarou 1800s, tenta mais 1800s com monitorado=3600 — deve passar."""
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=1800)
-        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1800)
+        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1800)
 
     def test_declarar_com_parcial_ja_declarado_estoura(self, repo, banco_fake):
         """Ja declarou 1800s, tenta mais 1801s com monitorado=3600 — deve falhar."""
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=1800)
         with pytest.raises(RuntimeError, match="Você está tentando declarar"):
-            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1801)
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1801)
 
     def test_segundos_adicionais_expande_limite(self, repo, banco_fake):
         """segundos_monitorados_adicionais permite declarar mais."""
         self._montar_respostas(banco_fake, monitorado=100, ja_declarado=0)
         # Sem adicional: 200 > 100 falharia. Com adicional 100: 200 <= 200 passa.
         repo._validar_tempo_contra_monitoramento(
-            "lucas", date(2026, 4, 5), 1, 200,
+            "lucas", date(2026, 4, 5), 200,
             segundos_monitorados_adicionais=100,
         )
 
@@ -129,17 +129,17 @@ class TestValidacaoAntiFragude:
         """Segundos negativos devem ser rejeitados."""
         self._montar_respostas(banco_fake, monitorado=100, ja_declarado=0)
         with pytest.raises(RuntimeError, match="Tempo"):
-            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, -10)
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), -10)
 
     def test_abatimento_reduz_disponivel(self, repo, banco_fake):
         """Abatimento por pagamento deve reduzir o saldo disponível."""
         # monitorado=3600, abatimento=1800 → disponivel=1800. Declarar 1801 deve falhar.
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0, abatimento=1800)
         with pytest.raises(RuntimeError, match="Você está tentando declarar"):
-            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1801)
+            repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1801)
 
     def test_abatimento_permite_declarar_dentro_do_saldo(self, repo, banco_fake):
         """Com abatimento, declarar exatamente o saldo restante deve passar."""
         # monitorado=3600, abatimento=1800 → disponivel=1800. Declarar 1800 deve passar.
         self._montar_respostas(banco_fake, monitorado=3600, ja_declarado=0, abatimento=1800)
-        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1, 1800)
+        repo._validar_tempo_contra_monitoramento("lucas", date(2026, 4, 5), 1800)

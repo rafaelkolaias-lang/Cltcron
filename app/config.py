@@ -106,9 +106,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.2"
+VERSAO_APLICACAO = "v3.1.3"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.3",
+        "data": "02/05/2026",
+        "notas": [
+            "Fix: 'Cronometradas' aparecia 00:00:00 no rodapé da janela 'Tarefas da Atividade' — query inválida em Pagamentos era silenciada por except e zerava o totalizador",
+            "Cronômetro agora é neutro: você pode declarar suas horas em qualquer atividade onde tenha subtarefa, não importa em qual cronometrou (alinhado com o painel)",
+        ],
+    },
     {
         "versao": "v3.1.2",
         "data": "02/05/2026",

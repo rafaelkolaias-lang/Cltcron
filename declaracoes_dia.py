@@ -634,11 +634,15 @@ class RepositorioDeclaracoesDia:
             id_ativ = int(id_atividade)
             uid_norm = self._normalizar_user_id(user_id)
 
-            sql_pag = "SELECT MAX(data_pagamento) AS ultimo FROM Pagamentos WHERE user_id = %s"
+            # Pagamentos.id_usuario (FK int), nao user_id direto. id_atividade nao
+            # existe nessa tabela — pagamento eh por usuario.
+            sql_pag = """
+                SELECT MAX(p.data_pagamento) AS ultimo
+                FROM Pagamentos p
+                JOIN usuarios u ON u.id_usuario = p.id_usuario
+                WHERE u.user_id = %s
+            """
             params_pag: list[Any] = [uid_norm]
-            if id_ativ > 0:
-                sql_pag += " AND id_atividade = %s"
-                params_pag.append(id_ativ)
             linha_pag = self._banco.consultar_um(sql_pag, params_pag)
             ultimo_pagamento = (linha_pag or {}).get("ultimo")
 

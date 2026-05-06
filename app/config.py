@@ -106,9 +106,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.3"
+VERSAO_APLICACAO = "v3.1.4"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.4",
+        "data": "06/05/2026",
+        "notas": [
+            "Fix: era impossível salvar uma tarefa com o mesmo nome em canais diferentes (ex.: '03 - Como iremos para marte' no Sacani e em outro canal) — a validação de duplicidade agora considera o canal de destino",
+        ],
+    },
     {
         "versao": "v3.1.3",
         "data": "02/05/2026",

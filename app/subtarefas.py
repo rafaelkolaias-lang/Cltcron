@@ -1327,17 +1327,22 @@ class JanelaSubtarefas(tk.Toplevel):
             segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
 
-            # Validação de nome duplicado
+            # Validação de nome duplicado (mesmo título no MESMO canal/atividade —
+            # canais diferentes podem ter o mesmo título: a JanelaSubtarefas
+            # mostra subs de todos os canais, mas duplicidade só faz sentido
+            # dentro do canal de destino).
             titulo_normalizado = titulo.strip().lower()
             for sub_existente in self._subtarefas:
                 sub_id_check = int(getattr(sub_existente, "id_subtarefa", 0))
                 if id_sub and sub_id_check == id_sub:
                     continue  # mesma tarefa sendo editada — não conta como duplicata
+                if int(getattr(sub_existente, "id_atividade", 0) or 0) != id_atividade:
+                    continue  # canais diferentes podem ter mesmo título
                 if str(getattr(sub_existente, "titulo", "") or "").strip().lower() == titulo_normalizado:
                     _atualizar_texto_botao()
                     btn_salvar.configure(state="normal")
                     btn_cancelar.configure(state="normal")
-                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome.", parent=janela)
+                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome neste canal.", parent=janela)
                     return
 
             def _operacao() -> None:
@@ -2228,17 +2233,22 @@ class JanelaSubtarefas(tk.Toplevel):
             segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
 
-            # Duplicidade só se trocou de pasta lógica.
+            # Duplicidade só se trocou de pasta lógica — e apenas DENTRO do
+            # MESMO canal/atividade. Canais diferentes podem reutilizar o
+            # mesmo título de pasta lógica (ex.: "03 - Como vamos a Marte"
+            # no Sacani e em outro canal).
             tit_norm = titulo.strip().lower()
             for sub_existente in self._subtarefas:
                 sub_id_check = int(getattr(sub_existente, "id_subtarefa", 0))
                 if id_sub and sub_id_check == id_sub:
                     continue
+                if int(getattr(sub_existente, "id_atividade", 0) or 0) != id_atividade:
+                    continue
                 if str(getattr(sub_existente, "titulo", "") or "").strip().lower() == tit_norm:
                     btn_salvar.configure(state="normal")
                     btn_cancelar.configure(state="normal")
                     _atualizar_botao_salvar()
-                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome.", parent=janela)
+                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome neste canal.", parent=janela)
                     return
 
             def _operacao() -> int:

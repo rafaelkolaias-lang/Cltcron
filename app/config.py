@@ -106,9 +106,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.4"
+VERSAO_APLICACAO = "v3.1.5"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.5",
+        "data": "13/05/2026",
+        "notas": [
+            "Uploads MEGA grandes não expiram mais por tempo fixo; o envio respeita apenas cancelamento manual",
+            "Fluxo MEGA separado em seleção de arquivos e popup de envio em segundo plano, permitindo reenvio apenas dos campos pendentes",
+        ],
+    },
     {
         "versao": "v3.1.4",
         "data": "06/05/2026",

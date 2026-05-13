@@ -66,6 +66,7 @@ class App(tk.Tk):
         self._var_erro = tk.StringVar(value="")
 
         self._janela_fixada: tk.Toplevel | None = None
+        self._janela_tarefas: JanelaSubtarefas | None = None
         self._var_tempo_fixado = tk.StringVar(value="00:00:00")
         self._var_status_fixado = tk.StringVar(value="")
 
@@ -1467,6 +1468,16 @@ class App(tk.Tk):
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
             return
+        if self._janela_tarefas is not None:
+            try:
+                if self._janela_tarefas.winfo_exists():
+                    self._janela_tarefas.deiconify()
+                    self._janela_tarefas.lift()
+                    self._janela_tarefas.focus_force()
+                    return
+            except Exception:
+                pass
+            self._janela_tarefas = None
         self._verificar_limite_horas()  # Avisa mas não bloqueia (usuário precisa declarar)
 
         if getattr(self._monitor, "_offline_notificado", False):
@@ -1482,7 +1493,15 @@ class App(tk.Tk):
             messagebox.showwarning("Atenção", str(erro))
             return
 
-        JanelaSubtarefas(
+        def _ao_fechar_tarefas() -> None:
+            self._janela_tarefas = None
+            try:
+                if self._btn_tarefas.winfo_exists():
+                    self._btn_tarefas.configure(state="normal")
+            except Exception:
+                pass
+
+        self._janela_tarefas = JanelaSubtarefas(
             self,
             self._repositorio_declaracoes,
             self._usuario,
@@ -1492,9 +1511,14 @@ class App(tk.Tk):
             segundos_pausado=self._monitor.obter_segundos_pausado(),
             modo_finalizacao=False,
             ao_finalizar=None,
+            ao_fechar=_ao_fechar_tarefas,
             opcoes_canal=list(self._combo["values"]),
             mapa_canal_para_id=dict(self._mapa_item_para_id),
         )
+        try:
+            self._btn_tarefas.configure(state="disabled")
+        except Exception:
+            pass
 
     def _executar_finalizacao_do_dia(self, relatorio_final: str) -> None:
         self._monitor.finalizar(relatorio_final)
@@ -1596,7 +1620,13 @@ class App(tk.Tk):
         if hasattr(self, "_btn_tarefas"):
             try:
                 if self._btn_tarefas.winfo_exists():
-                    self._btn_tarefas.configure(state="disabled" if estado.offline else "normal")
+                    janela_tarefas_aberta = (
+                        self._janela_tarefas is not None
+                        and self._janela_tarefas.winfo_exists()
+                    )
+                    self._btn_tarefas.configure(
+                        state="disabled" if estado.offline or janela_tarefas_aberta else "normal"
+                    )
             except Exception:
                 pass
 

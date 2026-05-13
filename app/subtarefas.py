@@ -4,6 +4,7 @@ from __future__ import annotations
 import json as _json
 import threading
 import tkinter as tk
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -13,6 +14,11 @@ from tkinter import messagebox, ttk
 from app.config import carregar_prefs, salvar_pref
 from app.win32_utils import formatar_hhmmss
 from declaracoes_dia import RepositorioDeclaracoesDia
+
+try:
+    import winsound  # type: ignore[import-not-found]
+except Exception:
+    winsound = None  # type: ignore[assignment]
 
 
 def _headers_auth_pix(user_id: str, chave: str) -> dict[str, str]:
@@ -77,6 +83,7 @@ class JanelaSubtarefas(tk.Toplevel):
         segundos_pausado: int = 0,
         modo_finalizacao: bool = False,
         ao_finalizar: Callable[[str], None] | None = None,
+        ao_fechar: Callable[[], None] | None = None,
         opcoes_canal: list[str] | None = None,
         mapa_canal_para_id: dict[str, int] | None = None,
     ) -> None:
@@ -84,8 +91,6 @@ class JanelaSubtarefas(tk.Toplevel):
         self.title("Tarefas da Atividade")
         self.geometry("1220x800")
         self.minsize(980, 700)
-        self.transient(mestre)
-        self.grab_set()
         self.configure(bg="#111111")
 
         self._repositorio = repositorio
@@ -98,12 +103,15 @@ class JanelaSubtarefas(tk.Toplevel):
         self._segundos_pausado = int(segundos_pausado or 0)
         self._modo_finalizacao = bool(modo_finalizacao)
         self._ao_finalizar = ao_finalizar
+        self._ao_fechar_callback = ao_fechar
         self._referencia_data = date.today()
 
         self._subtarefas: list[object] = []
         self._mapa_subtarefas: dict[int, object] = {}
         self._travado_ate_cache: object = None  # date | None — atualizado a cada reload
         self._id_subtarefa_criada_nesta_janela: int | None = None  # evita duplicação ao reter erro
+        self._upload_popup_ativo = False
+        self._fechar_apos_upload_popup = False
 
         # Ordenação manual triestada
         self._sort_col: str | None = None
@@ -124,6 +132,12 @@ class JanelaSubtarefas(tk.Toplevel):
         # "Declarar Tarefa".
         self._var_status_sync_mega = tk.StringVar(value="")
         self._btn_declarar: ttk.Button | None = None
+        self._btn_editar: ttk.Button | None = None
+        self._btn_excluir: ttk.Button | None = None
+        self._btn_atualizar: ttk.Button | None = None
+        self._btn_atualizar_mega: ttk.Button | None = None
+        self._lbl_status_sync_mega: ttk.Label | None = None
+        self._carregando_dados = False
         self._listener_mega_sync = self._ao_mudar_estado_mega_sync
 
         self._montar_tela()
@@ -175,29 +189,88 @@ class JanelaSubtarefas(tk.Toplevel):
         btn = self._btn_declarar
         if btn is None:
             return
+        cor_status = "#f0c075"
 
         if status == "sincronizando":
             try: btn.configure(text="SINCRONIZANDO", state="disabled")
             except Exception: pass
             self._var_status_sync_mega.set("Sincronizando pastas MEGA…")
         elif status == "erro":
+            cor_status = "#e55555"
             try: btn.configure(text="Declarar Tarefa", state="disabled")
             except Exception: pass
             resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
             self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
         elif status == "sincronizado":
+            cor_status = "#3ecf6e"
             try: btn.configure(text="Declarar Tarefa", state="normal")
             except Exception: pass
             self._var_status_sync_mega.set(
                 f"Pastas MEGA sincronizadas em {ultima_ok}" if ultima_ok else ""
             )
         else:  # "nao_sincronizado"
+            cor_status = "#f0c075"
             try: btn.configure(text="Declarar Tarefa", state="disabled")
             except Exception: pass
             self._var_status_sync_mega.set("Aguardando sincronização MEGA…")
 
+        if self._carregando_dados:
+            try:
+                btn.configure(state="disabled")
+            except Exception:
+                pass
+        try:
+            if self._lbl_status_sync_mega is not None:
+                self._lbl_status_sync_mega.configure(foreground=cor_status)
+        except Exception:
+            pass
+
+    def _definir_carregando_dados(self, carregando: bool, mensagem: str = "Carregando...") -> None:
+        self._carregando_dados = bool(carregando)
+        botoes = [
+            self._btn_declarar,
+            self._btn_editar,
+            self._btn_excluir,
+            self._btn_atualizar,
+            self._btn_atualizar_mega,
+        ]
+        for botao in botoes:
+            if botao is None:
+                continue
+            try:
+                botao.configure(state="disabled" if carregando else "normal")
+            except Exception:
+                pass
+        if carregando:
+            try:
+                for item in self._arvore.get_children():
+                    self._arvore.delete(item)
+                self._arvore.insert(
+                    "",
+                    "end",
+                    iid="__carregando__",
+                    values=(mensagem, "", "", "", "", "", ""),
+                    tags=("carregando",),
+                )
+            except Exception:
+                pass
+            return
+        try:
+            from app import mega_sync
+            estado_atual = mega_sync.obter_estado_atual_mega_sync(self._usuario_id())
+            self._aplicar_estado_mega_sync_na_ui(estado_atual)
+        except Exception:
+            pass
+
     def _ao_fechar_janela_subs(self) -> None:
         """Cleanup ao fechar a janela: desregistra listener da sync MEGA."""
+        if self._upload_popup_ativo:
+            self._fechar_apos_upload_popup = True
+            try:
+                self.withdraw()
+            except Exception:
+                pass
+            return
         try:
             from app import mega_sync
             mega_sync.remover_listener(self._listener_mega_sync)
@@ -205,6 +278,23 @@ class JanelaSubtarefas(tk.Toplevel):
             pass
         try:
             self.destroy()
+        except Exception:
+            pass
+        try:
+            if self._ao_fechar_callback:
+                self._ao_fechar_callback()
+        except Exception:
+            pass
+
+    def _bip_upload_concluido(self) -> None:
+        try:
+            if winsound is not None:
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                return
+        except Exception:
+            pass
+        try:
+            self.bell()
         except Exception:
             pass
 
@@ -442,23 +532,28 @@ class JanelaSubtarefas(tk.Toplevel):
             foreground="#3ecf6e",
             wraplength=1160,
         ).pack(anchor="w", pady=(6, 0))
-        ttk.Label(
+        self._lbl_status_sync_mega = ttk.Label(
             topo,
             textvariable=self._var_status_sync_mega,
             font=("Segoe UI", 9),
             foreground="#f0c075",
             wraplength=1160,
-        ).pack(anchor="w", pady=(6, 0))
+        )
+        self._lbl_status_sync_mega.pack(anchor="w", pady=(6, 0))
 
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))
 
         self._btn_declarar = ttk.Button(barra_acoes, text="Declarar Tarefa", style="Primario.TButton", command=self._nova_subtarefa)
         self._btn_declarar.pack(side="left")
-        ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa).pack(side="left", padx=(8, 0))
-        ttk.Button(barra_acoes, text="Excluir", style="Perigo.TButton", command=self._excluir_subtarefa).pack(side="left", padx=(8, 0))
-        ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados).pack(side="right")
-        ttk.Button(barra_acoes, text="Atualizar MEGA", command=self._forcar_sync_mega_debug).pack(side="right", padx=(0, 8))
+        self._btn_editar = ttk.Button(barra_acoes, text="Editar", command=self._editar_subtarefa)
+        self._btn_editar.pack(side="left", padx=(8, 0))
+        self._btn_excluir = ttk.Button(barra_acoes, text="Excluir", style="Perigo.TButton", command=self._excluir_subtarefa)
+        self._btn_excluir.pack(side="left", padx=(8, 0))
+        self._btn_atualizar = ttk.Button(barra_acoes, text="Atualizar", command=self._recarregar_dados)
+        self._btn_atualizar.pack(side="right")
+        self._btn_atualizar_mega = ttk.Button(barra_acoes, text="Atualizar MEGA", command=self._forcar_sync_mega_debug)
+        self._btn_atualizar_mega.pack(side="right", padx=(0, 8))
 
         tabela_frame = ttk.Frame(quadro)
         tabela_frame.pack(fill="both", expand=True)
@@ -577,6 +672,7 @@ class JanelaSubtarefas(tk.Toplevel):
 
     def _recarregar_dados(self) -> None:
         self._var_resumo.set("Carregando...")
+        self._definir_carregando_dados(True)
 
         user_id = self._usuario_id()
         # Janela "Tarefas da Atividade" agora é overview do user inteiro:
@@ -606,6 +702,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 return
             if not self._arvore.winfo_exists():
                 return
+            self._definir_carregando_dados(False)
 
             subtarefas, resumo, travado_ate, pagamentos = resultado  # type: ignore[misc]
 
@@ -620,6 +717,7 @@ class JanelaSubtarefas(tk.Toplevel):
             # lembrar o usuário de finalizar (preencher tempo + Salvar).
             self._arvore.tag_configure("pagamento", foreground="#00cc66", background="#1a2e1a")
             self._arvore.tag_configure("aberta", foreground="#ff6b6b", background="#3a1a1a")
+            self._arvore.tag_configure("carregando", foreground="#f0c075")
 
             for item in self._arvore.get_children():
                 self._arvore.delete(item)
@@ -730,6 +828,19 @@ class JanelaSubtarefas(tk.Toplevel):
             self._atualizar_texto_trava(travado_ate)
 
         def _falha(erro: Exception) -> None:
+            self._definir_carregando_dados(False)
+            try:
+                for item in self._arvore.get_children():
+                    self._arvore.delete(item)
+                self._arvore.insert(
+                    "",
+                    "end",
+                    iid="__falha_carregar__",
+                    values=("Falha ao carregar. Clique em Atualizar para tentar novamente.", "", "", "", "", "", ""),
+                    tags=("carregando",),
+                )
+            except Exception:
+                pass
             self._var_resumo.set(f"Falha ao carregar: {erro}")
             messagebox.showerror("Erro", str(erro), parent=self)
 
@@ -1040,7 +1151,6 @@ class JanelaSubtarefas(tk.Toplevel):
         janela.geometry("700x460" if not aviso_mega else "700x510")
         janela.resizable(False, False)
         janela.transient(self)
-        janela.grab_set()
         janela.configure(bg="#111111")
 
         # Edição: prioriza titulo_atividade (canal real da sub) sobre
@@ -1531,7 +1641,6 @@ class JanelaSubtarefas(tk.Toplevel):
         janela.geometry("760x720")
         janela.minsize(720, 640)
         janela.transient(self)
-        janela.grab_set()
         janela.configure(bg="#111111")
 
         _C = "#1a1a1a"
@@ -1732,6 +1841,12 @@ class JanelaSubtarefas(tk.Toplevel):
                 # mesma janela.
                 modo_pasta.set("selecionar")
                 rad_criar.configure(state="disabled")
+                id_sub_aberta = _criar_sub_aberta_se_necessario()
+                if id_sub_aberta:
+                    var_status_pasta.set(
+                        f"✓ pasta criada e tarefa pendente: {pasta_logica['nome_pasta']}"
+                    )
+                    self._recarregar_dados()
 
                 _atualizar_botao_salvar()
 
@@ -1912,26 +2027,84 @@ class JanelaSubtarefas(tk.Toplevel):
                                     btn_cancel_local: ttk.Button,
                                     eh_pasta: bool) -> Callable[[], None]:
                     def _handler() -> None:
-                        self._iniciar_upload_mega(
-                            janela=janela,
-                            api=api,
-                            obter_uploader=_obter_uploader,
-                            pasta_logica=pasta_logica,
-                            pasta_raiz_mega=pasta_raiz_holder["valor"],
-                            nome_campo=label_local,
-                            extensoes_csv=ext_local,
-                            estado_entry=estado_campos[label_local],
-                            pbar=pbar_local,
-                            botao=(btn_pasta_local if eh_pasta else btn_arq),
-                            botao_outro=(btn_arq if eh_pasta else btn_pasta_local),
-                            botao_cancelar=btn_cancel_local,
-                            atualizar_botao_salvar=_atualizar_botao_salvar,
-                            atualizar_lock_pasta=_atualizar_lock_pasta,
-                            criar_sub_aberta=_criar_sub_aberta_se_necessario,
-                            filedialog=_filedialog,
-                            cores=(_OK, _ERRO, _PEND),
-                            eh_pasta=eh_pasta,
+                        from pathlib import Path as _Path
+
+                        st = estado_campos[label_local]
+                        if eh_pasta:
+                            caminho = _filedialog.askdirectory(parent=janela, title=f"Selecionar pasta — {label_local}")
+                            if not caminho:
+                                return
+                            arquivo = _Path(caminho)
+                            if not arquivo.is_dir():
+                                messagebox.showwarning("Atenção", "Caminho selecionado não é uma pasta.", parent=janela)
+                                return
+                            permitidas = [e.strip().lower().lstrip(".") for e in ext_local.split(",") if e.strip()] if ext_local else []
+                            invalidos: list[str] = []
+                            total = 0
+                            count = 0
+                            for item in arquivo.rglob("*"):
+                                if not item.is_file():
+                                    continue
+                                count += 1
+                                try:
+                                    total += item.stat().st_size
+                                except OSError:
+                                    pass
+                                if permitidas and item.suffix.lower().lstrip(".") not in permitidas:
+                                    invalidos.append(item.name)
+                            if count == 0:
+                                messagebox.showwarning("Atenção", "A pasta selecionada está vazia.", parent=janela)
+                                return
+                            if invalidos:
+                                amostra = ", ".join(invalidos[:5])
+                                resto = f" (e mais {len(invalidos) - 5})" if len(invalidos) > 5 else ""
+                                messagebox.showwarning(
+                                    "Extensão não permitida",
+                                    f"Arquivos fora das extensões permitidas ({ext_local}):\n\n{amostra}{resto}",
+                                    parent=janela,
+                                )
+                                return
+                            nome_arq = f"{arquivo.name}/"
+                            tamanho = total or None
+                        else:
+                            if ext_local:
+                                partes = [e.strip().lstrip(".") for e in ext_local.split(",") if e.strip()]
+                                filetypes = [(f"Arquivos {ext_local}", " ".join(f"*.{e}" for e in partes)), ("Todos", "*.*")]
+                            else:
+                                filetypes = [("Todos", "*.*")]
+                            caminho = _filedialog.askopenfilename(parent=janela, title=f"Selecionar arquivo — {label_local}", filetypes=filetypes)
+                            if not caminho:
+                                return
+                            arquivo = _Path(caminho)
+                            if ext_local:
+                                ext_arq = arquivo.suffix.lower().lstrip(".")
+                                permitidas = [e.strip().lower().lstrip(".") for e in ext_local.split(",") if e.strip()]
+                                if ext_arq not in permitidas:
+                                    messagebox.showwarning(
+                                        "Atenção",
+                                        f"Extensão .{ext_arq} não permitida. Aceitas: {ext_local}",
+                                        parent=janela,
+                                    )
+                                    return
+                            tamanho = arquivo.stat().st_size if arquivo.exists() else None
+                            nome_arq = arquivo.name
+
+                        st["arquivo_local"] = str(arquivo)
+                        st["nome_arquivo_upload"] = nome_arq
+                        st["tamanho_bytes"] = tamanho
+                        st["eh_pasta"] = eh_pasta
+                        st["state"] = "pendente"
+                        st["cancel_event"] = None
+                        st["var_status"].set(f"selecionado: {nome_arq}")
+                        st["label_status"].configure(fg=_PEND)
+                        pbar_local.pack_forget()
+                        btn_arq.configure(state="normal")
+                        btn_pasta_local.configure(state="normal")
+                        (btn_pasta_local if eh_pasta else btn_arq).configure(
+                            text="Trocar pasta" if eh_pasta else "Trocar arquivo"
                         )
+                        _atualizar_lock_pasta()
+                        _atualizar_botao_salvar()
                     return _handler
 
                 btn_sel.configure(command=_fazer_handler(
@@ -2087,6 +2260,7 @@ class JanelaSubtarefas(tk.Toplevel):
                  font=("Segoe UI", 9), wraplength=460, justify="left").pack(side="left", fill="x", expand=True)
 
         var_texto_botao = tk.StringVar(value="Salvar")
+        salvar_automaticamente_apos_upload = {"valor": False}
 
         def _ao_fechar_janela() -> None:
             # Tarefa 1 (Opção A): se há upload em andamento, perguntar antes
@@ -2150,7 +2324,210 @@ class JanelaSubtarefas(tk.Toplevel):
         btn_salvar = ttk.Button(rodape, textvariable=var_texto_botao, style="Primario.TButton")
         btn_salvar.pack(side="right", padx=(0, 8))
 
+        def _abrir_popup_envios() -> None:
+            fila = [
+                (nome, st) for nome, st in estado_campos.items()
+                if st.get("state") != "concluido" and str(st.get("arquivo_local") or "").strip()
+            ]
+            if not fila:
+                messagebox.showwarning("Atenção", "Selecione os arquivos obrigatórios antes de enviar.", parent=janela)
+                return
+
+            self._upload_popup_ativo = True
+            self._fechar_apos_upload_popup = False
+            mestre_popup = self.master if self.master is not None else self
+            popup = tk.Toplevel(mestre_popup)
+            popup.title("Envio de Arquivos MEGA")
+            popup.geometry("640x360")
+            popup.minsize(600, 300)
+            popup.resizable(False, False)
+            popup.configure(bg="#111111")
+
+            tk.Label(
+                popup,
+                text="Enviando arquivos em segundo plano. Você pode continuar usando o cronômetro.",
+                bg="#111111",
+                fg="#ffffff",
+                font=("Segoe UI", 10, "bold"),
+                wraplength=580,
+                justify="left",
+            ).pack(anchor="w", padx=18, pady=(16, 8))
+
+            frame_lista = tk.Frame(popup, bg="#111111")
+            frame_lista.pack(fill="both", expand=True, padx=18, pady=(0, 8))
+            linhas: dict[str, dict] = {}
+            for nome, st in fila:
+                row = tk.Frame(frame_lista, bg="#111111")
+                row.pack(fill="x", pady=5)
+                tk.Label(row, text=nome, bg="#111111", fg="#ffffff", width=22, anchor="w").pack(side="left")
+                var = tk.StringVar(value="aguardando")
+                lbl_popup = tk.Label(row, textvariable=var, bg="#111111", fg=_PEND, width=22, anchor="w")
+                lbl_popup.pack(side="left", padx=(6, 6))
+                var_tempo_restante = tk.StringVar(value="Tempo restante: --")
+                tk.Label(
+                    row,
+                    textvariable=var_tempo_restante,
+                    bg="#111111",
+                    fg="#9ca3af",
+                    width=22,
+                    anchor="w",
+                ).pack(side="left", padx=(0, 6))
+                pbar_popup = ttk.Progressbar(row, mode="determinate", length=170, maximum=100)
+                pbar_popup.pack(side="left", padx=(0, 8))
+                btn_cancel = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
+                btn_dummy = ttk.Button(row, text="")
+                linhas[nome] = {
+                    "var": var,
+                    "label": lbl_popup,
+                    "var_tempo": var_tempo_restante,
+                    "pbar": pbar_popup,
+                    "btn_cancel": btn_cancel,
+                    "btn_dummy": btn_dummy,
+                    "estado": st,
+                    "inicio": 0.0,
+                }
+
+            var_resumo_popup = tk.StringVar(value="")
+            tk.Label(popup, textvariable=var_resumo_popup, bg="#111111", fg="#9ca3af").pack(anchor="w", padx=18, pady=(0, 10))
+
+            idx = {"valor": 0, "falhas": 0}
+            cancelar_popup = {"valor": False, "limpando": False}
+
+            def _finalizar_popup(fechar_janela_pendente: bool = True) -> None:
+                self._upload_popup_ativo = False
+                try:
+                    popup.destroy()
+                except Exception:
+                    pass
+                if fechar_janela_pendente and self._fechar_apos_upload_popup:
+                    self._fechar_apos_upload_popup = False
+                    self._ao_fechar_janela_subs()
+
+            def _limpar_pasta_cancelada() -> None:
+                if cancelar_popup["limpando"]:
+                    return
+                cancelar_popup["limpando"] = True
+                var_resumo_popup.set("Envio cancelado. A tarefa ficou pendente.")
+                _finalizar_popup()
+
+            def _fechar_popup() -> None:
+                cancelar_popup["valor"] = True
+                var_resumo_popup.set("Cancelando envio. A tarefa ficará pendente...")
+                if idx["valor"] < len(fila):
+                    try:
+                        st_atual = fila[idx["valor"]][1]
+                        ev = st_atual.get("cancel_event")
+                        if ev is not None and not ev.is_set():
+                            ev.set()
+                    except Exception:
+                        pass
+                    return
+                _limpar_pasta_cancelada()
+
+            popup.protocol("WM_DELETE_WINDOW", _fechar_popup)
+
+            def _processar_proximo() -> None:
+                if cancelar_popup["valor"]:
+                    _limpar_pasta_cancelada()
+                    return
+                if idx["valor"] >= len(fila):
+                    if idx["falhas"]:
+                        var_resumo_popup.set(
+                            "Envio finalizado com pendências. Os arquivos concluídos foram mantidos; tente novamente só os vermelhos."
+                        )
+                    else:
+                        var_resumo_popup.set("Todos os arquivos foram enviados. Salvando tarefa...")
+                    _atualizar_lock_pasta()
+                    _atualizar_botao_salvar()
+                    self._recarregar_dados()
+                    if not idx["falhas"]:
+                        salvar_automaticamente_apos_upload["valor"] = True
+                        _finalizar_popup(fechar_janela_pendente=False)
+                        salvar()
+                    return
+
+                nome, st = fila[idx["valor"]]
+                linha_popup = linhas[nome]
+                linha_popup["inicio"] = time.monotonic()
+                linha_popup["var"].set("enviando 0%...")
+                linha_popup["var_tempo"].set("Tempo restante: calculando...")
+                linha_popup["estado"]["var_status"].set("enviando 0%...")
+                var_resumo_popup.set(f"Enviando {idx['valor'] + 1}/{len(fila)}: {nome}")
+
+                def _formatar_tempo_restante(segundos: float) -> str:
+                    segundos_i = max(0, int(segundos))
+                    horas, resto = divmod(segundos_i, 3600)
+                    minutos, segs = divmod(resto, 60)
+                    if horas:
+                        return f"{horas}h {minutos:02d}min"
+                    if minutos:
+                        return f"{minutos}min {segs:02d}s"
+                    return f"{segs}s"
+
+                def _atualizar_tempo_restante(pct: float) -> None:
+                    if pct <= 0 or pct >= 100:
+                        return
+                    inicio = float(linha_popup.get("inicio") or 0.0)
+                    if inicio <= 0:
+                        return
+                    decorrido = time.monotonic() - inicio
+                    if decorrido < 3:
+                        return
+                    restante = decorrido * ((100.0 - pct) / pct)
+                    linha_popup["var_tempo"].set(
+                        f"Tempo restante: {_formatar_tempo_restante(restante)}"
+                    )
+
+                def _ao_finalizar(ok: bool) -> None:
+                    linha_popup["var_tempo"].set("Tempo restante: concluído" if ok else "Tempo restante: cancelado")
+                    if not ok:
+                        idx["falhas"] += 1
+                    idx["valor"] += 1
+                    if cancelar_popup["valor"]:
+                        try:
+                            popup.after(150, _limpar_pasta_cancelada)
+                        except Exception:
+                            _limpar_pasta_cancelada()
+                        return
+                    try:
+                        popup.after(150, _processar_proximo)
+                    except Exception:
+                        _processar_proximo()
+
+                self._iniciar_upload_mega(
+                    janela=popup,
+                    api=api,
+                    obter_uploader=_obter_uploader,
+                    pasta_logica=pasta_logica,
+                    pasta_raiz_mega=pasta_raiz_holder["valor"],
+                    nome_campo=nome,
+                    extensoes_csv="",
+                    estado_entry=st,
+                    pbar=linha_popup["pbar"],
+                    botao=linha_popup["btn_dummy"],
+                    botao_outro=None,
+                    botao_cancelar=linha_popup["btn_cancel"],
+                    atualizar_botao_salvar=_atualizar_botao_salvar,
+                    atualizar_lock_pasta=_atualizar_lock_pasta,
+                    criar_sub_aberta=_criar_sub_aberta_se_necessario,
+                    filedialog=_filedialog,
+                    cores=(_OK, _ERRO, _PEND),
+                    eh_pasta=bool(st.get("eh_pasta")),
+                    usar_selecao_existente=True,
+                    ao_finalizar=_ao_finalizar,
+                    var_status_upload=linha_popup["var"],
+                    lbl_status_upload=linha_popup["label"],
+                    on_progress_ui=_atualizar_tempo_restante,
+                )
+
+            popup.after(100, _processar_proximo)
+
         def _atualizar_botao_salvar(*_a: object) -> None:
+            try:
+                if not janela.winfo_exists():
+                    return
+            except Exception:
+                return
             tempo = (var_tempo.get() or "").strip()
             obrig_pendente: list[str] = []
             for nome, st in estado_campos.items():
@@ -2174,9 +2551,17 @@ class JanelaSubtarefas(tk.Toplevel):
                 var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
                 return
             if obrig_pendente:
-                var_aviso_bloqueio.set("Aguardando uploads obrigatórios: " + ", ".join(obrig_pendente))
-                btn_salvar.configure(state="disabled")
-                var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
+                selecionados = [
+                    nome for nome in obrig_pendente
+                    if str(estado_campos.get(nome, {}).get("arquivo_local") or "").strip()
+                ]
+                if selecionados:
+                    var_aviso_bloqueio.set("Arquivos obrigatórios prontos para envio: " + ", ".join(selecionados))
+                    btn_salvar.configure(state="normal")
+                else:
+                    var_aviso_bloqueio.set("Selecione os uploads obrigatórios: " + ", ".join(obrig_pendente))
+                    btn_salvar.configure(state="disabled")
+                var_texto_botao.set("Enviar Arquivos")
                 return
 
             # Regra de negócio: se subiu pelo menos 1 arquivo, exige tempo > 0
@@ -2204,20 +2589,40 @@ class JanelaSubtarefas(tk.Toplevel):
         _atualizar_botao_salvar()
 
         def salvar() -> None:
-            deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
-            btn_salvar.configure(state="disabled")
-            btn_cancelar.configure(state="disabled")
-            var_texto_botao.set("Salvando…")
-            janela.update_idletasks()
+            if var_texto_botao.get() == "Enviar Arquivos" and not salvar_automaticamente_apos_upload.get("valor"):
+                salvar_automaticamente_apos_upload["valor"] = False
+                _abrir_popup_envios()
+                try:
+                    janela.destroy()
+                except Exception:
+                    pass
+                return
+            deve_concluir = (
+                var_texto_botao.get() == "Salvar e Concluir"
+                or bool(salvar_automaticamente_apos_upload.get("valor"))
+            )
+            try:
+                btn_salvar.configure(state="disabled")
+                btn_cancelar.configure(state="disabled")
+                var_texto_botao.set("Salvando…")
+                janela.update_idletasks()
+            except Exception:
+                pass
 
             try:
                 referencia_data = self._converter_texto_para_data(var_referencia.get())
                 tempo_texto = (var_tempo.get() or "").strip()
                 segundos_tempo = self._converter_texto_tempo_para_segundos(tempo_texto) if tempo_texto else 0
             except Exception as erro:
-                btn_salvar.configure(state="normal")
-                btn_cancelar.configure(state="normal")
-                _atualizar_botao_salvar()
+                try:
+                    try:
+                        btn_salvar.configure(state="normal")
+                        btn_cancelar.configure(state="normal")
+                        _atualizar_botao_salvar()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 messagebox.showerror("Erro", str(erro), parent=janela)
                 return
 
@@ -2339,11 +2744,22 @@ class JanelaSubtarefas(tk.Toplevel):
                 except Exception:
                     pass
                 self._recarregar_dados()
+                if salvar_automaticamente_apos_upload.get("valor"):
+                    salvar_automaticamente_apos_upload["valor"] = False
+                    self._bip_upload_concluido()
+                    messagebox.showinfo("MEGA", "Arquivos enviados e tarefa salva com sucesso.", parent=self)
+                if self._fechar_apos_upload_popup:
+                    self._fechar_apos_upload_popup = False
+                    self._ao_fechar_janela_subs()
 
             def _falha(erro: Exception) -> None:
-                btn_salvar.configure(state="normal")
-                btn_cancelar.configure(state="normal")
-                _atualizar_botao_salvar()
+                salvar_automaticamente_apos_upload["valor"] = False
+                try:
+                    btn_salvar.configure(state="normal")
+                    btn_cancelar.configure(state="normal")
+                    _atualizar_botao_salvar()
+                except Exception:
+                    pass
                 messagebox.showerror("Erro", str(erro), parent=janela)
 
             self._executar_em_background(_operacao, _ok, _falha)
@@ -2366,23 +2782,32 @@ class JanelaSubtarefas(tk.Toplevel):
                     raiz = str(dd.get("pasta_raiz_mega") or pasta_raiz_holder["valor"]).strip("/")
                     nome_pasta = str(pasta_logica.get("nome_pasta") or "")
                     for arq in arquivos:
-                        if arq.get("status_upload") != "concluido":
-                            continue
+                        status_upload = str(arq.get("status_upload") or "").strip().lower()
                         nome_campo = str(arq.get("nome_campo") or "")
                         nome_arq = str(arq.get("nome_arquivo") or "")
                         if not nome_campo or nome_campo not in estado_campos or not nome_arq:
                             continue
                         st = estado_campos[nome_campo]
-                        st["state"] = "concluido"
                         st["id_upload"] = int(arq.get("id_upload") or 0)
                         st["arquivo_local"] = nome_arq
                         st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta}/{nome_arq}"
-                        try:
-                            st["var_status"].set("✓ enviado")
-                            st["label_status"].configure(fg=_OK)
-                            st["botao"].configure(text="Trocar arquivo")
-                        except Exception:
-                            pass
+                        if status_upload == "concluido":
+                            st["state"] = "concluido"
+                            try:
+                                st["var_status"].set("✓ enviado")
+                                st["label_status"].configure(fg=_OK)
+                                st["botao"].configure(text="Trocar arquivo")
+                            except Exception:
+                                pass
+                        else:
+                            st["state"] = "erro" if status_upload == "erro" else "pendente"
+                            st["arquivo_local"] = ""
+                            try:
+                                st["var_status"].set("✗ pendente de reenvio")
+                                st["label_status"].configure(fg=_ERRO)
+                                st["botao"].configure(text="Selecionar arquivo")
+                            except Exception:
+                                pass
                     _atualizar_lock_pasta()
                     _atualizar_botao_salvar()
 
@@ -2416,6 +2841,11 @@ class JanelaSubtarefas(tk.Toplevel):
         filedialog: object,
         cores: tuple[str, str, str],
         eh_pasta: bool = False,
+        usar_selecao_existente: bool = False,
+        ao_finalizar: Callable[[bool], None] | None = None,
+        var_status_upload: tk.StringVar | None = None,
+        lbl_status_upload: tk.Label | None = None,
+        on_progress_ui: Callable[[float], None] | None = None,
     ) -> None:
         """Pipeline de upload de UM arquivo OU pasta (recursivo):
         1. Filedialog → caminho local (filtrado por extensões).
@@ -2438,8 +2868,8 @@ class JanelaSubtarefas(tk.Toplevel):
             ErroUploadCancelado,
         )
         cor_ok, cor_erro, cor_pend = cores
-        var_status = estado_entry["var_status"]
-        lbl_status = estado_entry["label_status"]
+        var_status = var_status_upload or estado_entry["var_status"]
+        lbl_status = lbl_status_upload or estado_entry["label_status"]
 
         if not pasta_logica["id_pasta_logica"]:
             messagebox.showwarning(
@@ -2451,7 +2881,17 @@ class JanelaSubtarefas(tk.Toplevel):
 
         from pathlib import Path as _Path
 
-        if eh_pasta:
+        if usar_selecao_existente:
+            arquivo = _Path(str(estado_entry.get("arquivo_local") or ""))
+            if not arquivo.exists():
+                messagebox.showwarning("Atenção", "O arquivo ou pasta selecionado não existe mais.", parent=janela)
+                if ao_finalizar is not None:
+                    ao_finalizar(False)
+                return
+            eh_pasta = bool(estado_entry.get("eh_pasta"))
+            nome_arq = str(estado_entry.get("nome_arquivo_upload") or (f"{arquivo.name}/" if eh_pasta else arquivo.name))
+            tamanho = estado_entry.get("tamanho_bytes")
+        elif eh_pasta:
             caminho = filedialog.askdirectory(
                 parent=janela, title=f"Selecionar pasta — {nome_campo}"
             )
@@ -2529,6 +2969,9 @@ class JanelaSubtarefas(tk.Toplevel):
             tamanho = arquivo.stat().st_size if arquivo.exists() else None
             nome_arq = arquivo.name
 
+        estado_entry["nome_arquivo_upload"] = nome_arq
+        estado_entry["tamanho_bytes"] = tamanho
+
         cancel_event = threading.Event()
         estado_entry["arquivo_local"] = str(arquivo)
         estado_entry["state"] = "enviando"
@@ -2569,6 +3012,11 @@ class JanelaSubtarefas(tk.Toplevel):
                 if not cancel_event.is_set():
                     pref = "enviando pasta " if eh_pasta else "enviando "
                     var_status.set(f"{pref}{p:.0f}%…")
+                if on_progress_ui is not None:
+                    try:
+                        on_progress_ui(p)
+                    except Exception:
+                        pass
             try:
                 self.after(0, _aplicar)
             except Exception:
@@ -2691,12 +3139,30 @@ class JanelaSubtarefas(tk.Toplevel):
             estado_entry["cancel_event"] = None
             var_status.set("✓ pasta enviada" if eh_pasta else "✓ enviado")
             lbl_status.configure(fg=cor_ok)
+            try:
+                estado_entry["var_status"].set("✓ pasta enviada" if eh_pasta else "✓ enviado")
+                estado_entry["label_status"].configure(fg=cor_ok)
+            except Exception:
+                pass
             botao.configure(state="normal", text="Trocar pasta" if eh_pasta else "Trocar arquivo")
+            try:
+                estado_entry["botao_pasta" if eh_pasta else "botao"].configure(
+                    state="normal",
+                    text="Trocar pasta" if eh_pasta else "Trocar arquivo",
+                )
+            except Exception:
+                pass
             if botao_outro is not None:
                 botao_outro.configure(state="normal")
+            try:
+                estado_entry["botao" if eh_pasta else "botao_pasta"].configure(state="normal")
+            except Exception:
+                pass
             if atualizar_lock_pasta is not None:
                 atualizar_lock_pasta()
             atualizar_botao_salvar()
+            if ao_finalizar is not None:
+                ao_finalizar(True)
 
         def _falha(erro: Exception) -> None:
             pbar.pack_forget()
@@ -2708,7 +3174,16 @@ class JanelaSubtarefas(tk.Toplevel):
                 estado_entry["state"] = "pendente"
                 var_status.set("cancelado")
                 lbl_status.configure(fg=cor_pend)
+                try:
+                    estado_entry["var_status"].set("cancelado")
+                    estado_entry["label_status"].configure(fg=cor_pend)
+                except Exception:
+                    pass
                 botao.configure(state="normal", text=texto_padrao)
+                try:
+                    estado_entry["botao_pasta" if eh_pasta else "botao"].configure(state="normal", text=texto_padrao)
+                except Exception:
+                    pass
                 status_painel = "erro"
                 msg_painel = "cancelado pelo usuário"
             else:
@@ -2716,11 +3191,24 @@ class JanelaSubtarefas(tk.Toplevel):
                 msg_curta = str(erro)[:60]
                 var_status.set(f"✗ {msg_curta}")
                 lbl_status.configure(fg=cor_erro)
+                try:
+                    estado_entry["var_status"].set(f"✗ {msg_curta}")
+                    estado_entry["label_status"].configure(fg=cor_erro)
+                except Exception:
+                    pass
                 botao.configure(state="normal", text="Tentar de novo")
+                try:
+                    estado_entry["botao_pasta" if eh_pasta else "botao"].configure(state="normal", text="Tentar de novo")
+                except Exception:
+                    pass
                 status_painel = "erro"
                 msg_painel = str(erro)[:500]
             if botao_outro is not None:
                 botao_outro.configure(state="normal")
+            try:
+                estado_entry["botao" if eh_pasta else "botao_pasta"].configure(state="normal")
+            except Exception:
+                pass
             if atualizar_lock_pasta is not None:
                 atualizar_lock_pasta()
             atualizar_botao_salvar()
@@ -2755,7 +3243,14 @@ class JanelaSubtarefas(tk.Toplevel):
             elif isinstance(erro, ErroUploadCancelado):
                 pass  # já mostrou status na UI; sem messagebox
             elif isinstance(erro, ErroMega):
-                messagebox.showerror("MEGA", str(erro), parent=janela)
+                messagebox.showerror(
+                    "MEGA",
+                    "O envio não terminou. Os arquivos que já foram enviados foram mantidos; "
+                    "tente novamente apenas os pendentes.",
+                    parent=janela,
+                )
+            if ao_finalizar is not None:
+                ao_finalizar(False)
 
         self._executar_em_background(_op, _ok, _falha)
 

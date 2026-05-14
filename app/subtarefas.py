@@ -1830,11 +1830,16 @@ class JanelaSubtarefas(tk.Toplevel):
                     "nome_pasta": pasta_logica["nome_pasta"],
                     "numero_video": n,
                     "titulo_video": t,
+                    # Pasta acabou de ser criada por este usuário —
+                    # ainda sem subtarefa vinculada nem pagamento.
+                    "status_visual": "livre",
+                    "id_subtarefa_usuario": 0,
+                    "tem_subtarefa_usuario": False,
+                    "concluida": False,
+                    "bloqueada_pagamento": False,
+                    "segundos_gastos": 0,
                 })
-                cmb_pasta["values"] = [
-                    str(p.get("nome_pasta") or "") for p in pastas_existentes
-                ]
-                var_pasta_existente.set(pasta_logica["nome_pasta"])
+                _rebuild_lbx_pasta(pasta_logica["nome_pasta"])
 
                 # Switch pra "Selecionar existente" e bloqueia "Criar nova"
                 # — evita o usuário criar acidentalmente outra pasta nesta
@@ -1898,26 +1903,250 @@ class JanelaSubtarefas(tk.Toplevel):
         btn_criar_pasta.configure(command=lambda: _criar_pasta(0))
 
         # --- Modo "Selecionar existente" ---
+        #
+        # Substitui o Combobox antigo por um Listbox: cada linha pode ter
+        # cor/estado próprio (livre / em_andamento / concluida / paga). A
+        # informação chega enriquecida em `pastas_existentes` (campo
+        # `status_visual` adicionado por `desktop_obter_config.php`).
         bloco_selecionar = tk.Frame(sec_pasta, bg=_C)
-        opcoes_combo = [str(p.get("nome_pasta") or "") for p in pastas_existentes]
-        var_pasta_existente = tk.StringVar(value=pasta_logica["nome_pasta"] or "")
-        cmb_pasta = ttk.Combobox(bloco_selecionar, textvariable=var_pasta_existente,
-                                 values=opcoes_combo, state="readonly")
-        cmb_pasta.pack(fill="x", pady=(4, 0))
-        if not opcoes_combo:
+
+        # Constantes visuais (texto). Background fica neutro pra não brigar
+        # com o tema dark.
+        _COR_LIVRE = "#ffffff"
+        _COR_EM_USO = "#4ade80"   # verde — tarefa do user em andamento ou concluída
+        _COR_PAGA = "#666666"     # cinza apagado — não selecionável
+        _BG_PAGA = "#222222"
+
+        lbx_pasta = tk.Listbox(
+            bloco_selecionar,
+            height=min(8, max(3, len(pastas_existentes))),
+            activestyle="dotbox",
+            exportselection=False,
+            bg="#0f0f0f",
+            fg=_COR_LIVRE,
+            selectbackground="#2a4a8a",
+            selectforeground="#ffffff",
+            highlightthickness=1,
+            highlightbackground="#222222",
+            relief="flat",
+            font=("Segoe UI", 9),
+        )
+        # Índice inicialmente selecionado, se a pasta_logica já tiver uma
+        # selecionada (modo edição ou re-render por troca de canal).
+        nome_inicial = str(pasta_logica.get("nome_pasta") or "")
+        idx_inicial = -1
+
+        for i, p in enumerate(pastas_existentes):
+            nome = str(p.get("nome_pasta") or "")
+            status = str(p.get("status_visual") or "livre")
+            label_extra = ""
+            if status == "concluida":
+                label_extra = "  ✓"
+            elif status == "em_andamento":
+                label_extra = "  ⏳"
+            elif status == "paga":
+                label_extra = "  🔒 paga"
+            lbx_pasta.insert("end", f"{nome}{label_extra}")
+            if status == "paga":
+                lbx_pasta.itemconfig(i, fg=_COR_PAGA, bg=_BG_PAGA,
+                                     selectbackground=_BG_PAGA,
+                                     selectforeground=_COR_PAGA)
+            elif status in ("em_andamento", "concluida"):
+                lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
+            # status livre = padrão (branco)
+            if nome == nome_inicial:
+                idx_inicial = i
+
+        lbx_pasta.pack(fill="x", pady=(4, 0))
+        if not pastas_existentes:
             tk.Label(bloco_selecionar, text="(nenhuma pasta cadastrada para este canal ainda)",
                      bg=_C, fg=_D, font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(2, 0))
+        if idx_inicial >= 0:
+            try:
+                lbx_pasta.selection_clear(0, "end")
+                lbx_pasta.selection_set(idx_inicial)
+                lbx_pasta.see(idx_inicial)
+            except Exception:
+                pass
+
+        # Legenda discreta pra explicar as cores.
+        if pastas_existentes:
+            legenda = tk.Frame(bloco_selecionar, bg=_C)
+            legenda.pack(anchor="w", pady=(2, 0))
+            tk.Label(legenda, text="branca: livre", bg=_C, fg=_COR_LIVRE,
+                     font=("Segoe UI", 8, "italic")).pack(side="left", padx=(0, 8))
+            tk.Label(legenda, text="verde: sua tarefa", bg=_C, fg=_COR_EM_USO,
+                     font=("Segoe UI", 8, "italic")).pack(side="left", padx=(0, 8))
+            tk.Label(legenda, text="cinza: paga (travada)", bg=_C, fg=_COR_PAGA,
+                     font=("Segoe UI", 8, "italic")).pack(side="left")
+
+        # Última seleção válida — restaurada quando o user tenta clicar
+        # numa pasta paga (que não pode ser ativada).
+        ultimo_idx_selecionado = {"valor": idx_inicial}
+
+        def _hidratar_uploads_da_subtarefa(id_sub: int) -> None:
+            """Mesma lógica usada no modo edição: busca os uploads concluídos
+            da subtarefa existente do user e popula `estado_campos`. Sem isso,
+            o form continuaria mostrando todos os campos como pendentes, mesmo
+            com arquivos já enviados.
+            """
+            if id_sub <= 0 or not estado_campos:
+                return
+
+            def _fetch() -> dict:
+                return api.obter_dados_subtarefa(id_sub)  # type: ignore[attr-defined]
+
+            def _ok(d: object) -> None:
+                dd = d if isinstance(d, dict) else {}
+                arquivos = dd.get("arquivos") or []
+                raiz = str(dd.get("pasta_raiz_mega") or pasta_raiz_holder["valor"]).strip("/")
+                nome_pasta_h = str(pasta_logica.get("nome_pasta") or "")
+                for arq in arquivos:
+                    status_upload = str(arq.get("status_upload") or "").strip().lower()
+                    nome_campo = str(arq.get("nome_campo") or "")
+                    nome_arq = str(arq.get("nome_arquivo") or "")
+                    if not nome_campo or nome_campo not in estado_campos or not nome_arq:
+                        continue
+                    st = estado_campos[nome_campo]
+                    st["id_upload"] = int(arq.get("id_upload") or 0)
+                    st["arquivo_local"] = nome_arq
+                    st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta_h}/{nome_arq}"
+                    if status_upload == "concluido":
+                        st["state"] = "concluido"
+                        try:
+                            st["var_status"].set("✓ enviado")
+                            st["label_status"].configure(fg=_OK)
+                            st["botao"].configure(text="Trocar arquivo")
+                        except Exception:
+                            pass
+                    else:
+                        st["state"] = "erro" if status_upload == "erro" else "pendente"
+                        st["arquivo_local"] = ""
+                        try:
+                            st["var_status"].set("✗ pendente de reenvio")
+                            st["label_status"].configure(fg=_ERRO)
+                            st["botao"].configure(text="Selecionar arquivo")
+                        except Exception:
+                            pass
+                _atualizar_lock_pasta()
+                _atualizar_botao_salvar()
+
+            def _falha(_e: Exception) -> None:
+                # Silencioso: sem hidratação o user precisa reenviar; não
+                # vamos quebrar o form por isso.
+                pass
+
+            self._executar_em_background(_fetch, _ok, _falha)
+
+        def _resetar_estado_campos_visual() -> None:
+            """Volta todos os campos pra `pendente` antes de hidratar com a
+            nova pasta selecionada. Evita resíduo da pasta anterior se o
+            user trocar de seleção."""
+            for nome_campo, st in estado_campos.items():
+                st["state"] = "pendente"
+                st["arquivo_local"] = ""
+                st["arquivo_remoto_anterior"] = ""
+                st["id_upload"] = 0
+                try:
+                    st["var_status"].set("(pendente)")
+                    st["label_status"].configure(fg=_D)
+                    st["botao"].configure(text="Selecionar arquivo")
+                except Exception:
+                    pass
 
         def _ao_selecionar_pasta(*_a: object) -> None:
-            nome = var_pasta_existente.get()
-            for p in pastas_existentes:
-                if str(p.get("nome_pasta") or "") == nome:
-                    pasta_logica["id_pasta_logica"] = int(p.get("id_pasta_logica") or 0)
-                    pasta_logica["nome_pasta"] = nome
-                    break
+            sel = lbx_pasta.curselection()
+            if not sel:
+                return
+            idx = int(sel[0])
+            if idx < 0 or idx >= len(pastas_existentes):
+                return
+            p = pastas_existentes[idx]
+            status = str(p.get("status_visual") or "livre")
+
+            if status == "paga":
+                # Pasta paga = travada por pagamento. Não muda seleção real,
+                # apenas avisa e volta pro item anterior.
+                messagebox.showwarning(
+                    "Tarefa paga",
+                    "Essa tarefa já foi paga e não pode ser alterada.",
+                    parent=janela,
+                )
+                try:
+                    lbx_pasta.selection_clear(0, "end")
+                    if ultimo_idx_selecionado["valor"] >= 0:
+                        lbx_pasta.selection_set(ultimo_idx_selecionado["valor"])
+                except Exception:
+                    pass
+                return
+
+            ultimo_idx_selecionado["valor"] = idx
+            nome = str(p.get("nome_pasta") or "")
+            pasta_logica["id_pasta_logica"] = int(p.get("id_pasta_logica") or 0)
+            pasta_logica["nome_pasta"] = nome
+
+            # Se essa pasta já tem subtarefa do user, hidrata os uploads
+            # existentes — o user vê os arquivos verdes "enviados" e os
+            # pendentes vermelhos, igual ao modo edição.
+            id_sub_user = int(p.get("id_subtarefa_usuario") or 0)
+            if id_sub_user > 0:
+                _resetar_estado_campos_visual()
+                _hidratar_uploads_da_subtarefa(id_sub_user)
+                # Memoriza o id_subtarefa pra que ações como "Enviar Arquivos"
+                # se vinculem à sub existente em vez de criar outra.
+                self._id_subtarefa_criada_nesta_janela = id_sub_user
+            else:
+                _resetar_estado_campos_visual()
+                self._id_subtarefa_criada_nesta_janela = 0
+
             _atualizar_botao_salvar()
 
-        cmb_pasta.bind("<<ComboboxSelected>>", _ao_selecionar_pasta)
+        lbx_pasta.bind("<<ListboxSelect>>", _ao_selecionar_pasta)
+
+        # Mantém a API antiga pro restante do form (variáveis usadas em
+        # `_atualizar_lock_pasta`). `cmb_pasta` agora é o Listbox.
+        cmb_pasta = lbx_pasta
+
+        def _rebuild_lbx_pasta(nome_selecionado: str = "") -> None:
+            """Recria o conteúdo do Listbox de pastas existentes a partir
+            de `pastas_existentes`. Substitui os pontos que antes usavam
+            `cmb_pasta["values"] = [...]` + `var_pasta_existente.set(...)`
+            (Combobox), preservando coloração por `status_visual` e
+            seleção pelo nome.
+            """
+            try:
+                lbx_pasta.delete(0, "end")
+            except Exception:
+                return
+            idx_match = -1
+            for i, p in enumerate(pastas_existentes):
+                nome = str(p.get("nome_pasta") or "")
+                status = str(p.get("status_visual") or "livre")
+                label_extra = ""
+                if status == "concluida":
+                    label_extra = "  ✓"
+                elif status == "em_andamento":
+                    label_extra = "  ⏳"
+                elif status == "paga":
+                    label_extra = "  🔒 paga"
+                lbx_pasta.insert("end", f"{nome}{label_extra}")
+                if status == "paga":
+                    lbx_pasta.itemconfig(
+                        i, fg=_COR_PAGA, bg=_BG_PAGA,
+                        selectbackground=_BG_PAGA, selectforeground=_COR_PAGA,
+                    )
+                elif status in ("em_andamento", "concluida"):
+                    lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
+                if nome and nome == nome_selecionado:
+                    idx_match = i
+            try:
+                lbx_pasta.selection_clear(0, "end")
+                if idx_match >= 0:
+                    lbx_pasta.selection_set(idx_match)
+                    lbx_pasta.see(idx_match)
+            except Exception:
+                pass
+            ultimo_idx_selecionado["valor"] = idx_match
 
         def _alternar_modo_pasta(*_a: object) -> None:
             if modo_pasta.get() == "criar":
@@ -1944,7 +2173,9 @@ class JanelaSubtarefas(tk.Toplevel):
                 for st in estado_campos.values()
             )
             try:
-                cmb_pasta.configure(state=("disabled" if bloquear else "readonly"))
+                # Listbox usa "normal" ou "disabled" (não "readonly" como o
+                # Combobox antigo). Cliques quando "disabled" ficam inertes.
+                cmb_pasta.configure(state=("disabled" if bloquear else "normal"))
                 rad_selecionar.configure(state=("disabled" if bloquear else "normal"))
                 if bloquear:
                     rad_criar.configure(state="disabled")
@@ -2192,12 +2423,9 @@ class JanelaSubtarefas(tk.Toplevel):
                 var_pasta_raiz.set(f"Pasta raiz no MEGA: /{pasta_raiz_holder['valor']}")
                 pastas_existentes.clear()
                 pastas_existentes.extend(d.get("pastas_logicas") or [])
-                cmb_pasta["values"] = [
-                    str(p.get("nome_pasta") or "") for p in pastas_existentes
-                ]
                 pasta_logica["id_pasta_logica"] = 0
                 pasta_logica["nome_pasta"] = ""
-                var_pasta_existente.set("")
+                _rebuild_lbx_pasta("")
                 var_numero.set(_calcular_proximo_numero())
                 modo_pasta.set("criar")
                 rad_criar.configure(state="normal")

@@ -17,75 +17,83 @@ header('Content-Type: text/html; charset=utf-8');
   <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css?v=7" rel="stylesheet">
+  <link href="./css/painel.css?v=8" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 
 <body>
-  <nav class="navbar navbar-expand-lg navbar-grafite sticky-top" aria-label="Navegação principal">
-    <div class="container-fluid px-3">
-      <a class="navbar-brand d-flex align-items-center gap-2 text-decoration-none me-3" href="#">
-        <span class="rk-logo-icon" aria-hidden="true">
-          <span class="rk-play">&#9654;</span>
-        </span>
+  <!-- Topbar visível só em telas pequenas (até md). Em desktop, navegação fica
+       inteira na sidebar à esquerda. -->
+  <nav class="painel-topbar d-lg-none" aria-label="Navegação (mobile)">
+    <button class="btn btn-sm btn-outline-light" id="botaoAbrirSidebar" type="button" aria-label="Abrir menu">☰</button>
+    <a class="navbar-brand d-flex align-items-center gap-2 text-decoration-none ms-2" href="#">
+      <span class="rk-logo-icon" aria-hidden="true"><span class="rk-play">&#9654;</span></span>
+      <span class="rk-logo-texto">
+        <span class="rk-sigla">RK</span><span class="rk-producoes">PRODUÇÕES</span>
+      </span>
+    </a>
+  </nav>
+
+  <!-- Overlay do mobile (clica fora pra fechar) -->
+  <div class="painel-sidebar-overlay" id="painelSidebarOverlay" aria-hidden="true"></div>
+
+  <aside class="painel-sidebar" id="painelSidebar" aria-label="Navegação principal">
+    <div class="painel-sidebar-topo">
+      <a class="painel-sidebar-marca d-flex align-items-center gap-2 text-decoration-none" href="#">
+        <span class="rk-logo-icon" aria-hidden="true"><span class="rk-play">&#9654;</span></span>
         <span class="rk-logo-texto">
           <span class="rk-sigla">RK</span><span class="rk-producoes">PRODUÇÕES</span>
         </span>
         <span class="badge badge-suave fw-normal small ms-1">ADM</span>
       </a>
-
-      <button class="navbar-toggler border-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#navbarConteudo" aria-controls="navbarConteudo" aria-expanded="false" aria-label="Abrir menu">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse" id="navbarConteudo">
-        <ul class="navbar-nav me-auto gap-1" id="menuAbas">
-          <li class="nav-item">
-            <a class="nav-link active" href="#" data-aba="abaDashboard">Dashboard</a>
-          </li>
-          <li class="nav-item nav-hover-submenu">
-            <a class="nav-link" href="#" data-aba="abaUsuarios">Usuários</a>
-            <ul class="submenu-nav">
-              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</a></li>
-            </ul>
-          </li>
-          <li class="nav-item nav-hover-submenu">
-            <a class="nav-link" href="#" data-aba="abaAtividades">Canal</a>
-            <ul class="submenu-nav">
-              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</a></li>
-            </ul>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-aba="abaGerenciarTarefas">Gerenciar Tarefas</a>
-          </li>
-          <li class="nav-item nav-hover-submenu">
-            <a class="nav-link" href="#" data-aba="abaCredenciais">Credenciais e APIs</a>
-            <ul class="submenu-nav">
-              <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Gerenciar modelos</a></li>
-            </ul>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" href="#" data-aba="abaMega" title="Configuração de upload obrigatório no MEGA">MEGA</a>
-          </li>
-        </ul>
-
-        <div class="d-flex align-items-center gap-2 ms-2">
-          <span class="texto-fraco small d-none d-xl-block" id="textoSubtitulo">Dashboard · visão geral</span>
-          <button class="btn btn-sm btn-outline-light" type="button" id="botaoRecarregarAba" title="Recarregar aba atual">&#x21BB; Recarregar</button>
-          <a href="./baixar_app.php" class="btn btn-sm btn-light">Baixar App</a>
-          <a href="./logout.php" class="btn btn-sm btn-outline-danger" title="Sair do painel">Sair</a>
-        </div>
-      </div>
+      <span class="texto-fraco small mt-2 d-block" id="textoSubtitulo">Dashboard · visão geral</span>
     </div>
-  </nav>
 
-  <div class="container-fluid">
+    <ul class="painel-sidebar-nav" id="menuAbas">
+      <li class="nav-item">
+        <a class="nav-link active" href="#" data-aba="abaDashboard">Dashboard</a>
+      </li>
+      <li class="nav-item nav-hover-submenu">
+        <a class="nav-link" href="#" data-aba="abaUsuarios">Usuários</a>
+        <ul class="submenu-nav">
+          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</a></li>
+        </ul>
+      </li>
+      <li class="nav-item nav-hover-submenu">
+        <a class="nav-link" href="#" data-aba="abaAtividades">Canal</a>
+        <ul class="submenu-nav">
+          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</a></li>
+        </ul>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-aba="abaGerenciarTarefas">Gerenciar Tarefas</a>
+      </li>
+      <li class="nav-item nav-hover-submenu">
+        <a class="nav-link" href="#" data-aba="abaCredenciais">Credenciais e APIs</a>
+        <ul class="submenu-nav">
+          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Gerenciar modelos</a></li>
+        </ul>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-aba="abaMega" title="Configuração de upload obrigatório no MEGA">MEGA</a>
+      </li>
+    </ul>
+
+    <!-- Bloco inferior: ações globais (Sair / Baixar App / Recarregar). -->
+    <div class="painel-sidebar-rodape">
+      <button class="btn btn-sm btn-outline-light w-100" type="button" id="botaoRecarregarAba" title="Recarregar aba atual">&#x21BB; Recarregar</button>
+      <a href="./baixar_app.php" class="btn btn-sm btn-light w-100">Baixar App</a>
+      <a href="./logout.php" class="btn btn-sm btn-outline-danger w-100" title="Sair do painel">Sair</a>
+    </div>
+  </aside>
+
+  <div class="container-fluid painel-conteudo">
     <div class="p-3 p-md-4">
 
         <section id="areaAlertas" aria-label="Mensagens do sistema"></section>
@@ -450,6 +458,26 @@ header('Content-Type: text/html; charset=utf-8');
 
               </div>
 
+              <!-- Canais vinculados (full-width) -->
+              <div class="col-12 mt-3">
+                <article class="cartao-grafite p-3">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <h6 class="mb-0">Canais vinculados</h6>
+                      <span class="badge badge-suave" id="textoGestaoTotalCanais">—</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnSalvarCanaisGestao">Salvar canais</button>
+                  </div>
+                  <div class="texto-fraco small mb-2">
+                    Marque os canais nos quais este usuário deve participar.
+                    Você não precisa abrir o canal: o vínculo é gravado direto a partir daqui.
+                  </div>
+                  <div id="listaCanaisGestao" class="row g-2">
+                    <div class="col-12"><div class="texto-fraco">Carregando canais…</div></div>
+                  </div>
+                </article>
+              </div>
+
               <!-- Tarefas declaradas (full-width abaixo) -->
               <div class="col-12 mt-3">
                 <article class="cartao-grafite p-3">
@@ -486,6 +514,8 @@ header('Content-Type: text/html; charset=utf-8');
                       </tbody>
                     </table>
                   </div>
+                  <!-- Paginação inferior. Substitui o corte silencioso de 500 itens -->
+                  <nav class="mt-2 d-flex justify-content-end" id="paginacaoGestaoTarefas" aria-label="Paginação das tarefas declaradas"></nav>
                 </article>
               </div>
 
@@ -635,6 +665,8 @@ header('Content-Type: text/html; charset=utf-8');
                   </tbody>
                 </table>
               </div>
+              <!-- Paginação inferior — substitui o corte silencioso de 500 itens -->
+              <nav class="mt-2 d-flex justify-content-end" id="paginacaoGerenciarTarefas" aria-label="Paginação das tarefas"></nav>
             </article>
 
           </section>
@@ -668,6 +700,8 @@ header('Content-Type: text/html; charset=utf-8');
                   <div class="mb-3">
                     <label class="form-label texto-fraco small">Título da tarefa</label>
                     <input type="text" id="gtEditTitulo" class="form-control bg-transparent text-white border-secondary" maxlength="220">
+                    <!-- Aviso de bloqueio quando a tarefa é MEGA (preenchido por aba-gerenciar-tarefas.js). -->
+                    <div id="gtEditAvisoMega" class="form-text small text-warning d-none mt-1"></div>
                   </div>
                   <div class="row g-2 mb-3">
                     <div class="col-6">
@@ -1271,15 +1305,31 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
-  <script src="./js/aba-usuarios.js?v=9"></script>
-  <script src="./js/aba-atividades.js?v=7"></script>
-  <script src="./js/aba-gerenciar-tarefas.js?v=9"></script>
+  <script src="./js/aba-usuarios.js?v=10"></script>
+  <script src="./js/aba-atividades.js?v=8"></script>
+  <script src="./js/aba-gerenciar-tarefas.js?v=11"></script>
   <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
   <script src="./js/aba-mega.js?v=5"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
-  <script src="./js/aba-relatorio.js?v=7"></script>
-  <script src="./js/painel.js?v=7"></script>
+  <script src="./js/aba-relatorio.js?v=8"></script>
+  <script src="./js/painel.js?v=8"></script>
+  <script>
+    // Toggle da sidebar no mobile. Em desktop a sidebar fica fixa e o
+    // botão ☰ não é exibido — esse script só importa em ≤ md.
+    (function () {
+      const body = document.body;
+      const btn = document.getElementById("botaoAbrirSidebar");
+      const overlay = document.getElementById("painelSidebarOverlay");
+      function fechar() { body.classList.remove("painel-sidebar-aberta"); }
+      if (btn) btn.addEventListener("click", () => body.classList.toggle("painel-sidebar-aberta"));
+      if (overlay) overlay.addEventListener("click", fechar);
+      // Fecha ao clicar num link de aba (UX mobile: vai pra aba sem deixar overlay aberto)
+      document.querySelectorAll('#menuAbas a[data-aba]').forEach((a) => {
+        a.addEventListener("click", () => { if (window.innerWidth < 992) fechar(); });
+      });
+    })();
+  </script>
 </body>
 
 </html>

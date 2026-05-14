@@ -162,8 +162,15 @@ try {
         $params_pag[':membro'] = $membro_filtro;
     }
 
+    // Conta pagas vs total no dia para distinguir totalmente pago,
+    // parcialmente pago e pendente. Antes a query usava
+    // `MAX(bloqueada_pagamento)` e marcava o dia inteiro como pago se
+    // houvesse pelo menos uma tarefa quitada — escondia horas ainda
+    // devidas em dias mistos.
     $sql_pag = "
-        SELECT s.user_id, s.referencia_data, MAX(s.bloqueada_pagamento) AS pago
+        SELECT s.user_id, s.referencia_data,
+               SUM(CASE WHEN s.bloqueada_pagamento = 1 THEN 1 ELSE 0 END) AS qtd_pagas,
+               COUNT(*) AS qtd_total
         FROM atividades_subtarefas s
         WHERE {$where_pag} AND s.referencia_data IS NOT NULL
         GROUP BY s.user_id, s.referencia_data
@@ -172,22 +179,45 @@ try {
     $cmd3->execute($params_pag);
     $pag_raw = $cmd3->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-    $mapa_pago = [];
+    $mapa_status_pag = [];
     foreach ($pag_raw as $p) {
-        $mapa_pago[$p['user_id'] . '|' . $p['referencia_data']] = (int)$p['pago'];
+        $qtd_pagas = (int)($p['qtd_pagas'] ?? 0);
+        $qtd_total = (int)($p['qtd_total'] ?? 0);
+        if ($qtd_total <= 0) {
+            $status = 'pendente';
+        } elseif ($qtd_pagas <= 0) {
+            $status = 'pendente';
+        } elseif ($qtd_pagas >= $qtd_total) {
+            $status = 'pago';
+        } else {
+            $status = 'parcial';
+        }
+        $mapa_status_pag[$p['user_id'] . '|' . $p['referencia_data']] = $status;
     }
 
     // -------------------------------------------------------
-    // 3b. Total pago por usuário (soma de Pagamentos)
+    // 3b. Total pago por usuário NO PERÍODO exibido
     // -------------------------------------------------------
+    //
+    // Antes a query somava o histórico inteiro de pagamentos. Isso fazia o
+    // valor "A pagar" do Dashboard descontar pagamentos antigos do valor
+    // estimado do período atual — o pendente exibido podia zerar (ou ficar
+    // menor que o real) mesmo ainda existindo cobrança devida no período.
+    // Agora o pago é restrito à mesma janela usada para `valor_estimado`,
+    // alinhando as duas pontas do cálculo.
     $mapa_total_pago = [];
     $sql_total_pago = "
         SELECT u.user_id, COALESCE(SUM(p.valor), 0) AS total_pago
         FROM Pagamentos p
         JOIN usuarios u ON u.id_usuario = p.id_usuario
+        WHERE p.data_pagamento BETWEEN :data_inicio AND :data_fim
         GROUP BY u.user_id
     ";
-    $cmd_tp = $pdo->query($sql_total_pago);
+    $cmd_tp = $pdo->prepare($sql_total_pago);
+    $cmd_tp->execute([
+        ':data_inicio' => $data_inicio,
+        ':data_fim'    => $data_fim,
+    ]);
     foreach ($cmd_tp->fetchAll(PDO::FETCH_ASSOC) ?: [] as $tp) {
         $mapa_total_pago[$tp['user_id']] = (float)$tp['total_pago'];
     }
@@ -208,7 +238,8 @@ try {
 
         $chave = $uid . '|' . $data;
         $segs_trab = $mapa_trab[$chave] ?? 0;
-        $pago = ($mapa_pago[$chave] ?? 0) === 1;
+        $status_pagamento = $mapa_status_pag[$chave] ?? 'pendente';
+        $pago = $status_pagamento === 'pago';
 
         $horas_float = $segs / 3600.0;
         $valor_est   = round($horas_float * $vh, 2);
@@ -228,6 +259,7 @@ try {
             'total_declaracoes'     => $qtd,
             'valor_estimado'        => $valor_est,
             'pago'                  => $pago,
+            'status_pagamento'      => $status_pagamento,
             'divergente'            => $divergente,
         ];
 

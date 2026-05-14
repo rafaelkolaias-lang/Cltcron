@@ -573,12 +573,17 @@ class App(tk.Tk):
             try:
                 urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
                 if backup_exe.exists():
-                    backup_exe.unlink()
+                    try:
+                        backup_exe.unlink()
+                    except Exception as e:
+                        LOG_TEC.log("AUTO-UPDATE", "falha ao apagar .bak antigo", {"erro": str(e)})
+                        return
                 if caminho_atual.exists():
                     os.rename(str(caminho_atual), str(backup_exe))
                 try:
                     os.rename(str(novo_exe), str(caminho_atual))
-                except Exception:
+                except Exception as e:
+                    LOG_TEC.log("AUTO-UPDATE", "falha no rename exe novo", {"erro": str(e)})
                     if backup_exe.exists() and not caminho_atual.exists():
                         os.rename(str(backup_exe), str(caminho_atual))
                     return
@@ -591,7 +596,7 @@ class App(tk.Tk):
                         self._monitor.pausar_e_preservar_sessao()
                         pausou_sessao = True
                 except Exception as e:
-                    print(f"[auto-update] Falha ao pausar sessão antes do reinício: {e}")
+                    LOG_TEC.log("AUTO-UPDATE", "falha ao pausar sessão antes do reinício", {"erro": str(e)})
 
                 # Aviso sonoro pro user perceber a pausa (Windows). Falha
                 # silenciosa em outros SOs / ambientes sem winsound.
@@ -601,14 +606,55 @@ class App(tk.Tk):
                     except Exception:
                         pass
 
-                subprocess.Popen([str(caminho_atual)])
-                # Sleep dá tempo do bootloader PyInstaller limpar `_MEI...`
-                # ao desligar o exe antigo. sys.exit (não os._exit) deixa o
-                # cleanup do bootloader rodar normalmente.
-                time.sleep(0.5)
+                # Restart desacoplado: dispara um cmd.exe detached que aguarda
+                # 2s antes de iniciar o novo exe. Esses 2s dão folga pro
+                # bootloader PyInstaller do exe antigo terminar a limpeza da
+                # pasta `_MEI...` em Temp antes da nova instância subir —
+                # evita o popup "Failed to remove temporary directory" que
+                # acompanhava o restart imediato.
+                try:
+                    _agendar_relaunch_destacado(caminho_atual)
+                except Exception as e:
+                    LOG_TEC.log("AUTO-UPDATE", "falha ao agendar relaunch destacado, usando fallback direto", {"erro": str(e)})
+                    try:
+                        subprocess.Popen([str(caminho_atual)])
+                    except Exception:
+                        pass
+
+                # sys.exit (não os._exit) deixa o cleanup do bootloader
+                # PyInstaller rodar normalmente — soma com o delay de 2s do
+                # relaunch destacado pra eliminar o aviso `_MEI`.
                 self.after(0, lambda: sys.exit(0))
-            except Exception:
-                pass
+            except Exception as e:
+                LOG_TEC.log("AUTO-UPDATE", "erro inesperado no _baixar", {"erro": str(e)})
+
+        def _agendar_relaunch_destacado(caminho_exe: Path) -> None:
+            """Dispara um cmd.exe destacado que aguarda 2s e abre o novo exe.
+
+            Usa CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS + CREATE_NO_WINDOW
+            pra que o cmd intermediário não fique amarrado ao processo antigo
+            nem mostre janela. O `start "" "<exe>"` solta o novo exe como
+            processo independente do cmd. Sem isso, o new exe herdava handles
+            do antigo enquanto o bootloader PyInstaller ainda tentava limpar
+            `_MEI...`, causando o aviso "Failed to remove temporary directory".
+            """
+            linha = f'cmd.exe /c "timeout /t 2 /nobreak >nul & start "" "{caminho_exe}""'
+            flags = 0
+            if os.name == "nt":
+                flags = (
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    | getattr(subprocess, "DETACHED_PROCESS", 0)
+                    | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                )
+            subprocess.Popen(
+                linha,
+                shell=False,
+                creationflags=flags,
+                close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
         threading.Thread(target=_em_thread, daemon=True).start()
 

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/declaracoes_dia_itens.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -45,6 +46,42 @@ try {
     }
     if ((int)($atual['bloqueada_pagamento'] ?? 0) === 1) {
         responder_json(false, 'Esta tarefa está bloqueada por pagamento e não pode ser editada.', null, 403);
+    }
+
+    // Bloqueio de renomeação para tarefas MEGA: o título de uma tarefa MEGA
+    // está acoplado ao `mega_pasta_logica.nome_pasta` e ao nome da pasta no
+    // servidor MEGA. Alterar só o título pelo painel deixa banco e MEGA
+    // divergentes — quebra reabertura, troca de arquivo, exclusão e a
+    // sincronização periódica. Enquanto o fluxo de renomeação coerente
+    // (com replicação para o MEGA) não estiver implementado, recusamos a
+    // alteração explicitamente. Outros campos (tempo, observação, canal,
+    // status de conclusão) continuam editáveis.
+    $titulo_atual = (string)($atual['titulo'] ?? '');
+    if ($titulo !== '' && $titulo !== $titulo_atual) {
+        try {
+            $stMega = $pdo->prepare(
+                'SELECT 1
+                   FROM mega_pasta_logica
+                  WHERE id_atividade = :id_ativ
+                    AND nome_pasta   = :nome
+                    AND ativo = 1
+                  LIMIT 1'
+            );
+            $stMega->execute([
+                ':id_ativ' => (int)($atual['id_atividade'] ?? 0),
+                ':nome'    => $titulo_atual,
+            ]);
+            if ($stMega->fetchColumn()) {
+                responder_json(false,
+                    'Esta tarefa está vinculada a uma pasta no MEGA — alterar o nome pelo painel deixaria os arquivos do MEGA dessincronizados. Edite tempo, observação ou status normalmente; para renomear, exclua e recrie pelo app desktop.',
+                    ['id_subtarefa' => $id_subtarefa, 'campo' => 'titulo'],
+                    409
+                );
+            }
+        } catch (Throwable $_) {
+            // Tabela `mega_pasta_logica` pode não existir em ambientes sem
+            // o módulo MEGA configurado. Sem ela, nada a bloquear.
+        }
     }
 
     // Monta SET dinâmico apenas com campos enviados
@@ -160,6 +197,12 @@ try {
         ':antes'      => json_encode($dados_antes, JSON_UNESCAPED_UNICODE),
         ':depois'     => json_encode($dados_depois, JSON_UNESCAPED_UNICODE),
     ]);
+
+    // Espelha em `declaracoes_dia_itens` (fonte do relatório de tempo
+    // trabalhado). Sem isso, edições feitas pela Gestão divergem do
+    // relatório — o desktop já mantém esse espelho via
+    // `declaracoes_dia.py::_sincronizar_item_espelho_da_subtarefa`.
+    declaracoes_itens_sincronizar_espelho($pdo, $id_subtarefa);
 
     $pdo->commit();
 

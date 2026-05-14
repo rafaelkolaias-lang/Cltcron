@@ -156,10 +156,19 @@
   }
 
   // ─── badge helpers ────────────────────────────────────────────────────────
-  function badgePago(pago) {
-    return pago
-      ? '<span class="badge text-bg-success">Pago</span>'
-      : '<span class="badge text-bg-warning text-dark">Pendente</span>';
+  function badgeStatusPagamento(status, pagoLegado) {
+    // Aceita o campo novo `status_pagamento` ("pago" | "parcial" | "pendente")
+    // e cai no `pago` booleano para compatibilidade com payloads antigos.
+    const valor = typeof status === "string" && status
+      ? status
+      : (pagoLegado ? "pago" : "pendente");
+    if (valor === "pago") {
+      return '<span class="badge text-bg-success">Pago</span>';
+    }
+    if (valor === "parcial") {
+      return '<span class="badge text-bg-info text-dark" title="Parte das tarefas do dia já está paga; ainda há horas pendentes">Parcial</span>';
+    }
+    return '<span class="badge text-bg-warning text-dark">Pendente</span>';
   }
 
   function badgeDivergencia(divergente) {
@@ -242,7 +251,7 @@
           <td class="text-center text-success">${esc(ln.trabalhado_formatado)}</td>
           <td class="text-center fw-semibold">${esc(ln.horas_formatado)}${badgeDivergencia(ln.divergente)}</td>
           <td class="text-center texto-fraco">${ln.total_declaracoes}</td>
-          <td class="text-center">${badgePago(ln.pago)}</td>
+          <td class="text-center">${badgeStatusPagamento(ln.status_pagamento, ln.pago)}</td>
           ${tot.valor_hora > 0 ? `<td class="text-end">${rs(ln.valor_estimado)}</td>` : ""}
         </tr>`;
       }
@@ -309,7 +318,7 @@
           <td class="text-center text-success">${esc(ln.trabalhado_formatado)}</td>
           <td class="text-center fw-semibold">${esc(ln.horas_formatado)}${badgeDivergencia(ln.divergente)}</td>
           <td class="text-center texto-fraco">${ln.total_declaracoes}</td>
-          <td class="text-center">${badgePago(ln.pago)}</td>
+          <td class="text-center">${badgeStatusPagamento(ln.status_pagamento, ln.pago)}</td>
           ${temValor ? `<td class="text-end">${ln.valor_hora > 0 ? rs(ln.valor_estimado) : "—"}</td>` : ""}
         </tr>`;
       }
@@ -335,7 +344,7 @@
       ln.trabalhado_formatado,
       ln.horas_formatado,
       ln.total_declaracoes,
-      ln.pago ? "Sim" : "Não",
+      (ln.status_pagamento === "pago") ? "Sim" : (ln.status_pagamento === "parcial" ? "Parcial" : "Não"),
       ln.divergente ? "Sim" : "Não",
       String(ln.valor_hora).replace(".", ","),
       String(ln.valor_estimado).replace(".", ","),

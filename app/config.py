@@ -106,9 +106,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.5"
+VERSAO_APLICACAO = "v3.1.6"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.6",
+        "data": "13/05/2026",
+        "notas": [
+            "Auto-update não mostra mais o aviso 'Failed to remove temporary directory' do PyInstaller após atualizar — o novo exe agora abre alguns segundos depois, dando tempo do antigo se desligar limpo",
+            "Falhas no swap do auto-update agora são registradas no log técnico em vez de sumirem em silêncio",
+        ],
+    },
     {
         "versao": "v3.1.5",
         "data": "13/05/2026",

@@ -29,6 +29,12 @@
   let modoModal = "criar"; // criar | editar
   let idAtividadeEmEdicao = 0;
 
+  // Seleção atual de usuários vinculados ao canal em edição/criação.
+  // Mantém os IDs marcados mesmo quando a lista é re-renderizada pelo
+  // filtro de busca — sem isso, os checkboxes fora do filtro perdem o
+  // estado e o salvar acaba removendo usuários por engano.
+  const idsUsuariosSelecionadosAtividade = new Set();
+
   function obterElemento(seletor) {
     return document.querySelector(seletor);
   }
@@ -259,11 +265,12 @@
       const userId = escaparHtml(u.user_id);
       const nome = escaparHtml(u.nome_exibicao);
       const nivel = escaparHtml(u.nivel);
+      const checked = idsUsuariosSelecionadosAtividade.has(idUsuario) ? " checked" : "";
 
       return `
         <label class="cartao-grafite p-2 d-flex align-items-center justify-content-between" style="cursor:pointer;">
           <div class="d-flex align-items-center gap-2">
-            <input type="checkbox" class="form-check-input m-0" data-id-usuario="${idUsuario}">
+            <input type="checkbox" class="form-check-input m-0" data-id-usuario="${idUsuario}"${checked}>
             <div>
               <div class="fw-semibold">${nome}</div>
               <div class="texto-fraco small">${userId} · ${nivel}</div>
@@ -275,18 +282,14 @@
   }
 
   function obterIdsUsuariosSelecionados() {
-    const container = obterElemento(seletorListaUsuarios);
-    if (!container) return [];
-
-    const checks = container.querySelectorAll('input[type="checkbox"][data-id-usuario]');
+    // Fonte da verdade: o `Set` em memória. Os checkboxes renderizados na
+    // tela só refletem a lista filtrada pela busca — usar `querySelectorAll`
+    // aqui removeria silenciosamente os usuários que ficaram fora do filtro.
     const selecionados = [];
-
-    checks.forEach((c) => {
-      if (!c.checked) return;
-      const idUsuario = Number(c.getAttribute("data-id-usuario") || 0);
-      if (idUsuario > 0) selecionados.push(idUsuario);
+    idsUsuariosSelecionadosAtividade.forEach((idUsuario) => {
+      const n = Number(idUsuario || 0);
+      if (n > 0) selecionados.push(n);
     });
-
     return selecionados;
   }
 
@@ -309,6 +312,7 @@
     if (container) {
       container.querySelectorAll('input[type="checkbox"][data-id-usuario]').forEach((c) => { c.checked = false; });
     }
+    idsUsuariosSelecionadosAtividade.clear();
 
     modoModal = "criar";
     idAtividadeEmEdicao = 0;
@@ -326,11 +330,18 @@
     if (!container) return;
 
     const lista = Array.isArray(usuariosDaAtividade) ? usuariosDaAtividade : [];
-    const ids = new Set(lista.map((u) => Number(u.id_usuario || 0)).filter((n) => n > 0));
+
+    // Reset + repopulação do `Set` autoritativo a partir dos vínculos
+    // atuais do canal. Os checkboxes visíveis são apenas o espelho.
+    idsUsuariosSelecionadosAtividade.clear();
+    lista.forEach((u) => {
+      const n = Number(u.id_usuario || 0);
+      if (n > 0) idsUsuariosSelecionadosAtividade.add(n);
+    });
 
     container.querySelectorAll('input[type="checkbox"][data-id-usuario]').forEach((c) => {
       const idUsuario = Number(c.getAttribute("data-id-usuario") || 0);
-      c.checked = ids.has(idUsuario);
+      c.checked = idsUsuariosSelecionadosAtividade.has(idUsuario);
     });
   }
 
@@ -513,6 +524,22 @@
     if (buscaUsuarios) {
       buscaUsuarios.addEventListener("input", () => {
         renderizarListaUsuariosAtividade(buscaUsuarios.value);
+      });
+    }
+
+    // Sincroniza o `Set` autoritativo com o estado real dos checkboxes
+    // exibidos. Sem isso, marcar/desmarcar um checkbox visível não muda a
+    // seleção real até o usuário disparar o salvar.
+    const containerUsuarios = obterElemento(seletorListaUsuarios);
+    if (containerUsuarios) {
+      containerUsuarios.addEventListener("change", (ev) => {
+        const alvo = ev.target;
+        if (!(alvo instanceof HTMLInputElement)) return;
+        if (alvo.type !== "checkbox") return;
+        const idUsuario = Number(alvo.getAttribute("data-id-usuario") || 0);
+        if (idUsuario <= 0) return;
+        if (alvo.checked) idsUsuariosSelecionadosAtividade.add(idUsuario);
+        else idsUsuariosSelecionadosAtividade.delete(idUsuario);
       });
     }
   }

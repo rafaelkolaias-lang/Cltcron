@@ -17,6 +17,26 @@ try {
     $canal       = trim((string)($_GET['canal']       ?? ''));
     $resumo_periodo = trim((string)($_GET['resumo_periodo'] ?? 'tudo')); // 'tudo' | '30dias'
 
+    // Paginação explícita: substitui o corte silencioso de 500 itens. Sem
+    // page/per_page o endpoint mantém o comportamento histórico (primeira
+    // página com `per_page` grande) — quem consome ainda sem paginação UI
+    // continua vendo as primeiras linhas. Consumidores novos passam `page`
+    // e `per_page` e exibem navegação no rodapé da tabela.
+    $page = (int)($_GET['page'] ?? 1);
+    if ($page < 1) {
+        $page = 1;
+    }
+    $per_page = (int)($_GET['per_page'] ?? 100);
+    if ($per_page < 1) {
+        $per_page = 1;
+    }
+    if ($per_page > 500) {
+        // Defesa contra query muito pesada — o usuário pode pedir até 500
+        // por página, mas nada além disso.
+        $per_page = 500;
+    }
+    $offset = ($page - 1) * $per_page;
+
     // Filtro temporal para os agregados do resumo (não afeta a listagem de subtarefas)
     $filtroResumo = '';
     $paramResumo = [];
@@ -55,6 +75,25 @@ try {
 
     $where = $condicoes ? ('WHERE ' . implode(' AND ', $condicoes)) : '';
 
+    // Total para metadado de paginação (com os mesmos filtros)
+    $sql_count = "SELECT COUNT(*) FROM atividades_subtarefas s {$where}";
+    $stCount = $pdo->prepare($sql_count);
+    $stCount->execute($params);
+    $total = (int)$stCount->fetchColumn();
+    $total_pages = $per_page > 0 ? (int)ceil($total / $per_page) : 1;
+    if ($total_pages < 1) {
+        $total_pages = 1;
+    }
+    if ($page > $total_pages) {
+        // Fora do alcance — não recarrega outro page, só devolve vazio
+        // com o metadado correto pra UI reagir.
+        $page = $total_pages;
+        $offset = ($page - 1) * $per_page;
+    }
+
+    // LIMIT/OFFSET interpolados literalmente — PDO::ATTR_EMULATE_PREPARES
+    // por padrão amarra LIMIT/OFFSET como string e o MySQL reclama. Os
+    // valores já vêm castados pra int acima, então é seguro.
     $sql = "
         SELECT
             s.id_subtarefa,
@@ -77,7 +116,7 @@ try {
         LEFT JOIN atividades a ON a.id_atividade = s.id_atividade
         $where
         ORDER BY s.referencia_data DESC, s.criada_em DESC
-        LIMIT 500
+        LIMIT {$per_page} OFFSET {$offset}
     ";
 
     $st = $pdo->prepare($sql);
@@ -91,6 +130,42 @@ try {
         $l['concluida']          = (bool)$l['concluida'];
         $l['segundos_gastos']    = (int)$l['segundos_gastos'];
         $l['bloqueada_pagamento'] = (bool)$l['bloqueada_pagamento'];
+        $l['mega_pasta_vinculada'] = false;
+    }
+    unset($l);
+
+    // Flag `mega_pasta_vinculada`: true quando o título da subtarefa
+    // corresponde a uma pasta lógica MEGA ativa do mesmo canal. A UI usa
+    // pra travar a renomeação no painel — alterar o título de uma tarefa
+    // MEGA sem sincronizar com o MEGA quebra o vínculo entre subtarefa,
+    // pasta lógica e arquivos remotos. Enquanto a sincronização completa
+    // não estiver implementada, o backend (em `editar.php`) também recusa
+    // alterações de título nessas tarefas.
+    $id_ativs = array_unique(array_map(fn($l) => (int)$l['id_atividade'], $linhas));
+    if (!empty($id_ativs)) {
+        try {
+            $placeholders = implode(',', array_fill(0, count($id_ativs), '?'));
+            $stM = $pdo->prepare(
+                "SELECT id_atividade, nome_pasta
+                   FROM mega_pasta_logica
+                  WHERE ativo = 1 AND id_atividade IN ($placeholders)"
+            );
+            $stM->execute(array_values($id_ativs));
+            $mapaMega = [];
+            foreach ($stM->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
+                $mapaMega[((int)$r['id_atividade']) . '|' . (string)$r['nome_pasta']] = true;
+            }
+            foreach ($linhas as &$l) {
+                $chave = ((int)$l['id_atividade']) . '|' . (string)$l['titulo'];
+                if (isset($mapaMega[$chave])) {
+                    $l['mega_pasta_vinculada'] = true;
+                }
+            }
+            unset($l);
+        } catch (Throwable $_) {
+            // Tabela `mega_pasta_logica` ainda não existe nesse ambiente —
+            // sem MEGA configurado, nenhuma tarefa fica vinculada.
+        }
     }
 
     // Agregar horas trabalhadas e declaradas ACUMULADAS por membro (todas as datas)
@@ -115,11 +190,14 @@ try {
         $mapaCron[$uid] = (int)($cron['trab'] ?? 0);
         $mapaOcio[$uid] = (int)($cron['ocio'] ?? 0);
 
-        // Total declarado (TODAS as subtarefas)
+        // Total declarado para o resumo financeiro: apenas subtarefas
+        // CONCLUÍDAS. Tarefas abertas com tempo preenchido continuam
+        // aparecendo na listagem da Gestão, mas não devem inflar o valor
+        // "A pagar" — a cobrança só considera trabalho finalizado.
         $stD = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid {$filtroResumoRef}
+            WHERE user_id = :uid AND concluida = 1 {$filtroResumoRef}
         ");
         $stD->execute([':uid' => $uid]);
         $mapaDecl[$uid] = (int)$stD->fetchColumn();
@@ -159,7 +237,25 @@ try {
         $l['total_pago']                   = $mapaPago[$uid] ?? 0.0;
     }
 
-    responder_json(true, 'OK', $linhas, 200);
+    // Resposta JSON manual: preserva `dados` como array (compatibilidade com
+    // consumidores antigos) e acrescenta `paginacao` no mesmo nível para
+    // quem quiser exibir navegação por páginas no rodapé da tabela.
+    http_response_code(200);
+    if (!headers_sent()) {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    }
+    echo json_encode([
+        'ok'        => true,
+        'mensagem'  => 'OK',
+        'dados'     => $linhas,
+        'paginacao' => [
+            'page'        => $page,
+            'per_page'    => $per_page,
+            'total'       => $total,
+            'total_pages' => $total_pages,
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     responder_json(false, 'Falha ao listar tarefas declaradas', ['erro' => $e->getMessage()], 500);
 }

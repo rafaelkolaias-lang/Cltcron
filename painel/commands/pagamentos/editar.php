@@ -98,22 +98,43 @@ try {
         $params[':data_pagamento'] = $data_pagamento;
     }
 
-    if (array_key_exists('referencia_inicio', $in)) {
-        $referencia_inicio = normalizar_data_iso_ou_nulo($in['referencia_inicio']);
+    // Tratamento defensivo dos campos de período: só consideramos uma
+    // intenção real de edição quando o payload manda uma DATA VÁLIDA. Um
+    // `null` cru (ou string vazia) vindo de UI simples NÃO deve apagar a
+    // cobertura salva — antes esse comportamento destravava/travava
+    // tarefas por engano ao editar só data/valor/observação.
+    $referencia_inicio_nova = null;
+    if (array_key_exists('referencia_inicio', $in) && $in['referencia_inicio'] !== null && $in['referencia_inicio'] !== '') {
+        $referencia_inicio_nova = normalizar_data_iso_ou_nulo($in['referencia_inicio']);
+        if ($referencia_inicio_nova === null) {
+            responder_json(false, 'referencia_inicio inválida (YYYY-MM-DD).', ['campo' => 'referencia_inicio'], 400);
+        }
         $campos[] = 'referencia_inicio = :referencia_inicio';
-        $params[':referencia_inicio'] = $referencia_inicio;
+        $params[':referencia_inicio'] = $referencia_inicio_nova;
     }
 
-    if (array_key_exists('referencia_fim', $in)) {
-        $referencia_fim = normalizar_data_iso_ou_nulo($in['referencia_fim']);
+    $referencia_fim_nova = null;
+    if (array_key_exists('referencia_fim', $in) && $in['referencia_fim'] !== null && $in['referencia_fim'] !== '') {
+        $referencia_fim_nova = normalizar_data_iso_ou_nulo($in['referencia_fim']);
+        if ($referencia_fim_nova === null) {
+            responder_json(false, 'referencia_fim inválida (YYYY-MM-DD).', ['campo' => 'referencia_fim'], 400);
+        }
         $campos[] = 'referencia_fim = :referencia_fim';
-        $params[':referencia_fim'] = $referencia_fim;
+        $params[':referencia_fim'] = $referencia_fim_nova;
     }
 
-    if (array_key_exists('travado_ate_data', $in)) {
-        $travado_ate_data = normalizar_data_iso_ou_nulo($in['travado_ate_data']);
+    if (array_key_exists('travado_ate_data', $in) && $in['travado_ate_data'] !== null && $in['travado_ate_data'] !== '') {
+        $travado_ate_data_novo = normalizar_data_iso_ou_nulo($in['travado_ate_data']);
+        if ($travado_ate_data_novo === null) {
+            responder_json(false, 'travado_ate_data inválida (YYYY-MM-DD).', ['campo' => 'travado_ate_data'], 400);
+        }
         $campos[] = 'travado_ate_data = :travado_ate_data';
-        $params[':travado_ate_data'] = $travado_ate_data;
+        $params[':travado_ate_data'] = $travado_ate_data_novo;
+    }
+
+    // Quando ambos os limites do período forem alterados, validar coerência.
+    if ($referencia_inicio_nova !== null && $referencia_fim_nova !== null && $referencia_inicio_nova > $referencia_fim_nova) {
+        responder_json(false, 'referencia_inicio não pode ser maior que referencia_fim.', ['campo' => 'referencia_inicio'], 400);
     }
 
     if (isset($in['valor'])) {
@@ -139,11 +160,14 @@ try {
     $params[':id'] = $id_pagamento;
     $sql = "UPDATE Pagamentos SET " . implode(', ', $campos) . " WHERE id_pagamento = :id";
 
-    // Verificar se campos de período/data mudaram (requer reprocessamento de travas)
+    // Verificar se campos de período/data realmente mudaram (requer
+    // reprocessamento de travas). Considera apenas valores VÁLIDOS de fato
+    // presentes no payload — null/strings vazias não contam como intenção
+    // de edição, alinhado com o tratamento defensivo acima.
     $campos_periodo = ['referencia_inicio', 'referencia_fim', 'travado_ate_data', 'data_pagamento'];
     $periodo_mudou = false;
     foreach ($campos_periodo as $cp) {
-        if (array_key_exists($cp, $in)) {
+        if (array_key_exists($cp, $in) && $in[$cp] !== null && $in[$cp] !== '') {
             $periodo_mudou = true;
             break;
         }

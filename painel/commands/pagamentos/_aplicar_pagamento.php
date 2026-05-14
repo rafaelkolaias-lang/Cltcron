@@ -211,35 +211,87 @@ function pagamento_aplicar(
     // Determinar limites efetivos
     $limite_fim = $referencia_fim ?: $travado_ate_data;
 
+    // Carrega o `criado_em` real do pagamento (DATETIME) para distinguir, no
+    // dia exato do `limite_fim`, subtarefas que já existiam quando o pagamento
+    // foi registrado das que foram criadas depois. Tarefas criadas após o
+    // pagamento, mesmo no mesmo dia, NÃO devem ser travadas — alinha com a
+    // regra do desktop em
+    // `declaracoes_dia.py::atualizar_bloqueios_por_pagamento`.
+    $stCri = $pdo->prepare(
+        'SELECT criado_em FROM Pagamentos WHERE id_pagamento = :id LIMIT 1'
+    );
+    $stCri->execute([':id' => $id_pagamento]);
+    $criado_em_pag = $stCri->fetchColumn();
+    if (!$criado_em_pag) {
+        // Fallback defensivo: trata como agora (recém-inserido). Mantém o
+        // comportamento operacional até o caller usar a versão nova.
+        $criado_em_pag = date('Y-m-d H:i:s');
+    }
+
     // --- Travar subtarefas no período ---
-    $sql_sub = "
+    //
+    // Dois UPDATEs em vez de um único `referencia_data <= :limite_fim`:
+    //   (a) dias estritamente anteriores ao `limite_fim`: trava tudo;
+    //   (b) dia exato do `limite_fim`: trava apenas o que já existia no
+    //       instante do pagamento (`criada_em <= criado_em_pag`).
+    //
+    // Antes a query travava o dia inteiro do `limite_fim`, incluindo
+    // tarefas criadas depois do pagamento — o que fazia o reprocessamento
+    // bloquear trabalho ainda válido.
+
+    $sql_sub_anteriores = "
         UPDATE atividades_subtarefas
         SET bloqueada_pagamento = 1,
             id_pagamento = :id_pag,
             bloqueada_em = NOW()
         WHERE user_id = :user_id
           AND referencia_data IS NOT NULL
-          AND referencia_data <= :limite_fim
+          AND referencia_data < :limite_fim
           AND bloqueada_pagamento = 0
     ";
-    $params_sub = [
+    $params_sub_anteriores = [
         ':id_pag'     => $id_pagamento,
         ':user_id'    => $user_id,
         ':limite_fim' => $limite_fim,
     ];
-
     if ($referencia_inicio !== null) {
-        $sql_sub = str_replace(
+        $sql_sub_anteriores = str_replace(
             'AND bloqueada_pagamento = 0',
             'AND referencia_data >= :limite_inicio AND bloqueada_pagamento = 0',
-            $sql_sub
+            $sql_sub_anteriores
         );
-        $params_sub[':limite_inicio'] = $referencia_inicio;
+        $params_sub_anteriores[':limite_inicio'] = $referencia_inicio;
     }
-
-    $st = $pdo->prepare($sql_sub);
-    $st->execute($params_sub);
+    $st = $pdo->prepare($sql_sub_anteriores);
+    $st->execute($params_sub_anteriores);
     $travadas = $st->rowCount();
+
+    // Dia exato do `limite_fim`: corte por `criada_em` vs `criado_em` do
+    // pagamento. Inclui a tarefa só se já tinha sido criada quando o
+    // pagamento foi registrado.
+    $sql_sub_dia_exato = "
+        UPDATE atividades_subtarefas
+        SET bloqueada_pagamento = 1,
+            id_pagamento = :id_pag,
+            bloqueada_em = NOW()
+        WHERE user_id = :user_id
+          AND referencia_data = :limite_fim
+          AND criada_em <= :criado_em_pag
+          AND bloqueada_pagamento = 0
+    ";
+    $params_sub_dia_exato = [
+        ':id_pag'        => $id_pagamento,
+        ':user_id'       => $user_id,
+        ':limite_fim'    => $limite_fim,
+        ':criado_em_pag' => $criado_em_pag,
+    ];
+    if ($referencia_inicio !== null && $referencia_inicio > $limite_fim) {
+        // Caso degenerado: período inicia depois do limite. Pular dia exato.
+    } else {
+        $st = $pdo->prepare($sql_sub_dia_exato);
+        $st->execute($params_sub_dia_exato);
+        $travadas += $st->rowCount();
+    }
 
     // --- Registrar histórico ---
     if ($registrar_historico && $travadas > 0) {

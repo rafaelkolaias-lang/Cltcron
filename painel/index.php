@@ -17,7 +17,7 @@ header('Content-Type: text/html; charset=utf-8');
   <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css?v=8" rel="stylesheet">
+  <link href="./css/painel.css?v=9" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 

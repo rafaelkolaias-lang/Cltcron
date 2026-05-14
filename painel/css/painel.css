@@ -540,9 +540,23 @@ textarea::placeholder{
   gap: .4rem;
 }
 
+/* `.painel-conteudo` é também `.container-fluid` (width:100% do body) —
+   sem o `width: calc(...)` o margin-left empurra o lado direito pra fora
+   da viewport e o navegador mostra barra de rolagem horizontal. Com o
+   calc o elemento ocupa exatamente o espaço restante após a sidebar. */
 .painel-conteudo {
   margin-left: var(--painel-sidebar-w);
+  width: calc(100% - var(--painel-sidebar-w));
   min-height: 100vh;
+}
+
+/* Cinto de segurança: impede que qualquer conteúdo legado (tabelas com
+   min-width grande, gráficos ECharts mal dimensionados, etc.) introduza
+   rolagem horizontal global na página. Quando precisar de scroll
+   horizontal pontual (uma tabela específica, p.ex.), continua usando
+   `.table-responsive` localizado, que cria o próprio scroll interno. */
+html, body {
+  overflow-x: hidden;
 }
 
 /* Topbar visível só no mobile (≤ md) */
@@ -581,6 +595,7 @@ textarea::placeholder{
   }
   .painel-conteudo {
     margin-left: 0;
+    width: 100%;
   }
 }
 

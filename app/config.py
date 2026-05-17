@@ -106,9 +106,19 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.6"
+VERSAO_APLICACAO = "v3.1.7"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.7",
+        "data": "17/05/2026",
+        "notas": [
+            "Lista de canais agora é atualizada ao abrir 'Tarefas da Atividade' e ao clicar em 'Declarar Tarefa' — vínculos e desvínculos feitos no painel passam a refletir imediatamente, sem precisar relogar no app",
+            "Combo CANAL no formulário 'Nova Tarefa' (legado) agora é selecionável — trocar de canal re-despacha automaticamente pro formulário correto (legado ou MEGA) conforme a configuração do canal escolhido",
+            "Trocar pra um canal sem upload obrigatório dentro do formulário MEGA agora abre o formulário legado automaticamente em vez de mostrar aviso",
+            "Tooltips e mensagens deixam de mencionar 'menu principal' inexistente — a seleção de canal acontece na própria janela 'Declarar Tarefa'",
+        ],
+    },
     {
         "versao": "v3.1.6",
         "data": "13/05/2026",

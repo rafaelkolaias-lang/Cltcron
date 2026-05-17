@@ -817,6 +817,8 @@ class App(tk.Tk):
             messagebox.showerror("Erro", f"Falha ao carregar atividades.\n{erro}")
             return
 
+        selecao_anterior = (self._var_atividade.get() or "").strip()
+
         valores: list[str] = []
         self._mapa_item_para_id.clear()
 
@@ -829,8 +831,14 @@ class App(tk.Tk):
 
         self._combo["values"] = valores
 
-        if valores:
+        # Preserva a seleção atual se o canal ainda existir; caso contrário
+        # cai no primeiro da lista (e se a lista esvaziou, limpa a seleção).
+        if selecao_anterior and selecao_anterior in self._mapa_item_para_id:
+            self._var_atividade.set(selecao_anterior)
+        elif valores:
             self._var_atividade.set(valores[0])
+        else:
+            self._var_atividade.set("")
 
     def _definir_combo_por_id_atividade(self, id_atividade: int) -> None:
         for item, identificador in self._mapa_item_para_id.items():
@@ -1533,6 +1541,10 @@ class App(tk.Tk):
         self._var_status.set("Carregando...")
         self.update_idletasks()
 
+        # Recarrega a lista de canais do banco antes de abrir a janela: pega
+        # vínculos novos/desvínculos feitos no painel depois do login do app.
+        self._carregar_atividades()
+
         try:
             id_atividade, titulo_atividade = self._obter_contexto_atividade_ativa()
         except Exception as erro:
@@ -1560,6 +1572,7 @@ class App(tk.Tk):
             ao_fechar=_ao_fechar_tarefas,
             opcoes_canal=list(self._combo["values"]),
             mapa_canal_para_id=dict(self._mapa_item_para_id),
+            repositorio_atividades=self._repositorio,
         )
         try:
             self._btn_tarefas.configure(state="disabled")

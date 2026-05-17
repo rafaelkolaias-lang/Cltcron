@@ -13,6 +13,7 @@ from tkinter import messagebox, ttk
 
 from app.config import carregar_prefs, salvar_pref
 from app.win32_utils import formatar_hhmmss
+from atividades import RepositorioAtividades
 from declaracoes_dia import RepositorioDeclaracoesDia
 
 try:
@@ -86,6 +87,7 @@ class JanelaSubtarefas(tk.Toplevel):
         ao_fechar: Callable[[], None] | None = None,
         opcoes_canal: list[str] | None = None,
         mapa_canal_para_id: dict[str, int] | None = None,
+        repositorio_atividades: RepositorioAtividades | None = None,
     ) -> None:
         super().__init__(mestre)
         self.title("Tarefas da Atividade")
@@ -99,6 +101,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._titulo_atividade = (titulo_atividade or "").strip()
         self._opcoes_canal: list[str] = opcoes_canal or []
         self._mapa_canal_para_id: dict[str, int] = dict(mapa_canal_para_id or {})
+        self._repositorio_atividades = repositorio_atividades
         self._segundos_trabalhando = int(segundos_trabalhando or 0)
         self._segundos_pausado = int(segundos_pausado or 0)
         self._modo_finalizacao = bool(modo_finalizacao)
@@ -163,6 +166,30 @@ class JanelaSubtarefas(tk.Toplevel):
 
     def _usuario_id(self) -> str:
         return str(self._usuario.get("user_id") or "").strip()
+
+    def _recarregar_canais(self) -> None:
+        """Recarrega a lista de canais vinculados ao usuário do banco.
+
+        Necessário porque desvínculos feitos no painel após o login do app
+        ficavam invisíveis (a lista era cacheada no app_shell). Chamado
+        sempre antes de abrir o modal de Declarar Tarefa.
+        """
+        if self._repositorio_atividades is None:
+            return
+        try:
+            atividades = self._repositorio_atividades.listar_atividades_do_usuario(self._usuario_id())
+        except Exception:
+            return
+        valores: list[str] = []
+        novo_mapa: dict[str, int] = {}
+        for linha in atividades:
+            id_atv = int(linha["id_atividade"])
+            titulo = str(linha["titulo"] or "").strip()
+            if titulo:
+                valores.append(titulo)
+                novo_mapa[titulo] = id_atv
+        self._opcoes_canal = valores
+        self._mapa_canal_para_id = novo_mapa
 
     # ---------------------------------------------------------------
     # Tarefa 2 — UI da sincronização MEGA
@@ -1071,6 +1098,11 @@ class JanelaSubtarefas(tk.Toplevel):
         Se MEGA não estiver configurado/disponível, abre o legado direto — sem
         nenhuma penalidade de UX além do tempo do fetch (~5s timeout).
         """
+        # Refresca canais antes de abrir: vínculos/desvínculos feitos no
+        # painel passam a aparecer/sumir imediatamente, sem precisar relogar.
+        # Só em "nova" (subtarefa=None) — em edição o canal é fixo da sub.
+        if id_subtarefa is None:
+            self._recarregar_canais()
         subtarefa = self._mapa_subtarefas.get(int(id_subtarefa)) if id_subtarefa else None
         chave = str(self._usuario.get("chave") or "").strip()
         user_id = self._usuario_id()
@@ -1254,11 +1286,65 @@ class JanelaSubtarefas(tk.Toplevel):
         coluna_direita = tk.Frame(linha_superior, bg=_C)
         coluna_direita.pack(side="left", fill="x", expand=True, padx=(12, 0))
 
-        _label_com_ajuda(coluna_esquerda, "CANAL",
-                         "Canal da tarefa. Para mudar de canal, feche esta "
-                         "janela e selecione outro canal pelo menu principal.")
-        combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state="disabled")
+        # Em "nova": combo readonly (dropdown selecionável). Trocar de canal
+        # re-despacha pelo dispatcher pra escolher o modal correto (MEGA vs
+        # legado) com base na config do novo canal.
+        # Em edição: disabled — sub já pertence a um canal específico.
+        if subtarefa is None:
+            ajuda_canal = "Canal da tarefa. Escolha o canal correspondente."
+            estado_combo = "readonly"
+        else:
+            ajuda_canal = "Canal da tarefa. Em edição, o canal não pode ser alterado."
+            estado_combo = "disabled"
+        _label_com_ajuda(coluna_esquerda, "CANAL", ajuda_canal)
+        combo_canal = ttk.Combobox(coluna_esquerda, textvariable=var_canal, values=self._opcoes_canal, width=34, state=estado_combo)
         combo_canal.pack(fill="x", pady=(3, 12))
+
+        # Em "nova" o canal escolhido determina o id_atividade salvo: ao
+        # trocar no combo, atualizamos `self._id_atividade` e re-despachamos
+        # pela `_abrir_formulario_subtarefa` (que escolhe o modal correto).
+        # Em edição, o id_atividade vem da própria sub e o combo é disabled.
+        if subtarefa is None:
+            canal_anterior_holder = {"valor": canal_inicial}
+
+            def _ao_trocar_canal(*_a: object) -> None:
+                novo = (var_canal.get() or "").strip()
+                if not novo or novo == canal_anterior_holder["valor"]:
+                    return
+                novo_id = int(self._mapa_canal_para_id.get(novo) or 0)
+                if novo_id <= 0:
+                    var_canal.set(canal_anterior_holder["valor"])
+                    return
+
+                # Se o usuário já preencheu algo, confirma antes de descartar.
+                preencheu_algo = bool(
+                    (var_numero.get() or "").strip()
+                    or (var_titulo.get() or "").strip()
+                    or (var_observacao.get() or "").strip()
+                    or (var_tempo.get() or "").strip() not in ("", "00:00:00")
+                )
+                if preencheu_algo:
+                    ok = messagebox.askyesno(
+                        "Trocar canal",
+                        "Trocar de canal vai descartar os dados que você preencheu. "
+                        "Deseja continuar?",
+                        parent=janela,
+                    )
+                    if not ok:
+                        var_canal.set(canal_anterior_holder["valor"])
+                        return
+
+                # Atualiza contexto e re-despacha pelo dispatcher, que decide
+                # entre legado e MEGA conforme a config do novo canal.
+                self._id_atividade = novo_id
+                self._titulo_atividade = novo
+                try:
+                    janela.destroy()
+                except Exception:
+                    pass
+                self._abrir_formulario_subtarefa(None)
+
+            var_canal.trace_add("write", _ao_trocar_canal)
 
         tk.Label(coluna_direita, text="DATA DE REFERÊNCIA", bg=_C, fg=_D,
                  font=("Segoe UI", 8, "bold")).pack(anchor="w")
@@ -2361,9 +2447,9 @@ class JanelaSubtarefas(tk.Toplevel):
 
         # Trocar canal: refetch da config (pasta raiz + pastas lógicas), reset
         # da pasta lógica e dos estados de upload. Os widgets de campos
-        # exigidos NÃO são reconstruídos — limitação aceita: se o conjunto
-        # de campos do novo canal for diferente, o usuário deve fechar e
-        # reabrir a janela pelo menu principal.
+        # exigidos são reconstruídos pra refletir o que o novo canal exige.
+        # Se o novo canal não tem upload obrigatório, fechamos esta janela e
+        # re-despachamos: o dispatcher vai abrir o modal legado automaticamente.
         canal_anterior = {"valor": canal_inicial}
 
         def _ao_trocar_canal(*_a: object) -> None:
@@ -2408,12 +2494,19 @@ class JanelaSubtarefas(tk.Toplevel):
             def _ok_fetch(cfg: object) -> None:
                 d = cfg if isinstance(cfg, dict) else {}
                 if not d.get("upload_ativo"):
-                    messagebox.showwarning(
-                        "Canal sem upload obrigatório",
-                        "Este canal não tem upload obrigatório configurado. "
-                        "Feche esta janela e selecione o canal correto pelo menu principal.",
-                        parent=janela,
-                    )
+                    # Novo canal não exige upload MEGA: fecha esta janela e
+                    # re-despacha pelo dispatcher, que abre o modal legado
+                    # com o canal já selecionado. Em modo "nova" só — se for
+                    # edição não deveria chegar aqui (combo é disabled na sub).
+                    if subtarefa is None:
+                        self._id_atividade = novo_id
+                        self._titulo_atividade = novo_canal
+                        try:
+                            janela.destroy()
+                        except Exception:
+                            pass
+                        self._abrir_formulario_subtarefa(None)
+                        return
                     var_canal.set(canal_anterior["valor"])
                     var_status_pasta.set("")
                     return

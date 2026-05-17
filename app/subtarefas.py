@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import date, datetime
 from tkinter import messagebox, ttk
 
-from app.config import carregar_prefs, salvar_pref
+from app.config import LOG_TEC, carregar_prefs, salvar_pref
 from app.win32_utils import formatar_hhmmss
 from atividades import RepositorioAtividades
 from declaracoes_dia import RepositorioDeclaracoesDia
@@ -1033,41 +1033,39 @@ class JanelaSubtarefas(tk.Toplevel):
                         uploader = None
 
                     if uploader is not None:
+                        # Arquivos do user vivem na subpasta /<user_id>/ dentro
+                        # da pasta lógica. Apaga só essa subpasta — não toca
+                        # nos arquivos dos outros users.
+                        subpasta_user = f"/{pasta_raiz}/{nome_pasta}/{user_id}"
+                        try:
+                            if uploader.remover_pasta_recursiva(subpasta_user):
+                                resultado["removidos"] = sum(
+                                    1 for a in arquivos
+                                    if a.get("status_upload") == "concluido"
+                                )
+                        except Exception as e:
+                            resultado["falhas"].append(
+                                f"falha ao remover subpasta do usuário no MEGA: {e}"
+                            )
+
+                        # Se essa era a última sub na pasta lógica, limpa
+                        # também a pasta principal (que fica vazia agora) e
+                        # marca a pasta lógica como inativa no banco.
                         if outras_subs == 0:
-                            # Sem outras subtarefas reusando: remove pasta inteira
-                            # (cobre arquivos órfãos também).
                             caminho_pasta = f"/{pasta_raiz}/{nome_pasta}"
                             try:
                                 if uploader.remover_pasta_recursiva(caminho_pasta):
                                     resultado["pasta_removida"] = True
-                                    resultado["removidos"] = sum(
-                                        1 for a in arquivos
-                                        if a.get("status_upload") == "concluido"
-                                    )
-                                try:
-                                    api.marcar_pasta_logica_inativa(
-                                        int(pasta_logica_d.get("id_pasta_logica") or 0)
-                                    )
-                                except Exception as e:
-                                    resultado["falhas"].append(
-                                        f"pasta apagada no MEGA mas banco não foi atualizado: {e}"
-                                    )
                             except Exception as e:
                                 resultado["falhas"].append(f"falha ao remover pasta MEGA: {e}")
-                        else:
-                            # Outra subtarefa reusa a pasta — apaga só os arquivos desta sub.
-                            for arq in arquivos:
-                                if arq.get("status_upload") != "concluido":
-                                    continue
-                                nome_arq = str(arq.get("nome_arquivo") or "")
-                                caminho = f"/{pasta_raiz}/{nome_pasta}/{nome_arq}"
-                                try:
-                                    if uploader.remover_arquivo(caminho):
-                                        resultado["removidos"] += 1
-                                except Exception as e:
-                                    resultado["falhas"].append(
-                                        f"falha ao remover {nome_arq}: {e}"
-                                    )
+                            try:
+                                api.marcar_pasta_logica_inativa(
+                                    int(pasta_logica_d.get("id_pasta_logica") or 0)
+                                )
+                            except Exception as e:
+                                resultado["falhas"].append(
+                                    f"banco não foi atualizado para pasta inativa: {e}"
+                                )
 
             # Apaga do banco — sempre (banco é fonte da verdade).
             self._repositorio.excluir_subtarefa(user_id=user_id, id_subtarefa=id_subtarefa)
@@ -1707,7 +1705,16 @@ class JanelaSubtarefas(tk.Toplevel):
                 )
                 self._id_subtarefa_criada_nesta_janela = int(novo_id)
                 return int(novo_id)
-            except Exception:
+            except Exception as e:
+                LOG_TEC.log(
+                    "MEGA_UPLOAD",
+                    "criar_sub_aberta_falhou",
+                    {
+                        "id_atividade": id_atividade_efetiva["id"],
+                        "titulo": titulo,
+                        "erro": str(e),
+                    },
+                )
                 return 0
         # Por nome_campo: {"state", "id_upload", "arquivo_local", "label_status", "pbar"}
         estado_campos: dict[str, dict] = {}
@@ -2087,6 +2094,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 arquivos = dd.get("arquivos") or []
                 raiz = str(dd.get("pasta_raiz_mega") or pasta_raiz_holder["valor"]).strip("/")
                 nome_pasta_h = str(pasta_logica.get("nome_pasta") or "")
+                uid_atual = self._usuario_id()
                 for arq in arquivos:
                     status_upload = str(arq.get("status_upload") or "").strip().lower()
                     nome_campo = str(arq.get("nome_campo") or "")
@@ -2096,7 +2104,7 @@ class JanelaSubtarefas(tk.Toplevel):
                     st = estado_campos[nome_campo]
                     st["id_upload"] = int(arq.get("id_upload") or 0)
                     st["arquivo_local"] = nome_arq
-                    st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta_h}/{nome_arq}"
+                    st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta_h}/{uid_atual}/{nome_arq}"
                     if status_upload == "concluido":
                         st["state"] = "concluido"
                         try:
@@ -2654,13 +2662,31 @@ class JanelaSubtarefas(tk.Toplevel):
                 messagebox.showwarning("Atenção", "Selecione os arquivos obrigatórios antes de enviar.", parent=janela)
                 return
 
+            # Cria a subtarefa aberta ANTES de qualquer upload começar. Se
+            # falhar (backend offline, erro HTTP, etc) abortamos aqui em vez
+            # de subir arquivos órfãos no MEGA — que ficariam vinculados a
+            # sub inexistente e só seriam recuperados na próxima abertura
+            # do app via auto-recovery. Em edição, retorna o id da sub já
+            # existente; em modo "nova" cria e cacheia em
+            # `_id_subtarefa_criada_nesta_janela`.
+            id_sub_garantida = _criar_sub_aberta_se_necessario()
+            if id_sub_garantida <= 0:
+                messagebox.showerror(
+                    "Erro",
+                    "Não foi possível registrar a tarefa no servidor antes do envio.\n\n"
+                    "Verifique sua conexão com a internet e tente de novo. "
+                    "Nenhum arquivo foi enviado ainda.",
+                    parent=janela,
+                )
+                return
+
             self._upload_popup_ativo = True
             self._fechar_apos_upload_popup = False
             mestre_popup = self.master if self.master is not None else self
             popup = tk.Toplevel(mestre_popup)
             popup.title("Envio de Arquivos MEGA")
-            popup.geometry("640x360")
-            popup.minsize(600, 300)
+            popup.geometry("780x360")
+            popup.minsize(740, 300)
             popup.resizable(False, False)
             popup.configure(bg="#111111")
 
@@ -2690,7 +2716,7 @@ class JanelaSubtarefas(tk.Toplevel):
                     textvariable=var_tempo_restante,
                     bg="#111111",
                     fg="#9ca3af",
-                    width=22,
+                    width=30,
                     anchor="w",
                 ).pack(side="left", padx=(0, 6))
                 pbar_popup = ttk.Progressbar(row, mode="determinate", length=170, maximum=100)
@@ -3102,6 +3128,7 @@ class JanelaSubtarefas(tk.Toplevel):
                     arquivos = dd.get("arquivos") or []
                     raiz = str(dd.get("pasta_raiz_mega") or pasta_raiz_holder["valor"]).strip("/")
                     nome_pasta = str(pasta_logica.get("nome_pasta") or "")
+                    uid_atual = self._usuario_id()
                     for arq in arquivos:
                         status_upload = str(arq.get("status_upload") or "").strip().lower()
                         nome_campo = str(arq.get("nome_campo") or "")
@@ -3111,7 +3138,7 @@ class JanelaSubtarefas(tk.Toplevel):
                         st = estado_campos[nome_campo]
                         st["id_upload"] = int(arq.get("id_upload") or 0)
                         st["arquivo_local"] = nome_arq
-                        st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta}/{nome_arq}"
+                        st["arquivo_remoto_anterior"] = f"/{raiz}/{nome_pasta}/{uid_atual}/{nome_arq}"
                         if status_upload == "concluido":
                             st["state"] = "concluido"
                             try:
@@ -3344,7 +3371,12 @@ class JanelaSubtarefas(tk.Toplevel):
                 pass
 
         # Etapa 1: registra upload no painel (status=enviando)
-        pasta_remota = f"/{pasta_raiz_mega.strip('/')}/{pasta_logica['nome_pasta']}/"
+        # Arquivos do user ficam em subpasta `/{user_id}/` dentro da pasta
+        # lógica — isola uploads de cada user, evita colisões de nome e
+        # permite exclusão limpa (basta apagar a subpasta do user). A pasta
+        # lógica raiz só é removida se o user for o último a ter sub nela.
+        pasta_remota_principal = f"/{pasta_raiz_mega.strip('/')}/{pasta_logica['nome_pasta']}/"
+        pasta_remota = f"{pasta_remota_principal}{self._usuario_id()}/"
 
         def _op() -> bool:
             api_local = api  # type: PainelMegaApi  # type: ignore[name-defined]
@@ -3360,12 +3392,13 @@ class JanelaSubtarefas(tk.Toplevel):
             uploader = obter_uploader()
 
             # Defesa contra sincronia rompida (admin apagou a pasta no app
-            # web do MEGA): valida existência antes de qualquer ação. Se
-            # sumiu, marca pasta lógica como inativa no banco e levanta
-            # `ErroPastaMegaInexistente` — UX explica que o usuário precisa
-            # recriar a pasta.
+            # web do MEGA): valida existência da PASTA LÓGICA raiz antes
+            # de qualquer ação (não da subpasta do user — essa é criada
+            # pelo mega-put -c sozinha). Se a raiz sumiu, marca pasta
+            # lógica como inativa no banco e levanta
+            # `ErroPastaMegaInexistente`.
             if pasta_logica.get("id_pasta_logica"):
-                pasta_remota_check = pasta_remota.rstrip("/")
+                pasta_remota_check = pasta_remota_principal.rstrip("/")
                 try:
                     pasta_ok = uploader.pasta_existe(pasta_remota_check)  # type: ignore[attr-defined]
                 except Exception:
@@ -3426,11 +3459,18 @@ class JanelaSubtarefas(tk.Toplevel):
 
             # Cria sub Aberta no banco no PRIMEIRO upload concluído desta
             # janela (se modo "nova"). Subs em modo edição já existem.
+            # No fluxo "Enviar Arquivos" a sub aberta já foi criada antes do
+            # popup começar — aqui só reusa o cache, não vai cair no except.
             id_sub_para_vincular = 0
             if criar_sub_aberta is not None:
                 try:
                     id_sub_para_vincular = int(criar_sub_aberta() or 0)
-                except Exception:
+                except Exception as e:
+                    LOG_TEC.log(
+                        "MEGA_UPLOAD",
+                        "criar_sub_aberta_falhou_pos_upload",
+                        {"nome_campo": nome_campo, "erro": str(e)},
+                    )
                     id_sub_para_vincular = 0
 
             # Etapa 3: marca como concluido + vincula a id_subtarefa.

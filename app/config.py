@@ -106,9 +106,19 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.7"
+VERSAO_APLICACAO = "v3.1.8"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.8",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix crítico: tarefa enviada via 'Enviar Arquivos' às vezes não era declarada — o arquivo subia no MEGA mas a subtarefa ficava órfã (recuperada como 'aberta' só ao reabrir o app). Agora a subtarefa é registrada no servidor ANTES de qualquer upload começar; se a comunicação falhar, nenhum arquivo sobe e o usuário vê o erro na hora",
+            "Arquivos enviados em pasta existente agora ficam isolados em uma subpasta com o nome do próprio usuário (ex.: '/Pasta_Raiz/04 - Artemis/usuario_x/'). Cada usuário tem seu espaço — sem colisões de nome com colegas e a exclusão da tarefa apaga só a subpasta do dono, sem tocar nos arquivos dos outros",
+            "Popup 'Envio de Arquivos MEGA' ganhou mais largura — 'Tempo restante' não corta mais o texto ('calculando...', 'concluído', etc.)",
+            "Falhas silenciosas ao criar a subtarefa durante o upload agora vão pro log técnico (~/.cronometro_leve_log_tecnico.txt) — facilita diagnóstico se voltar a acontecer",
+        ],
+    },
     {
         "versao": "v3.1.7",
         "data": "17/05/2026",

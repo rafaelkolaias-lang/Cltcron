@@ -572,6 +572,28 @@ class App(tk.Tk):
             backup_exe = pasta / "CronometroLeve.exe.bak"
             try:
                 urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+
+                # Remove "Mark of the Web" (Zone.Identifier) que o Windows
+                # marca em arquivos baixados via rede. Sem essa limpeza, o
+                # Defender e outros antivírus ficam agressivos com o exe
+                # extraindo DLLs em %TEMP%\_MEI... e bloqueiam o load do
+                # python311.dll — gera "Failed to load Python DLL:
+                # LoadLibrary: Não foi possível encontrar o módulo
+                # especificado" assim que o cmd intermediário tenta abrir
+                # o exe novo. Limpando o MOTW, o exe novo é tratado como
+                # local (mesmo nível de confiança de um exe que veio do
+                # build local) e abre normal.
+                if os.name == "nt":
+                    try:
+                        # Stream NTFS alternativo `:Zone.Identifier` é
+                        # acessível como arquivo. Apagar via DeleteFileW
+                        # remove a marcação sem afetar o exe.
+                        import ctypes
+                        zone_id_path = str(novo_exe) + ":Zone.Identifier"
+                        ctypes.windll.kernel32.DeleteFileW(zone_id_path)
+                    except Exception as e:
+                        LOG_TEC.log("AUTO-UPDATE", "falha ao remover MOTW", {"erro": str(e)})
+
                 if backup_exe.exists():
                     try:
                         backup_exe.unlink()

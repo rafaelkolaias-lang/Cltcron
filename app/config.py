@@ -106,9 +106,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.8"
+VERSAO_APLICACAO = "v3.1.9"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.9",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix: erro 'Failed to load Python DLL' que aparecia após o auto-update — o Windows marcava o exe baixado como 'arquivo da internet' (Zone.Identifier) e o antivírus bloqueava a carga das DLLs internas, impedindo o app de abrir sozinho depois de atualizar. Agora a marca é removida logo após o download; o exe novo abre tratado como arquivo local. (Obs.: para sair definitivamente dessa atualização, pode ainda aparecer o erro UMA última vez ao atualizar para esta versão — basta fechar e abrir o app manualmente; das próximas em diante o problema some.)",
+        ],
+    },
     {
         "versao": "v3.1.8",
         "data": "17/05/2026",

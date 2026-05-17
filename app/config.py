@@ -106,9 +106,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.9"
+VERSAO_APLICACAO = "v3.1.10"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.10",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix crítico: 'Enviar Arquivos' falhava em uma pasta existente quando ainda não havia tarefa pessoal naquela pasta — o app mostrava 'Não foi possível registrar a tarefa no servidor / verifique sua conexão com a internet' mesmo com a internet 100% OK, e nenhum arquivo subia. A causa nem chegava a tocar o servidor: ao selecionar a pasta, o app marcava internamente o estado como 'já resolvido com id 0', e na hora do envio devolvia esse 0 como se fosse uma falha de rede. Agora, ao selecionar uma pasta sem tarefa sua dentro, o estado fica realmente vazio — o envio segue normalmente e cria a tarefa antes do upload, como esperado. Bug existia desde a v3.1.6.",
+        ],
+    },
     {
         "versao": "v3.1.9",
         "data": "17/05/2026",

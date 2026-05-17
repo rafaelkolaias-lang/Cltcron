@@ -2191,7 +2191,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 self._id_subtarefa_criada_nesta_janela = id_sub_user
             else:
                 _resetar_estado_campos_visual()
-                self._id_subtarefa_criada_nesta_janela = 0
+                self._id_subtarefa_criada_nesta_janela = None
 
             _atualizar_botao_salvar()
 

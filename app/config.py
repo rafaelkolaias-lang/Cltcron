@@ -106,9 +106,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.10"
+VERSAO_APLICACAO = "v3.1.11"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.11",
+        "data": "17/05/2026",
+        "notas": [
+            "Cronômetro fixado (janela pequena que fica sempre por cima) ganhou visual mais discreto: o fundo da janela some completamente e fica visível apenas uma caixinha preta envolvendo o número do tempo. Em uso normal a caixinha fica em 80% de opacidade — sem tampar totalmente o que está embaixo, mas com o tempo bem legível. Quando você passa o mouse sobre ela, fica quase invisível (10%) para liberar a visualização do que estiver atrás — e volta ao normal assim que o cursor sai. A caixinha aparece no canto superior direito da tela e os cliques do mouse atravessam ela para chegar na janela que estiver atrás. Para fechar/abrir o fixado, continue usando o botão 'Fixar' na janela principal do app.",
+        ],
+    },
     {
         "versao": "v3.1.10",
         "data": "17/05/2026",

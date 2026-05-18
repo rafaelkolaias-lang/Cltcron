@@ -36,7 +36,7 @@ from app.config import (
 )
 from app.monitor import MonitorDeUso
 from app.subtarefas import JanelaSubtarefas
-from app.win32_utils import formatar_hhmmss
+from app.win32_utils import formatar_hhmmss, tornar_janela_tk_click_through
 from atividades import RepositorioAtividades
 from banco import BancoDados
 from declaracoes_dia import RepositorioDeclaracoesDia
@@ -66,6 +66,8 @@ class App(tk.Tk):
         self._var_erro = tk.StringVar(value="")
 
         self._janela_fixada: tk.Toplevel | None = None
+        self._janela_fixada_fundo: tk.Toplevel | None = None
+        self._fixado_rect: tuple[int, int, int, int] = (0, 0, 0, 0)
         self._janela_tarefas: JanelaSubtarefas | None = None
         self._var_tempo_fixado = tk.StringVar(value="00:00:00")
         self._var_status_fixado = tk.StringVar(value="")
@@ -1473,29 +1475,56 @@ class App(tk.Tk):
 
         janela.after(800, _loop_refresh)
 
+    # Cronômetro fixado: caixinha preta a 80% de opacidade em uso normal (deixa ver
+    # discretamente o que está atrás sem prejudicar a leitura); cai para 10% quando o
+    # mouse passa por cima (libera a visão do que está atrás). A janela é sempre
+    # click-through — cliques nunca a atingem, passam direto pra janela debaixo.
+    #
+    # ATENÇÃO: alpha NUNCA pode chegar a 1.0. Quando o Tk recebe attributes('-alpha', 1.0)
+    # ele REMOVE o estilo WS_EX_LAYERED da janela, e o WS_EX_TRANSPARENT (click-through)
+    # depende de WS_EX_LAYERED estar ativo.
+    _FIXADO_ALPHA_NORMAL = 0.8
+    _FIXADO_ALPHA_HOVER = 0.1
+
     def _abrir_fixado(self) -> None:
         if self._janela_fixada and self._janela_fixada.winfo_exists():
             return
 
+        largura_fixado, altura_fixado = 230, 110
+        margem = 20
+        pos_x = max(0, self.winfo_screenwidth() - largura_fixado - margem)
+        pos_y = margem
+        self._fixado_rect = (pos_x, pos_y, pos_x + largura_fixado, pos_y + altura_fixado)
+
         janela = tk.Toplevel(self)
         janela.title("Cronômetro (Fixado)")
-        janela.geometry("230x110")
+        janela.geometry(f"{largura_fixado}x{altura_fixado}+{pos_x}+{pos_y}")
         janela.resizable(False, False)
+        janela.overrideredirect(True)
         janela.attributes("-topmost", True)
-        janela.configure(bg="#111111", padx=10, pady=10)
+        janela.attributes("-alpha", self._FIXADO_ALPHA_NORMAL)
+        janela.configure(bg="#000000")
+        janela.after(50, lambda: tornar_janela_tk_click_through(janela))
+
+        # `highlightthickness=0` + `bd=0` evitam a borda branca padrão do Tk em frames/labels.
+        caixa = tk.Frame(janela, bg="#000000", padx=14, pady=8, highlightthickness=0, bd=0)
+        caixa.place(relx=0.5, rely=0.5, anchor="center")
 
         # Mesmo padrão da tela principal: dois labels, _aplicar_modo_regressiva escolhe o que mostra.
-        self._lbl_regressiva_fixado = ttk.Label(
-            janela, textvariable=self._var_tempo_regressiva_fixado,
-            font=("Segoe UI", 26, "bold"), foreground="#ff6b1f",
+        self._lbl_regressiva_fixado = tk.Label(
+            caixa, textvariable=self._var_tempo_regressiva_fixado,
+            font=("Segoe UI", 26, "bold"), foreground="#ff6b1f", background="#000000",
+            highlightthickness=0, bd=0,
         )
-        self._lbl_tempo_fixado = ttk.Label(
-            janela, textvariable=self._var_tempo_fixado,
-            font=("Segoe UI", 26, "bold"),
+        self._lbl_tempo_fixado = tk.Label(
+            caixa, textvariable=self._var_tempo_fixado,
+            font=("Segoe UI", 26, "bold"), foreground="#ffffff", background="#000000",
+            highlightthickness=0, bd=0,
         )
         # Status precisa ser criado antes do `_janela_fixada = janela` para ficar no pack order correto.
-        self._lbl_status_fixado = ttk.Label(
-            janela, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold"),
+        self._lbl_status_fixado = tk.Label(
+            caixa, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold"),
+            background="#000000", foreground="#4ade80", highlightthickness=0, bd=0,
         )
         self._lbl_status_fixado.pack(side="bottom", anchor="center", pady=(2, 0))
 
@@ -1504,7 +1533,38 @@ class App(tk.Tk):
         # (bug antigo: fixada abria só com status, sem o tempo).
         janela.protocol("WM_DELETE_WINDOW", self._fechar_fixado)
         self._janela_fixada = janela
+        self._fixado_sobre_anterior = None  # força o primeiro tick do hover loop a (re)aplicar tudo
         self._aplicar_modo_regressiva()
+        self._loop_hover_fixado()
+
+    def _loop_hover_fixado(self) -> None:
+        """Reduz a opacidade do fixado para 10% quando o mouse passa por cima.
+
+        A janela é click-through (WS_EX_TRANSPARENT), então não recebe eventos
+        <Enter>/<Leave>; usamos polling de `winfo_pointerxy()` em vez disso.
+
+        Reaplica o estilo de click-through sempre que o estado de hover muda — o Tk
+        pode mexer no WS_EX_LAYERED ao trocar o alpha, e WS_EX_TRANSPARENT exige
+        WS_EX_LAYERED para janelas top-level.
+        """
+        janela = self._janela_fixada
+        if not janela or not janela.winfo_exists():
+            return
+        try:
+            x, y = janela.winfo_pointerxy()
+            x1, y1, x2, y2 = self._fixado_rect
+            sobre = x1 <= x <= x2 and y1 <= y <= y2
+            estado_anterior = getattr(self, "_fixado_sobre_anterior", None)
+            if sobre != estado_anterior:
+                janela.attributes("-alpha", self._FIXADO_ALPHA_HOVER if sobre else self._FIXADO_ALPHA_NORMAL)
+                tornar_janela_tk_click_through(janela)
+                self._fixado_sobre_anterior = sobre
+        except tk.TclError:
+            return
+        try:
+            janela.after(120, self._loop_hover_fixado)
+        except tk.TclError:
+            pass
 
     def _fechar_fixado(self) -> None:
         try:
@@ -1513,6 +1573,7 @@ class App(tk.Tk):
         except Exception:
             pass
         self._janela_fixada = None
+        self._janela_fixada_fundo = None
 
     def _finalizar(self) -> None:
         if not self._usuario:

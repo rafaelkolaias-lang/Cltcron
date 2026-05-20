@@ -723,8 +723,12 @@ class JanelaSubtarefas(tk.Toplevel):
             for _, iid, valores, tags, _sk in itens_mesclados:
                 self._arvore.insert("", "end", iid=iid, values=valores, tags=tags)
 
+            # DEBUG: descomente a linha abaixo para exibir "Cronometradas" (inclui ocioso)
+            # self._var_resumo.set(
+            #     f"Cronometradas: {resumo['cronometrado_hhmmss']}    |    "
+            #     f"Declaradas: {resumo['declarado_ciclo_hhmmss']}"
+            # )
             self._var_resumo.set(
-                f"Cronometradas: {resumo['cronometrado_hhmmss']}    |    "
                 f"Declaradas: {resumo['declarado_ciclo_hhmmss']}"
             )
             self._atualizar_texto_trava(travado_ate)

@@ -14,6 +14,12 @@
   let _cacheUsuarios = [];
   let _cacheAtividades = [];
 
+  // Paginação. Substitui o corte silencioso de 500 que vinha do endpoint.
+  let _paginaAtual = 1;
+  const _perPage = 50;
+  let _totalPaginas = 1;
+  let _totalRegistros = 0;
+
   // ─── helpers ──────────────────────────────────────────────────────────────
   function el(id) { return document.getElementById(id); }
 
@@ -102,9 +108,15 @@
   }
 
   // ─── carregar dados ───────────────────────────────────────────────────────
-  async function carregarTarefas() {
+  async function carregarTarefas(pagina) {
     if (_carregando) return;
     _carregando = true;
+
+    if (typeof pagina === "number" && pagina >= 1) {
+      _paginaAtual = pagina;
+    } else if (pagina === undefined) {
+      _paginaAtual = 1;
+    }
 
     const tbody = el("tbodyGerenciarTarefas");
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco text-center py-3">Carregando…</td></tr>';
@@ -121,21 +133,50 @@
     if (uid)  params.set("user_id",       uid);
     if (aid)  params.set("id_atividade",  aid);
     if (canal) params.set("canal",        canal);
+    params.set("page", String(_paginaAtual));
+    params.set("per_page", String(_perPage));
 
     try {
       const r = await fetch(`${URL_LISTAR}?${params}`);
       const j = await r.json();
       if (!j.ok) throw new Error(j.mensagem || "Erro na API");
       _dados = j.dados || [];
+      const pag = j.paginacao || {};
+      _totalPaginas = Number(pag.total_pages ?? 1);
+      _totalRegistros = Number(pag.total ?? _dados.length);
+      _paginaAtual = Number(pag.page ?? _paginaAtual);
     } catch (err) {
       _dados = [];
+      _totalPaginas = 1;
+      _totalRegistros = 0;
       if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-danger text-center py-3">Erro: ${esc(err.message)}</td></tr>`;
       _carregando = false;
+      _renderPaginacao();
       return;
     }
 
     _renderizar();
+    _renderPaginacao();
     _carregando = false;
+  }
+
+  function _renderPaginacao() {
+    const nav = el("paginacaoGerenciarTarefas");
+    if (!nav) return;
+    if (!_totalPaginas || _totalPaginas <= 1) {
+      nav.innerHTML = "";
+      return;
+    }
+    const html = typeof window.__paginacaoTarefasHtml === "function"
+      ? window.__paginacaoTarefasHtml(_paginaAtual, _totalPaginas, "gt")
+      : "";
+    nav.innerHTML = html;
+    nav.querySelectorAll("button[data-pag]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const p = Number(b.getAttribute("data-pag") || 1);
+        if (p >= 1 && p !== _paginaAtual) carregarTarefas(p);
+      });
+    });
   }
 
   // ─── renderizar tabela ────────────────────────────────────────────────────
@@ -144,7 +185,16 @@
     const total = el("gtTotalRegistros");
     if (!tbody) return;
 
-    if (total) total.textContent = `${_dados.length} registro(s)`;
+    if (total) {
+      // Mostra total global (não só da página atual) quando o backend
+      // devolve metadado de paginação.
+      const totalGlobal = Number(_totalRegistros || _dados.length);
+      if (_totalPaginas > 1) {
+        total.textContent = `${totalGlobal} registro(s) · pág. ${_paginaAtual}/${_totalPaginas}`;
+      } else {
+        total.textContent = `${totalGlobal} registro(s)`;
+      }
+    }
 
     if (!_dados.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco text-center py-3">Nenhuma declaração encontrada.</td></tr>';
@@ -200,7 +250,8 @@
     if (!tarefa) return;
     _idEditando = id;
 
-    (el("gtEditTitulo")    || {}).value = tarefa.titulo || "";
+    const inputTitulo = el("gtEditTitulo");
+    if (inputTitulo) inputTitulo.value = tarefa.titulo || "";
     (el("gtEditCanal")     || {}).value = tarefa.canal_entrega || "";
     (el("gtEditObservacao") || {}).value = tarefa.observacao || "";
     (el("gtEditTempo")     || {}).value = tarefa.segundos_gastos > 0
@@ -208,6 +259,34 @@
       : "";
     const sel = el("gtEditConcluida");
     if (sel) sel.value = tarefa.concluida ? "1" : "0";
+
+    // Tarefas MEGA não podem ser renomeadas pelo painel — o nome do
+    // título está acoplado à pasta no MEGA e à `mega_pasta_logica`.
+    // Mudar só o título aqui dessincronizaria banco e MEGA. Bloqueamos
+    // visualmente; o backend também recusa. Os outros campos seguem
+    // editáveis.
+    const aviso = el("gtEditAvisoMega");
+    if (tarefa.mega_pasta_vinculada) {
+      if (inputTitulo) {
+        inputTitulo.readOnly = true;
+        inputTitulo.title = "Renomeação bloqueada — tarefa vinculada a uma pasta no MEGA.";
+        inputTitulo.classList.add("text-muted");
+      }
+      if (aviso) {
+        aviso.textContent = "Tarefa vinculada a uma pasta no MEGA: o título está bloqueado para evitar dessincronização. Demais campos seguem editáveis.";
+        aviso.classList.remove("d-none");
+      }
+    } else {
+      if (inputTitulo) {
+        inputTitulo.readOnly = false;
+        inputTitulo.removeAttribute("title");
+        inputTitulo.classList.remove("text-muted");
+      }
+      if (aviso) {
+        aviso.textContent = "";
+        aviso.classList.add("d-none");
+      }
+    }
 
     const info = el("gtEditInfo");
     if (info) {

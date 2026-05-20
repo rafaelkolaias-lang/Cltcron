@@ -31,6 +31,72 @@ def obter_segundos_ocioso_windows() -> int:
     return max(0, int(ocioso_ms // 1000))
 
 
+# Constantes Win32 para tornar janela "click-through" (cliques passam para o que está atrás).
+_GWL_EXSTYLE = -20
+_WS_EX_LAYERED = 0x00080000
+_WS_EX_TRANSPARENT = 0x00000020
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
+_SWP_NOZORDER = 0x0004
+_SWP_FRAMECHANGED = 0x0020
+_SWP_NOACTIVATE = 0x0010
+
+
+def _configurar_get_set_window_long():
+    """Define argtypes/restype para as APIs Get/SetWindowLong*.
+
+    Sem isso, em Windows x64 o ctypes assume retorno c_int (32-bit) e trunca o
+    valor de LONG_PTR (64-bit) — o estilo lido fica corrompido e o WS_EX_TRANSPARENT
+    pode não ser aplicado de fato. Retorna (get_long, set_long) já configurados.
+    """
+    try:
+        get_long = user32.GetWindowLongPtrW
+        set_long = user32.SetWindowLongPtrW
+    except (AttributeError, OSError):
+        get_long = user32.GetWindowLongW
+        set_long = user32.SetWindowLongW
+    try:
+        get_long.restype = ctypes.c_ssize_t
+        get_long.argtypes = [wintypes.HWND, ctypes.c_int]
+        set_long.restype = ctypes.c_ssize_t
+        set_long.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
+    except Exception:
+        pass
+    return get_long, set_long
+
+
+def tornar_janela_tk_click_through(janela_tk) -> None:
+    """Faz uma janela Tk Toplevel deixar cliques do mouse passarem para o que estiver atrás dela.
+
+    Requer Windows. Combina com `janela.attributes("-alpha", X)` para criar overlay
+    semi-transparente e não-interativo. Falha em silêncio se a API Win32 não estiver
+    disponível.
+    """
+    try:
+        janela_tk.update_idletasks()
+        hwnd_inicial = int(janela_tk.winfo_id())
+        # Com overrideredirect(True), winfo_id() já é o hwnd top-level e GetParent retorna 0.
+        # Sem overrideredirect, GetParent sobe até o frame top-level real do Windows.
+        hwnd_pai = user32.GetParent(hwnd_inicial)
+        hwnd = hwnd_pai if hwnd_pai else hwnd_inicial
+        if not hwnd:
+            return
+        get_long, set_long = _configurar_get_set_window_long()
+        estilo = get_long(hwnd, _GWL_EXSTYLE)
+        set_long(hwnd, _GWL_EXSTYLE, estilo | _WS_EX_LAYERED | _WS_EX_TRANSPARENT)
+        # Força o sistema a reaplicar o estilo extendido; sem isso a flag pode não pegar
+        # até o próximo redraw ou troca de foco.
+        try:
+            user32.SetWindowPos(
+                wintypes.HWND(hwnd), wintypes.HWND(0), 0, 0, 0, 0,
+                _SWP_NOSIZE | _SWP_NOMOVE | _SWP_NOZORDER | _SWP_NOACTIVATE | _SWP_FRAMECHANGED,
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _obter_texto_janela(hwnd: int) -> str:
     comprimento = user32.GetWindowTextLengthW(hwnd)
     if comprimento <= 0:

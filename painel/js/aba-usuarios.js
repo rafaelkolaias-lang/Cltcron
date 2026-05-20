@@ -741,6 +741,7 @@
       carregarPagamentosNoModal(uid),
       carregarResumoHorasPagamento(uid, u.valor_hora),
       carregarTarefasDoUsuario(uid),
+      carregarCanaisDoUsuario(uid),
     ]);
 
     // Alertas de auditoria (opcional — silencioso se o módulo não estiver disponível)
@@ -844,25 +845,215 @@
     });
   }
 
-  async function carregarTarefasDoUsuario(uid) {
+  // ─── Canais vinculados ao usuário (Gestão do Usuário) ────────────────
+  //
+  // Permite o admin vincular/desvincular vários canais ao usuário sem ter
+  // que abrir cada canal individualmente. Espelho do que `aba-atividades.js`
+  // faz no eixo oposto (lista usuários de UM canal); aqui listamos canais
+  // de UM usuário. Backend: `commands/usuarios/salvar_canais.php`.
+  let _canaisGestaoCache = []; // [{ id_atividade, titulo, status, vinculado:boolean }]
+
+  async function carregarCanaisDoUsuario(uid) {
+    const lista = document.getElementById("listaCanaisGestao");
+    const total = document.getElementById("textoGestaoTotalCanais");
+
+    if (lista) lista.innerHTML = `<div class="col-12"><div class="texto-fraco">Carregando canais…</div></div>`;
+    if (total) total.textContent = "—";
+
+    try {
+      const json = await requisitarJson("./commands/atividades/listar.php");
+      const atividades = Array.isArray(json.dados) ? json.dados : [];
+
+      _canaisGestaoCache = atividades
+        .filter(a => String(a.status || "").toLowerCase() !== "cancelada")
+        .map((a) => ({
+          id_atividade: Number(a.id_atividade || 0),
+          titulo: String(a.titulo || ""),
+          status: String(a.status || ""),
+          vinculado: Array.isArray(a.usuarios) && a.usuarios.some(
+            (uu) => String(uu.user_id || "") === String(uid)
+          ),
+        }));
+
+      _renderCanaisGestao();
+    } catch (e) {
+      if (lista) lista.innerHTML = `<div class="col-12"><div class="text-warning small">Falha ao carregar canais.</div></div>`;
+    }
+  }
+
+  function _renderCanaisGestao() {
+    const lista = document.getElementById("listaCanaisGestao");
+    const total = document.getElementById("textoGestaoTotalCanais");
+    if (!lista) return;
+
+    if (!_canaisGestaoCache.length) {
+      lista.innerHTML = `<div class="col-12"><div class="texto-fraco">Nenhum canal cadastrado.</div></div>`;
+      if (total) total.textContent = "0 / 0";
+      return;
+    }
+
+    const marcados = _canaisGestaoCache.filter((c) => c.vinculado).length;
+    if (total) total.textContent = `${marcados} / ${_canaisGestaoCache.length}`;
+
+    lista.innerHTML = _canaisGestaoCache.map((c) => `
+      <div class="col-12 col-md-6 col-lg-4">
+        <label class="cartao-grafite p-2 d-flex align-items-center gap-2" style="cursor:pointer;">
+          <input type="checkbox" class="form-check-input m-0" data-canal-id="${c.id_atividade}" ${c.vinculado ? "checked" : ""}>
+          <div class="flex-grow-1">
+            <div class="fw-semibold">${escapeHtmlSeguro(c.titulo)}</div>
+            <div class="texto-fraco small">#${c.id_atividade} · ${escapeHtmlSeguro(c.status)}</div>
+          </div>
+        </label>
+      </div>
+    `).join("");
+
+    lista.querySelectorAll('input[type="checkbox"][data-canal-id]').forEach((cb) => {
+      cb.addEventListener("change", () => {
+        const id = Number(cb.getAttribute("data-canal-id") || 0);
+        const item = _canaisGestaoCache.find((c) => c.id_atividade === id);
+        if (item) item.vinculado = cb.checked;
+        const novaContagem = _canaisGestaoCache.filter((c) => c.vinculado).length;
+        if (total) total.textContent = `${novaContagem} / ${_canaisGestaoCache.length}`;
+      });
+    });
+  }
+
+  async function salvarCanaisDoUsuario() {
+    const nucleo = obterNucleo();
+    if (!usuarioGestaoAbertoId) return;
+
+    const ids = _canaisGestaoCache.filter((c) => c.vinculado).map((c) => c.id_atividade);
+    const btn = document.getElementById("btnSalvarCanaisGestao");
+    if (btn) { btn.disabled = true; btn.textContent = "Salvando…"; }
+
+    try {
+      const json = await requisitarJson("./commands/usuarios/salvar_canais.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ user_id: usuarioGestaoAbertoId, ids_atividades: ids }),
+      });
+      if (json && json.ok === false) throw new Error(json.mensagem || "Falha ao salvar canais.");
+      nucleo.utilidades?.mostrarAlerta?.("ok", "Canais atualizados", "Vínculos do usuário foram salvos.");
+      // Recarrega a lista para refletir o estado do servidor (canais que
+      // tenham sido apagados externamente, etc.)
+      await carregarCanaisDoUsuario(usuarioGestaoAbertoId);
+      // Reflete possível mudança em outras abas que consumem `atividades_usuarios`.
+      try { window.recarregarAbaAtividades && window.recarregarAbaAtividades(); } catch (_) {}
+    } catch (e) {
+      nucleo.utilidades?.mostrarAlerta?.("erro", "Erro", e?.message || "Não foi possível salvar os canais.");
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Salvar canais"; }
+    }
+  }
+
+  // Wiring do botão "Salvar canais" — idempotente.
+  (function _wirarSalvarCanais() {
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("btnSalvarCanaisGestao");
+      if (!btn || btn.dataset.wired === "1") return;
+      btn.dataset.wired = "1";
+      btn.addEventListener("click", salvarCanaisDoUsuario);
+    });
+    // Fallback caso o script rode após o DOMContentLoaded.
+    if (document.readyState !== "loading") {
+      const btn = document.getElementById("btnSalvarCanaisGestao");
+      if (btn && btn.dataset.wired !== "1") {
+        btn.dataset.wired = "1";
+        btn.addEventListener("click", salvarCanaisDoUsuario);
+      }
+    }
+  })();
+
+  // Paginação atual da Gestão (50 tarefas por página). Refeita a cada
+  // chamada de `carregarTarefasDoUsuario` ou ao clicar em um número.
+  let _paginaTarefasGestao = 1;
+  const _perPageTarefasGestao = 50;
+
+  async function carregarTarefasDoUsuario(uid, pagina) {
     const tbody = document.getElementById("tbodyGestaoTarefas");
     const elTotal = document.getElementById("textoGestaoTotalTarefas");
+    const elNav = document.getElementById("paginacaoGestaoTarefas");
     _wirarSelectOrdemTarefasGestao();
+
+    if (typeof pagina === "number" && pagina >= 1) {
+      _paginaTarefasGestao = pagina;
+    } else if (pagina === undefined) {
+      _paginaTarefasGestao = 1;
+    }
 
     try {
       if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>`;
 
-      const json = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}`);
+      const url = `./commands/atividades_subtarefas/listar.php`
+        + `?user_id=${encodeURIComponent(uid)}`
+        + `&page=${_paginaTarefasGestao}`
+        + `&per_page=${_perPageTarefasGestao}`;
+      const json = await requisitarJson(url);
       const lista = Array.isArray(json.dados) ? json.dados : [];
       _tarefasGestaoCache = lista;
 
-      if (elTotal) elTotal.textContent = `${lista.length} tarefa(s)`;
+      const pag = json.paginacao || {};
+      const total = Number(pag.total ?? lista.length);
+      const totalPages = Number(pag.total_pages ?? 1);
+      const pageAtual = Number(pag.page ?? _paginaTarefasGestao);
+      _paginaTarefasGestao = pageAtual;
+
+      if (elTotal) elTotal.textContent = `${total} tarefa(s)`;
 
       _renderTarefasGestao();
+      _renderPaginacaoGestaoTarefas(elNav, uid, pageAtual, totalPages);
     } catch (e) {
       if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="texto-fraco">Falha ao carregar tarefas.</td></tr>`;
+      if (elNav) elNav.innerHTML = "";
     }
   }
+
+  function _renderPaginacaoGestaoTarefas(container, uid, pageAtual, totalPages) {
+    if (!container) return;
+    if (!totalPages || totalPages <= 1) {
+      container.innerHTML = "";
+      return;
+    }
+    container.innerHTML = _renderHtmlPaginacao(pageAtual, totalPages, "gestao");
+    container.querySelectorAll("button[data-pag]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const p = Number(b.getAttribute("data-pag") || 1);
+        if (p >= 1 && p !== pageAtual) carregarTarefasDoUsuario(uid, p);
+      });
+    });
+  }
+
+  // Gera HTML de paginação compacta (até 7 botões: <, 1, ..., n-1, n, n+1, ..., last, >).
+  // Reutilizada também pela aba Gerenciar Tarefas via janela global.
+  function _renderHtmlPaginacao(pageAtual, totalPages, prefixo) {
+    const segura = (n) => Math.max(1, Math.min(totalPages, n));
+    const itens = new Set([1, totalPages, pageAtual, segura(pageAtual - 1), segura(pageAtual + 1)]);
+    const sorted = Array.from(itens).sort((a, b) => a - b);
+    const partes = [];
+    partes.push(`<ul class="pagination pagination-sm mb-0" role="navigation">`);
+    partes.push(`<li class="page-item ${pageAtual <= 1 ? "disabled" : ""}">
+      <button class="page-link bg-transparent text-light border-secondary" data-pag="${segura(pageAtual - 1)}" ${pageAtual <= 1 ? "disabled" : ""} aria-label="Anterior">«</button>
+    </li>`);
+    let anterior = 0;
+    for (const n of sorted) {
+      if (anterior && n - anterior > 1) {
+        partes.push(`<li class="page-item disabled"><span class="page-link bg-transparent text-light border-secondary">…</span></li>`);
+      }
+      const ativa = n === pageAtual;
+      partes.push(`<li class="page-item ${ativa ? "active" : ""}">
+        <button class="page-link ${ativa ? "" : "bg-transparent text-light"} border-secondary" data-pag="${n}" ${ativa ? "aria-current=\"page\"" : ""}>${n}</button>
+      </li>`);
+      anterior = n;
+    }
+    partes.push(`<li class="page-item ${pageAtual >= totalPages ? "disabled" : ""}">
+      <button class="page-link bg-transparent text-light border-secondary" data-pag="${segura(pageAtual + 1)}" ${pageAtual >= totalPages ? "disabled" : ""} aria-label="Próxima">»</button>
+    </li>`);
+    partes.push(`</ul>`);
+    return partes.join("");
+  }
+
+  // Expõe o helper de HTML pra outras abas (aba-gerenciar-tarefas.js usa).
+  window.__paginacaoTarefasHtml = _renderHtmlPaginacao;
 
   window.__editarTarefaGestao = function (idSubtarefa) {
     const tarefa = _tarefasGestaoCache.find(t => t.id_subtarefa === idSubtarefa);
@@ -1023,12 +1214,15 @@
       }
 
       try {
+        // O modal atual não expõe edição de período. Antes o payload mandava
+        // `referencia_inicio: null`, `referencia_fim: null` e
+        // `travado_ate_data: novaData`; o backend interpretava como mudança
+        // de período e reprocessava travas, destravando/travando tarefas
+        // sem o admin pedir. Agora só enviamos o que a UI realmente edita —
+        // a cobertura salva fica intacta.
         await editarPagamentoNoBackend({
           id_pagamento: idPagamento,
           data_pagamento: novaData,
-          referencia_inicio: null,
-          referencia_fim: null,
-          travado_ate_data: novaData,
           valor: novoValor,
           observacao: novaObs,
         });

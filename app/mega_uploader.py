@@ -109,7 +109,7 @@ BATS_OBRIGATORIOS_MEGACMD = (
 
 TIMEOUT_INSTALL_SEG = 180.0
 TIMEOUT_COMANDO_PADRAO_SEG = 30.0
-TIMEOUT_UPLOAD_PADRAO_SEG = 60 * 60.0   # 1h por arquivo (uploads grandes)
+TIMEOUT_UPLOAD_PADRAO_SEG: float | None = None   # uploads grandes não expiram por tempo
 
 
 # =============================================================
@@ -691,7 +691,7 @@ class MegaUploader:
         pasta_remota: str,
         on_progress: Callable[[float], None] | None = None,
         cancel_event: threading.Event | None = None,
-        timeout: float = TIMEOUT_UPLOAD_PADRAO_SEG,
+        timeout: float | None = TIMEOUT_UPLOAD_PADRAO_SEG,
     ) -> bool:
         """`mega-put <local> <pasta_remota>/`. Sobrescreve se já existir.
 
@@ -743,7 +743,7 @@ class MegaUploader:
         pasta_remota: str,
         on_progress: Callable[[float], None] | None,
         cancel_event: threading.Event | None,
-        timeout: float,
+        timeout: float | None,
     ) -> tuple[int, str]:
         """Roda `mega-put -c` com Popen, lendo stderr em paralelo pra extrair
         progresso. Retorna `(returncode, stderr_completa)`. Em cancelamento via
@@ -807,7 +807,7 @@ class MegaUploader:
                     cancelado = True
                     self._matar_arvore(proc.pid)
                     break
-                if (time.monotonic() - inicio) > timeout:
+                if timeout is not None and (time.monotonic() - inicio) > timeout:
                     self._matar_arvore(proc.pid)
                     raise subprocess.TimeoutExpired(comando, timeout)
                 time.sleep(0.2)

@@ -106,9 +106,73 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.3"
+VERSAO_APLICACAO = "v3.1.11"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v3.1.11",
+        "data": "17/05/2026",
+        "notas": [
+            "Cronômetro fixado (janela pequena que fica sempre por cima) ganhou visual mais discreto: o fundo da janela some completamente e fica visível apenas uma caixinha preta envolvendo o número do tempo. Em uso normal a caixinha fica em 80% de opacidade — sem tampar totalmente o que está embaixo, mas com o tempo bem legível. Quando você passa o mouse sobre ela, fica quase invisível (10%) para liberar a visualização do que estiver atrás — e volta ao normal assim que o cursor sai. A caixinha aparece no canto superior direito da tela e os cliques do mouse atravessam ela para chegar na janela que estiver atrás. Para fechar/abrir o fixado, continue usando o botão 'Fixar' na janela principal do app.",
+        ],
+    },
+    {
+        "versao": "v3.1.10",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix crítico: 'Enviar Arquivos' falhava em uma pasta existente quando ainda não havia tarefa pessoal naquela pasta — o app mostrava 'Não foi possível registrar a tarefa no servidor / verifique sua conexão com a internet' mesmo com a internet 100% OK, e nenhum arquivo subia. A causa nem chegava a tocar o servidor: ao selecionar a pasta, o app marcava internamente o estado como 'já resolvido com id 0', e na hora do envio devolvia esse 0 como se fosse uma falha de rede. Agora, ao selecionar uma pasta sem tarefa sua dentro, o estado fica realmente vazio — o envio segue normalmente e cria a tarefa antes do upload, como esperado. Bug existia desde a v3.1.6.",
+        ],
+    },
+    {
+        "versao": "v3.1.9",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix: erro 'Failed to load Python DLL' que aparecia após o auto-update — o Windows marcava o exe baixado como 'arquivo da internet' (Zone.Identifier) e o antivírus bloqueava a carga das DLLs internas, impedindo o app de abrir sozinho depois de atualizar. Agora a marca é removida logo após o download; o exe novo abre tratado como arquivo local. (Obs.: para sair definitivamente dessa atualização, pode ainda aparecer o erro UMA última vez ao atualizar para esta versão — basta fechar e abrir o app manualmente; das próximas em diante o problema some.)",
+        ],
+    },
+    {
+        "versao": "v3.1.8",
+        "data": "17/05/2026",
+        "notas": [
+            "Fix crítico: tarefa enviada via 'Enviar Arquivos' às vezes não era declarada — o arquivo subia no MEGA mas a subtarefa ficava órfã (recuperada como 'aberta' só ao reabrir o app). Agora a subtarefa é registrada no servidor ANTES de qualquer upload começar; se a comunicação falhar, nenhum arquivo sobe e o usuário vê o erro na hora",
+            "Arquivos enviados em pasta existente agora ficam isolados em uma subpasta com o nome do próprio usuário (ex.: '/Pasta_Raiz/04 - Artemis/usuario_x/'). Cada usuário tem seu espaço — sem colisões de nome com colegas e a exclusão da tarefa apaga só a subpasta do dono, sem tocar nos arquivos dos outros",
+            "Popup 'Envio de Arquivos MEGA' ganhou mais largura — 'Tempo restante' não corta mais o texto ('calculando...', 'concluído', etc.)",
+            "Falhas silenciosas ao criar a subtarefa durante o upload agora vão pro log técnico (~/.cronometro_leve_log_tecnico.txt) — facilita diagnóstico se voltar a acontecer",
+        ],
+    },
+    {
+        "versao": "v3.1.7",
+        "data": "17/05/2026",
+        "notas": [
+            "Lista de canais agora é atualizada ao abrir 'Tarefas da Atividade' e ao clicar em 'Declarar Tarefa' — vínculos e desvínculos feitos no painel passam a refletir imediatamente, sem precisar relogar no app",
+            "Combo CANAL no formulário 'Nova Tarefa' (legado) agora é selecionável — trocar de canal re-despacha automaticamente pro formulário correto (legado ou MEGA) conforme a configuração do canal escolhido",
+            "Trocar pra um canal sem upload obrigatório dentro do formulário MEGA agora abre o formulário legado automaticamente em vez de mostrar aviso",
+            "Tooltips e mensagens deixam de mencionar 'menu principal' inexistente — a seleção de canal acontece na própria janela 'Declarar Tarefa'",
+        ],
+    },
+    {
+        "versao": "v3.1.6",
+        "data": "13/05/2026",
+        "notas": [
+            "Auto-update não mostra mais o aviso 'Failed to remove temporary directory' do PyInstaller após atualizar — o novo exe agora abre alguns segundos depois, dando tempo do antigo se desligar limpo",
+            "Falhas no swap do auto-update agora são registradas no log técnico em vez de sumirem em silêncio",
+        ],
+    },
+    {
+        "versao": "v3.1.5",
+        "data": "13/05/2026",
+        "notas": [
+            "Uploads MEGA grandes não expiram mais por tempo fixo; o envio respeita apenas cancelamento manual",
+            "Fluxo MEGA separado em seleção de arquivos e popup de envio em segundo plano, permitindo reenvio apenas dos campos pendentes",
+        ],
+    },
+    {
+        "versao": "v3.1.4",
+        "data": "06/05/2026",
+        "notas": [
+            "Fix: era impossível salvar uma tarefa com o mesmo nome em canais diferentes (ex.: '03 - Como iremos para marte' no Sacani e em outro canal) — a validação de duplicidade agora considera o canal de destino",
+        ],
+    },
     {
         "versao": "v3.1.3",
         "data": "02/05/2026",

@@ -46,7 +46,11 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX explicitamente desabilitado. Hoje o PC de build nem tem UPX no
+    # PATH (PyInstaller silenciosamente pula), então isso é só defensivo
+    # para o caso de alguém instalar UPX: compressão da python*.dll é
+    # historicamente associada a falsos positivos de antivírus.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

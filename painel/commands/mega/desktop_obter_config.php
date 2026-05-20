@@ -64,18 +64,77 @@ try {
         $c['ordem']             = (int)$c['ordem'];
     }
 
-    // Pastas lógicas existentes (ativas)
+    // Pastas lógicas existentes (ativas), enriquecidas com o vínculo do
+    // usuário corrente para que o desktop possa pintar a lista:
+    //
+    //   - sem subtarefa do user                → status_visual=livre   (branco)
+    //   - subtarefa do user aberta/concluída   → status_visual=em_andamento ou concluida (verde)
+    //   - subtarefa do user travada por pagto. → status_visual=paga    (cinza / não selecionável)
+    //
+    // A associação usa `s.id_atividade + s.titulo == pl.nome_pasta` porque
+    // quando MEGA está ativo o título da subtarefa é exatamente o
+    // `nome_pasta` retornado por `desktop_criar_pasta.php` (regra do
+    // form MEGA em `app/subtarefas.py`). MAX() pra cair em uma única
+    // linha por pasta caso exista duplicidade histórica.
     $st = $pdo->prepare("
-        SELECT id_pasta_logica, nome_pasta, numero_video, titulo_video, criado_em
-          FROM mega_pasta_logica
-         WHERE id_atividade=? AND ativo=1
-         ORDER BY numero_video ASC, criado_em DESC
+        SELECT pl.id_pasta_logica,
+               pl.nome_pasta,
+               pl.numero_video,
+               pl.titulo_video,
+               pl.criado_em,
+               sm.id_subtarefa AS id_subtarefa_usuario,
+               sm.concluida    AS sub_concluida,
+               sm.bloqueada    AS sub_bloqueada,
+               sm.segundos     AS sub_segundos
+          FROM mega_pasta_logica pl
+          LEFT JOIN (
+              SELECT s.id_atividade,
+                     s.titulo,
+                     MAX(s.id_subtarefa)        AS id_subtarefa,
+                     MAX(s.concluida)           AS concluida,
+                     MAX(s.bloqueada_pagamento) AS bloqueada,
+                     MAX(s.segundos_gastos)     AS segundos
+                FROM atividades_subtarefas s
+               WHERE s.user_id = :user_id
+               GROUP BY s.id_atividade, s.titulo
+          ) sm
+            ON sm.id_atividade = pl.id_atividade
+           AND sm.titulo       = pl.nome_pasta
+         WHERE pl.id_atividade = :id_atividade
+           AND pl.ativo = 1
+         ORDER BY pl.numero_video ASC, pl.criado_em DESC
     ");
-    $st->execute([$id_atividade]);
+    $st->execute([':user_id' => $user_id, ':id_atividade' => $id_atividade]);
     $pastas = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
     foreach ($pastas as &$p) {
         $p['id_pasta_logica'] = (int)$p['id_pasta_logica'];
+
+        $id_sub = (int)($p['id_subtarefa_usuario'] ?? 0);
+        $concluida   = (int)($p['sub_concluida'] ?? 0) === 1;
+        $bloqueada   = (int)($p['sub_bloqueada'] ?? 0) === 1;
+        $segundos    = (int)($p['sub_segundos'] ?? 0);
+
+        // Limpa campos crus do payload (mantém só os semânticos)
+        unset($p['sub_concluida'], $p['sub_bloqueada'], $p['sub_segundos']);
+
+        $p['id_subtarefa_usuario'] = $id_sub;
+        $p['tem_subtarefa_usuario'] = $id_sub > 0;
+        $p['concluida']             = $concluida;
+        $p['bloqueada_pagamento']   = $bloqueada;
+        $p['segundos_gastos']       = $segundos;
+
+        if ($id_sub <= 0) {
+            $p['status_visual'] = 'livre';
+        } elseif ($bloqueada) {
+            $p['status_visual'] = 'paga';
+        } elseif ($concluida) {
+            $p['status_visual'] = 'concluida';
+        } else {
+            $p['status_visual'] = 'em_andamento';
+        }
     }
+    unset($p);
 
     responder_json(true, 'OK', [
         'upload_ativo'    => $upload_ativo,

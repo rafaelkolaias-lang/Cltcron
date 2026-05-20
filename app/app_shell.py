@@ -36,7 +36,7 @@ from app.config import (
 )
 from app.monitor import MonitorDeUso
 from app.subtarefas import JanelaSubtarefas
-from app.win32_utils import formatar_hhmmss
+from app.win32_utils import formatar_hhmmss, tornar_janela_tk_click_through
 from atividades import RepositorioAtividades
 from banco import BancoDados
 from declaracoes_dia import RepositorioDeclaracoesDia
@@ -66,6 +66,9 @@ class App(tk.Tk):
         self._var_erro = tk.StringVar(value="")
 
         self._janela_fixada: tk.Toplevel | None = None
+        self._janela_fixada_fundo: tk.Toplevel | None = None
+        self._fixado_rect: tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._janela_tarefas: JanelaSubtarefas | None = None
         self._var_tempo_fixado = tk.StringVar(value="00:00:00")
         self._var_status_fixado = tk.StringVar(value="")
 
@@ -571,13 +574,40 @@ class App(tk.Tk):
             backup_exe = pasta / "CronometroLeve.exe.bak"
             try:
                 urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+
+                # Remove "Mark of the Web" (Zone.Identifier) que o Windows
+                # marca em arquivos baixados via rede. Sem essa limpeza, o
+                # Defender e outros antivírus ficam agressivos com o exe
+                # extraindo DLLs em %TEMP%\_MEI... e bloqueiam o load do
+                # python311.dll — gera "Failed to load Python DLL:
+                # LoadLibrary: Não foi possível encontrar o módulo
+                # especificado" assim que o cmd intermediário tenta abrir
+                # o exe novo. Limpando o MOTW, o exe novo é tratado como
+                # local (mesmo nível de confiança de um exe que veio do
+                # build local) e abre normal.
+                if os.name == "nt":
+                    try:
+                        # Stream NTFS alternativo `:Zone.Identifier` é
+                        # acessível como arquivo. Apagar via DeleteFileW
+                        # remove a marcação sem afetar o exe.
+                        import ctypes
+                        zone_id_path = str(novo_exe) + ":Zone.Identifier"
+                        ctypes.windll.kernel32.DeleteFileW(zone_id_path)
+                    except Exception as e:
+                        LOG_TEC.log("AUTO-UPDATE", "falha ao remover MOTW", {"erro": str(e)})
+
                 if backup_exe.exists():
-                    backup_exe.unlink()
+                    try:
+                        backup_exe.unlink()
+                    except Exception as e:
+                        LOG_TEC.log("AUTO-UPDATE", "falha ao apagar .bak antigo", {"erro": str(e)})
+                        return
                 if caminho_atual.exists():
                     os.rename(str(caminho_atual), str(backup_exe))
                 try:
                     os.rename(str(novo_exe), str(caminho_atual))
-                except Exception:
+                except Exception as e:
+                    LOG_TEC.log("AUTO-UPDATE", "falha no rename exe novo", {"erro": str(e)})
                     if backup_exe.exists() and not caminho_atual.exists():
                         os.rename(str(backup_exe), str(caminho_atual))
                     return
@@ -590,7 +620,7 @@ class App(tk.Tk):
                         self._monitor.pausar_e_preservar_sessao()
                         pausou_sessao = True
                 except Exception as e:
-                    print(f"[auto-update] Falha ao pausar sessão antes do reinício: {e}")
+                    LOG_TEC.log("AUTO-UPDATE", "falha ao pausar sessão antes do reinício", {"erro": str(e)})
 
                 # Aviso sonoro pro user perceber a pausa (Windows). Falha
                 # silenciosa em outros SOs / ambientes sem winsound.
@@ -600,14 +630,55 @@ class App(tk.Tk):
                     except Exception:
                         pass
 
-                subprocess.Popen([str(caminho_atual)])
-                # Sleep dá tempo do bootloader PyInstaller limpar `_MEI...`
-                # ao desligar o exe antigo. sys.exit (não os._exit) deixa o
-                # cleanup do bootloader rodar normalmente.
-                time.sleep(0.5)
+                # Restart desacoplado: dispara um cmd.exe detached que aguarda
+                # 2s antes de iniciar o novo exe. Esses 2s dão folga pro
+                # bootloader PyInstaller do exe antigo terminar a limpeza da
+                # pasta `_MEI...` em Temp antes da nova instância subir —
+                # evita o popup "Failed to remove temporary directory" que
+                # acompanhava o restart imediato.
+                try:
+                    _agendar_relaunch_destacado(caminho_atual)
+                except Exception as e:
+                    LOG_TEC.log("AUTO-UPDATE", "falha ao agendar relaunch destacado, usando fallback direto", {"erro": str(e)})
+                    try:
+                        subprocess.Popen([str(caminho_atual)])
+                    except Exception:
+                        pass
+
+                # sys.exit (não os._exit) deixa o cleanup do bootloader
+                # PyInstaller rodar normalmente — soma com o delay de 2s do
+                # relaunch destacado pra eliminar o aviso `_MEI`.
                 self.after(0, lambda: sys.exit(0))
-            except Exception:
-                pass
+            except Exception as e:
+                LOG_TEC.log("AUTO-UPDATE", "erro inesperado no _baixar", {"erro": str(e)})
+
+        def _agendar_relaunch_destacado(caminho_exe: Path) -> None:
+            """Dispara um cmd.exe destacado que aguarda 2s e abre o novo exe.
+
+            Usa CREATE_NEW_PROCESS_GROUP + DETACHED_PROCESS + CREATE_NO_WINDOW
+            pra que o cmd intermediário não fique amarrado ao processo antigo
+            nem mostre janela. O `start "" "<exe>"` solta o novo exe como
+            processo independente do cmd. Sem isso, o new exe herdava handles
+            do antigo enquanto o bootloader PyInstaller ainda tentava limpar
+            `_MEI...`, causando o aviso "Failed to remove temporary directory".
+            """
+            linha = f'cmd.exe /c "timeout /t 2 /nobreak >nul & start "" "{caminho_exe}""'
+            flags = 0
+            if os.name == "nt":
+                flags = (
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    | getattr(subprocess, "DETACHED_PROCESS", 0)
+                    | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                )
+            subprocess.Popen(
+                linha,
+                shell=False,
+                creationflags=flags,
+                close_fds=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
         threading.Thread(target=_em_thread, daemon=True).start()
 
@@ -770,6 +841,8 @@ class App(tk.Tk):
             messagebox.showerror("Erro", f"Falha ao carregar atividades.\n{erro}")
             return
 
+        selecao_anterior = (self._var_atividade.get() or "").strip()
+
         valores: list[str] = []
         self._mapa_item_para_id.clear()
 
@@ -782,8 +855,14 @@ class App(tk.Tk):
 
         self._combo["values"] = valores
 
-        if valores:
+        # Preserva a seleção atual se o canal ainda existir; caso contrário
+        # cai no primeiro da lista (e se a lista esvaziou, limpa a seleção).
+        if selecao_anterior and selecao_anterior in self._mapa_item_para_id:
+            self._var_atividade.set(selecao_anterior)
+        elif valores:
             self._var_atividade.set(valores[0])
+        else:
+            self._var_atividade.set("")
 
     def _definir_combo_por_id_atividade(self, id_atividade: int) -> None:
         for item, identificador in self._mapa_item_para_id.items():
@@ -1396,29 +1475,56 @@ class App(tk.Tk):
 
         janela.after(800, _loop_refresh)
 
+    # Cronômetro fixado: caixinha preta a 80% de opacidade em uso normal (deixa ver
+    # discretamente o que está atrás sem prejudicar a leitura); cai para 10% quando o
+    # mouse passa por cima (libera a visão do que está atrás). A janela é sempre
+    # click-through — cliques nunca a atingem, passam direto pra janela debaixo.
+    #
+    # ATENÇÃO: alpha NUNCA pode chegar a 1.0. Quando o Tk recebe attributes('-alpha', 1.0)
+    # ele REMOVE o estilo WS_EX_LAYERED da janela, e o WS_EX_TRANSPARENT (click-through)
+    # depende de WS_EX_LAYERED estar ativo.
+    _FIXADO_ALPHA_NORMAL = 0.8
+    _FIXADO_ALPHA_HOVER = 0.1
+
     def _abrir_fixado(self) -> None:
         if self._janela_fixada and self._janela_fixada.winfo_exists():
             return
 
+        largura_fixado, altura_fixado = 230, 110
+        margem = 20
+        pos_x = max(0, self.winfo_screenwidth() - largura_fixado - margem)
+        pos_y = margem
+        self._fixado_rect = (pos_x, pos_y, pos_x + largura_fixado, pos_y + altura_fixado)
+
         janela = tk.Toplevel(self)
         janela.title("Cronômetro (Fixado)")
-        janela.geometry("230x110")
+        janela.geometry(f"{largura_fixado}x{altura_fixado}+{pos_x}+{pos_y}")
         janela.resizable(False, False)
+        janela.overrideredirect(True)
         janela.attributes("-topmost", True)
-        janela.configure(bg="#111111", padx=10, pady=10)
+        janela.attributes("-alpha", self._FIXADO_ALPHA_NORMAL)
+        janela.configure(bg="#000000")
+        janela.after(50, lambda: tornar_janela_tk_click_through(janela))
+
+        # `highlightthickness=0` + `bd=0` evitam a borda branca padrão do Tk em frames/labels.
+        caixa = tk.Frame(janela, bg="#000000", padx=14, pady=8, highlightthickness=0, bd=0)
+        caixa.place(relx=0.5, rely=0.5, anchor="center")
 
         # Mesmo padrão da tela principal: dois labels, _aplicar_modo_regressiva escolhe o que mostra.
-        self._lbl_regressiva_fixado = ttk.Label(
-            janela, textvariable=self._var_tempo_regressiva_fixado,
-            font=("Segoe UI", 26, "bold"), foreground="#ff6b1f",
+        self._lbl_regressiva_fixado = tk.Label(
+            caixa, textvariable=self._var_tempo_regressiva_fixado,
+            font=("Segoe UI", 26, "bold"), foreground="#ff6b1f", background="#000000",
+            highlightthickness=0, bd=0,
         )
-        self._lbl_tempo_fixado = ttk.Label(
-            janela, textvariable=self._var_tempo_fixado,
-            font=("Segoe UI", 26, "bold"),
+        self._lbl_tempo_fixado = tk.Label(
+            caixa, textvariable=self._var_tempo_fixado,
+            font=("Segoe UI", 26, "bold"), foreground="#ffffff", background="#000000",
+            highlightthickness=0, bd=0,
         )
         # Status precisa ser criado antes do `_janela_fixada = janela` para ficar no pack order correto.
-        self._lbl_status_fixado = ttk.Label(
-            janela, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold"),
+        self._lbl_status_fixado = tk.Label(
+            caixa, textvariable=self._var_status_fixado, font=("Segoe UI", 9, "bold"),
+            background="#000000", foreground="#4ade80", highlightthickness=0, bd=0,
         )
         self._lbl_status_fixado.pack(side="bottom", anchor="center", pady=(2, 0))
 
@@ -1427,7 +1533,38 @@ class App(tk.Tk):
         # (bug antigo: fixada abria só com status, sem o tempo).
         janela.protocol("WM_DELETE_WINDOW", self._fechar_fixado)
         self._janela_fixada = janela
+        self._fixado_sobre_anterior = None  # força o primeiro tick do hover loop a (re)aplicar tudo
         self._aplicar_modo_regressiva()
+        self._loop_hover_fixado()
+
+    def _loop_hover_fixado(self) -> None:
+        """Reduz a opacidade do fixado para 10% quando o mouse passa por cima.
+
+        A janela é click-through (WS_EX_TRANSPARENT), então não recebe eventos
+        <Enter>/<Leave>; usamos polling de `winfo_pointerxy()` em vez disso.
+
+        Reaplica o estilo de click-through sempre que o estado de hover muda — o Tk
+        pode mexer no WS_EX_LAYERED ao trocar o alpha, e WS_EX_TRANSPARENT exige
+        WS_EX_LAYERED para janelas top-level.
+        """
+        janela = self._janela_fixada
+        if not janela or not janela.winfo_exists():
+            return
+        try:
+            x, y = janela.winfo_pointerxy()
+            x1, y1, x2, y2 = self._fixado_rect
+            sobre = x1 <= x <= x2 and y1 <= y <= y2
+            estado_anterior = getattr(self, "_fixado_sobre_anterior", None)
+            if sobre != estado_anterior:
+                janela.attributes("-alpha", self._FIXADO_ALPHA_HOVER if sobre else self._FIXADO_ALPHA_NORMAL)
+                tornar_janela_tk_click_through(janela)
+                self._fixado_sobre_anterior = sobre
+        except tk.TclError:
+            return
+        try:
+            janela.after(120, self._loop_hover_fixado)
+        except tk.TclError:
+            pass
 
     def _fechar_fixado(self) -> None:
         try:
@@ -1436,6 +1573,7 @@ class App(tk.Tk):
         except Exception:
             pass
         self._janela_fixada = None
+        self._janela_fixada_fundo = None
 
     def _finalizar(self) -> None:
         if not self._usuario:
@@ -1467,6 +1605,16 @@ class App(tk.Tk):
     def _abrir_tarefas_do_dia(self) -> None:
         if not self._usuario:
             return
+        if self._janela_tarefas is not None:
+            try:
+                if self._janela_tarefas.winfo_exists():
+                    self._janela_tarefas.deiconify()
+                    self._janela_tarefas.lift()
+                    self._janela_tarefas.focus_force()
+                    return
+            except Exception:
+                pass
+            self._janela_tarefas = None
         self._verificar_limite_horas()  # Avisa mas não bloqueia (usuário precisa declarar)
 
         if getattr(self._monitor, "_offline_notificado", False):
@@ -1476,13 +1624,25 @@ class App(tk.Tk):
         self._var_status.set("Carregando...")
         self.update_idletasks()
 
+        # Recarrega a lista de canais do banco antes de abrir a janela: pega
+        # vínculos novos/desvínculos feitos no painel depois do login do app.
+        self._carregar_atividades()
+
         try:
             id_atividade, titulo_atividade = self._obter_contexto_atividade_ativa()
         except Exception as erro:
             messagebox.showwarning("Atenção", str(erro))
             return
 
-        JanelaSubtarefas(
+        def _ao_fechar_tarefas() -> None:
+            self._janela_tarefas = None
+            try:
+                if self._btn_tarefas.winfo_exists():
+                    self._btn_tarefas.configure(state="normal")
+            except Exception:
+                pass
+
+        self._janela_tarefas = JanelaSubtarefas(
             self,
             self._repositorio_declaracoes,
             self._usuario,
@@ -1492,9 +1652,15 @@ class App(tk.Tk):
             segundos_pausado=self._monitor.obter_segundos_pausado(),
             modo_finalizacao=False,
             ao_finalizar=None,
+            ao_fechar=_ao_fechar_tarefas,
             opcoes_canal=list(self._combo["values"]),
             mapa_canal_para_id=dict(self._mapa_item_para_id),
+            repositorio_atividades=self._repositorio,
         )
+        try:
+            self._btn_tarefas.configure(state="disabled")
+        except Exception:
+            pass
 
     def _executar_finalizacao_do_dia(self, relatorio_final: str) -> None:
         self._monitor.finalizar(relatorio_final)
@@ -1596,7 +1762,13 @@ class App(tk.Tk):
         if hasattr(self, "_btn_tarefas"):
             try:
                 if self._btn_tarefas.winfo_exists():
-                    self._btn_tarefas.configure(state="disabled" if estado.offline else "normal")
+                    janela_tarefas_aberta = (
+                        self._janela_tarefas is not None
+                        and self._janela_tarefas.winfo_exists()
+                    )
+                    self._btn_tarefas.configure(
+                        state="disabled" if estado.offline or janela_tarefas_aberta else "normal"
+                    )
             except Exception:
                 pass
 

@@ -112,6 +112,16 @@ register_shutdown_function(function (): void {
 // ==========================================================
 function responder_json(bool $ok, string $mensagem, $dados = null, int $codigo_http = 200): void
 {
+    // Registrar erros/rejeicoes automaticamente no log de atividades
+    if (!$ok && $codigo_http >= 400) {
+        try {
+            require_once __DIR__ . '/log_atividades.php';
+            log_registrar_erro($mensagem, $codigo_http, is_array($dados) ? $dados : null);
+        } catch (Throwable $_) {
+            // Nunca bloquear a resposta por falha no log
+        }
+    }
+
     http_response_code($codigo_http);
 
     if (!headers_sent()) {

@@ -44,6 +44,8 @@
       revogou:         'bg-secondary',
       reprocessou:     'bg-info text-dark',
       vinculou:        'bg-primary',
+      erro_interno:    'bg-danger',
+      rejeicao:        'bg-warning text-dark',
     };
     const cls = cores[acao] || 'bg-secondary';
     return `<span class="badge ${cls}">${esc(acao)}</span>`;
@@ -62,6 +64,8 @@
       mega_config: '⚙️',
       mega_pasta:  '📁',
       mega_upload: '📤',
+      painel:      '🖥️',
+      desktop:     '💻',
       mega_modelo: '📐',
       canal_usuario: '🔗',
       config:      '⚙️',

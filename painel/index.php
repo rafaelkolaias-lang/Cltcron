@@ -1155,7 +1155,7 @@ header('Content-Type: text/html; charset=utf-8');
                     </tr>
                   </thead>
                   <tbody id="tbodyLogAtividades">
-                    <tr><td colspan="7" class="texto-fraco text-center py-3">Clique em Buscar para carregar os logs.</td></tr>
+                    <tr><td colspan="7" class="texto-fraco text-center py-3">Carregando...</td></tr>
                   </tbody>
                 </table>
               </div>

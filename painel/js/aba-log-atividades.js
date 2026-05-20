@@ -307,9 +307,21 @@
     abrirDetalhe(btn.dataset.logDetalhe);
   });
 
+  // ---- datas padrao (60 dias atras ate hoje) ----
+  function preencherDatasPadrao() {
+    const hoje = new Date();
+    const inicio = new Date();
+    inicio.setDate(inicio.getDate() - 60);
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmtIso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (!inputDataInicio.value) inputDataInicio.value = fmtIso(inicio);
+    if (!inputDataFim.value)    inputDataFim.value    = fmtIso(hoje);
+  }
+
   // ---- exposicao global (para painel.js) ----
   window.logAtividadesCarregar = function () {
     filtrosPopulados = false;
+    preencherDatasPadrao();
     carregarLogs(1);
   };
 })();

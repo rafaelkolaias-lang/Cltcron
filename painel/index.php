@@ -1393,7 +1393,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-log-atividades.js?v=1"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=8"></script>
-  <script src="./js/painel.js?v=8"></script>
+  <script src="./js/painel.js?v=9"></script>
   <script>
     // Toggle da sidebar no mobile. Em desktop a sidebar fica fixa e o
     // botão ☰ não é exibido — esse script só importa em ≤ md.

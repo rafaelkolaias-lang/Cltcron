@@ -1117,7 +1117,14 @@ class JanelaSubtarefas(tk.Toplevel):
             URL_PAINEL = ""
 
         if not chave or not user_id or not APP_CLIENT_DECRYPT_KEY or not URL_PAINEL:
-            self._abrir_formulario_subtarefa_legado(subtarefa)
+            self._abrir_formulario_subtarefa_legado(
+                subtarefa,
+                aviso_mega=(
+                    "Credenciais do cliente não configuradas. "
+                    "Não é possível declarar tarefas sem a configuração de upload."
+                ),
+                bloquear_sem_upload=True,
+            )
             return
 
         # Em modo edição, busca a config do canal DA SUB (que pode ser
@@ -1141,23 +1148,24 @@ class JanelaSubtarefas(tk.Toplevel):
             if cfg and cfg.get("upload_ativo"):
                 self._abrir_formulario_subtarefa_mega(subtarefa, cfg)
             else:
-                # Canal sem upload MEGA definido: bloqueia declaração de
-                # tarefas novas (regra: toda tarefa precisa subir algo no
-                # MEGA). Edição de subs já existentes segue permitida.
+                # Formulário legado SEMPRE bloqueado: toda declaração deve
+                # passar pelo formulário MEGA com "Enviar Arquivos".
                 config_ausente = cfg is not None and not cfg.get("upload_ativo")
-                bloquear_criacao = config_ausente and subtarefa is None
                 if config_ausente:
                     aviso = (
                         "Este canal não tem upload obrigatório no MEGA configurado. "
-                        "Não é possível declarar novas tarefas até o administrador "
+                        "Não é possível declarar tarefas até o administrador "
                         "configurar os campos de upload na aba MEGA do painel."
                     )
                 else:
-                    aviso = None  # falha de fetch (offline/timeout): não pune
+                    aviso = (
+                        "Não foi possível obter a configuração de upload do canal. "
+                        "Verifique sua conexão com a internet e tente novamente."
+                    )
                 self._abrir_formulario_subtarefa_legado(
                     subtarefa,
                     aviso_mega=aviso,
-                    bloquear_sem_upload=bloquear_criacao,
+                    bloquear_sem_upload=True,
                 )
 
         self._executar_em_background(_buscar_config, _despachar)
@@ -2710,9 +2718,9 @@ class JanelaSubtarefas(tk.Toplevel):
             for nome, st in fila:
                 row = tk.Frame(frame_lista, bg="#111111")
                 row.pack(fill="x", pady=5)
-                tk.Label(row, text=nome, bg="#111111", fg="#ffffff", width=22, anchor="w").pack(side="left")
+                tk.Label(row, text=nome, bg="#111111", fg="#ffffff", width=14, anchor="w").pack(side="left")
                 var = tk.StringVar(value="aguardando")
-                lbl_popup = tk.Label(row, textvariable=var, bg="#111111", fg=_PEND, width=22, anchor="w")
+                lbl_popup = tk.Label(row, textvariable=var, bg="#111111", fg=_PEND, width=18, anchor="w")
                 lbl_popup.pack(side="left", padx=(6, 6))
                 var_tempo_restante = tk.StringVar(value="Tempo restante: --")
                 tk.Label(
@@ -2720,12 +2728,12 @@ class JanelaSubtarefas(tk.Toplevel):
                     textvariable=var_tempo_restante,
                     bg="#111111",
                     fg="#9ca3af",
-                    width=30,
+                    width=24,
                     anchor="w",
                 ).pack(side="left", padx=(0, 6))
-                pbar_popup = ttk.Progressbar(row, mode="determinate", length=170, maximum=100)
+                pbar_popup = ttk.Progressbar(row, mode="determinate", length=140, maximum=100)
                 pbar_popup.pack(side="left", padx=(0, 8))
-                btn_cancel = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
+                btn_cancel = ttk.Button(row, text="Cancelar", style="Perigo.TButton", width=9)
                 btn_dummy = ttk.Button(row, text="")
                 linhas[nome] = {
                     "var": var,
@@ -2894,12 +2902,12 @@ class JanelaSubtarefas(tk.Toplevel):
                     "Peça pra cadastrar os campos de upload no painel antes de declarar."
                 )
                 btn_salvar.configure(state="disabled")
-                var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
+                var_texto_botao.set("Enviar Arquivos")
                 return
             if not pasta_logica["id_pasta_logica"]:
                 var_aviso_bloqueio.set("Defina a pasta lógica antes de salvar.")
                 btn_salvar.configure(state="disabled")
-                var_texto_botao.set("Salvar e Concluir" if (tempo and not subtarefa_concluida) else "Salvar")
+                var_texto_botao.set("Enviar Arquivos")
                 return
             if obrig_pendente:
                 selecionados = [
@@ -3001,10 +3009,16 @@ class JanelaSubtarefas(tk.Toplevel):
                 if int(getattr(sub_existente, "id_atividade", 0) or 0) != id_atividade:
                     continue
                 if str(getattr(sub_existente, "titulo", "") or "").strip().lower() == tit_norm:
-                    btn_salvar.configure(state="normal")
-                    btn_cancelar.configure(state="normal")
-                    _atualizar_botao_salvar()
-                    messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome neste canal.", parent=janela)
+                    try:
+                        btn_salvar.configure(state="normal")
+                        btn_cancelar.configure(state="normal")
+                        _atualizar_botao_salvar()
+                    except Exception:
+                        pass
+                    try:
+                        messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome neste canal.", parent=janela)
+                    except Exception:
+                        messagebox.showwarning("Atenção", "Já existe uma tarefa com esse nome neste canal.")
                     return
 
             def _operacao() -> int:
@@ -3111,7 +3125,10 @@ class JanelaSubtarefas(tk.Toplevel):
                     _atualizar_botao_salvar()
                 except Exception:
                     pass
-                messagebox.showerror("Erro", str(erro), parent=janela)
+                try:
+                    messagebox.showerror("Erro", str(erro), parent=janela)
+                except Exception:
+                    messagebox.showerror("Erro", str(erro), parent=self)
 
             self._executar_em_background(_operacao, _ok, _falha)
 
@@ -3395,30 +3412,16 @@ class JanelaSubtarefas(tk.Toplevel):
 
             uploader = obter_uploader()
 
-            # Defesa contra sincronia rompida (admin apagou a pasta no app
-            # web do MEGA): valida existência da PASTA LÓGICA raiz antes
-            # de qualquer ação (não da subpasta do user — essa é criada
-            # pelo mega-put -c sozinha). Se a raiz sumiu, marca pasta
-            # lógica como inativa no banco e levanta
-            # `ErroPastaMegaInexistente`.
-            if pasta_logica.get("id_pasta_logica"):
-                pasta_remota_check = pasta_remota_principal.rstrip("/")
-                try:
-                    pasta_ok = uploader.pasta_existe(pasta_remota_check)  # type: ignore[attr-defined]
-                except Exception:
-                    # Falha de rede/sessão — segue (mega-put -c recria se faltar).
-                    pasta_ok = True
-                if not pasta_ok:
-                    try:
-                        api_local.marcar_pasta_logica_inativa(  # type: ignore[attr-defined]
-                            int(pasta_logica["id_pasta_logica"])
-                        )
-                    except Exception:
-                        pass
-                    raise ErroPastaMegaInexistente(
-                        f"a pasta '{pasta_logica['nome_pasta']}' foi removida no MEGA — "
-                        "feche este formulário e crie a pasta lógica de novo"
-                    )
+            # Garante que a pasta remota (lógica + subpasta do user) existe
+            # antes do upload. Se foi apagada no MEGA (admin, app web, etc.),
+            # recria automaticamente via mega-mkdir -p (idempotente).
+            try:
+                pasta_remota_completa = pasta_remota.rstrip("/")
+                if not uploader.pasta_existe(pasta_remota_completa):  # type: ignore[attr-defined]
+                    uploader.criar_pasta(pasta_remota_completa)  # type: ignore[attr-defined]
+            except Exception:
+                # Falha de rede/sessão — segue e deixa o mega-put -c tentar.
+                pass
 
             # Dedup do upload anterior (best effort).
             #

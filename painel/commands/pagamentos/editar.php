@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_aplicar_pagamento.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -193,6 +194,13 @@ try {
     if ($periodo_mudou && $user_id !== '') {
         pagamento_reprocessar_todos($pdo, (int)$existente['id_usuario'], $user_id);
     }
+
+    log_registrar($pdo, 'pagamento', 'editou',
+        "Editou pagamento id={$id_pagamento} do usuário {$user_id}" . ($periodo_mudou ? ' (período alterado, reprocessamento aplicado)' : ''),
+        $params,
+        ['id_pagamento' => $id_pagamento, 'existente' => $existente],
+        (string)$id_pagamento
+    );
 
     $pdo->commit();
 

@@ -25,6 +25,7 @@ verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/cripto.php';
 require_once __DIR__ . '/../_comum/credenciais_upsert.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -73,6 +74,14 @@ try {
         upsert_credencial_usuario_cifrada($pdo, $upsert, $id_modelo, $user_id, $valor, $mascara);
         sodium_memzero($valor);
 
+        log_registrar($pdo, 'credencial', 'salvou',
+            "Salvou credencial do modelo id={$id_modelo} para o usuário {$user_id} (máscara: {$mascara})",
+            ['id_modelo' => $id_modelo, 'user_id' => $user_id, 'mascara' => $mascara, 'modo' => 'individual'],
+            null,
+            (string)$id_modelo,
+            $user_id
+        );
+
         responder_json(true, 'credencial salva', [
             'modo'            => 'individual',
             'mascara_parcial' => $mascara,
@@ -107,6 +116,13 @@ try {
     }
 
     sodium_memzero($valor);
+
+    log_registrar($pdo, 'credencial', 'salvou',
+        "Aplicou credencial do modelo id={$id_modelo} a {$afetados} usuário(s) (modo global)",
+        ['id_modelo' => $id_modelo, 'usuarios_afetados' => $afetados, 'mascara' => $mascara, 'modo' => 'global'],
+        null,
+        (string)$id_modelo
+    );
 
     responder_json(true, "credencial aplicada a {$afetados} usuário(s)", [
         'modo'              => 'global',

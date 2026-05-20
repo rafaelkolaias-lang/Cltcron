@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/credenciais_upsert.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function gerar_chave_acesso(): string
 {
@@ -66,6 +67,13 @@ try {
     // Falhas individuais aqui são silenciosas: o cadastro do usuário não pode
     // depender de uma credencial-referência ter chave válida ou MAC íntegro.
     $credenciais_herdadas = herdar_credenciais_globais_para_usuario($pdo, $user_id);
+
+    log_registrar($pdo, 'usuario', 'criou',
+        "Criou o usuário {$user_id} ({$nome_exibicao}), nível {$nivel}, R\$ {$valor_hora}/h",
+        ['user_id' => $user_id, 'nome' => $nome_exibicao, 'nivel' => $nivel, 'valor_hora' => $valor_hora, 'status' => 'ativa'],
+        null,
+        $user_id
+    );
 
     responder_json(true, "Usuário criado", [
         'user_id' => $user_id,

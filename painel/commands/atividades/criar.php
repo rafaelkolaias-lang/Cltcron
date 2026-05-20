@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function dificuldade_valida(string $v): bool
 {
@@ -128,6 +129,13 @@ try {
             ':id_usuario' => $id_usuario,
         ]);
     }
+
+    log_registrar($pdo, 'atividade', 'criou',
+        "Criou o canal '{$titulo}' (id={$id_atividade}), dificuldade {$dificuldade}, status {$status}, " . count($encontrados) . " usuário(s)",
+        ['id_atividade' => $id_atividade, 'titulo' => $titulo, 'dificuldade' => $dificuldade, 'status' => $status, 'estimativa' => $estimativa_float, 'usuarios' => $encontrados],
+        null,
+        (string)$id_atividade
+    );
 
     $pdo->commit();
 

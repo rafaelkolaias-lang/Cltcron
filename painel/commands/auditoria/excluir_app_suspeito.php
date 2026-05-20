@@ -7,6 +7,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -27,6 +28,13 @@ try {
 
     $st = $pdo->prepare("UPDATE auditoria_apps_suspeitos SET ativo = 0 WHERE id = :id");
     $st->execute([':id' => $id]);
+
+    log_registrar($pdo, 'auditoria', 'soft_delete',
+        "Desativou app suspeito id={$id}",
+        ['id' => $id, 'ativo' => 0],
+        ['id' => $id, 'ativo' => (int)($row['ativo'] ?? 1)],
+        (string)$id
+    );
 
     responder_json(true, 'App desativado.', ['id' => $id, 'ativo' => 0], 200);
 

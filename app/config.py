@@ -106,9 +106,21 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v3.1.11"
+VERSAO_APLICACAO = "v4.0"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0",
+        "data": "20/05/2026",
+        "notas": [
+            "Fix: vídeos com aspas ou caracteres especiais no título (ex.: 'evidências de \"vida\" em Encélado') falhavam no upload MEGA com rc=53. Agora aspas são convertidas para apóstrofo e caracteres proibidos são removidos automaticamente do nome da pasta.",
+            "Fix: se a pasta do vídeo não existia mais no MEGA (apagada ou nunca criada), o reenvio falhava com rc=12. Agora o app recria a pasta automaticamente antes de enviar.",
+            "Fix: erro interno ao concluir envio de arquivos pelo popup (janela já destruída). Corrigido.",
+            "Melhoria: botão 'Cancelar' no popup de envio agora aparece legível (antes ficava espremido como um traço vermelho).",
+            "Melhoria: botão do formulário de declaração agora mostra 'Enviar Arquivos' desde o início (antes mostrava 'Salvar e Concluir' até criar a pasta lógica).",
+            "Segurança: formulário legado (sem upload MEGA) agora bloqueia qualquer declaração — toda tarefa deve passar pelo fluxo com 'Enviar Arquivos'.",
+        ],
+    },
     {
         "versao": "v3.1.11",
         "data": "17/05/2026",

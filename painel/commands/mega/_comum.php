@@ -28,6 +28,15 @@ function mega_normalizar_nome_pasta(string $numero, string $titulo): string
         $numero = str_pad($numero, 2, '0', STR_PAD_LEFT);
     }
 
+    // Remove caracteres proibidos em caminhos Windows/MEGA que também
+    // quebram o cmd.exe quando usados como argumento (aspas duplas
+    // embaralham delimitadores do `cmd /c "..."`).
+    // " → ' (mantém legibilidade), demais proibidos removidos.
+    $titulo = str_replace('"', "'", $titulo);
+    $titulo = preg_replace('/[<>|?*:]/', '', $titulo);
+    $titulo = trim((string)preg_replace('/\s+/u', ' ', $titulo));
+    if ($titulo === '') return '';
+
     // Primeira letra maiúscula, resto preserva.
     $primeiro = mb_substr($titulo, 0, 1, 'UTF-8');
     $resto    = mb_substr($titulo, 1, null, 'UTF-8');

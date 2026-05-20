@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -58,6 +59,13 @@ try {
     if (!$st2->fetch()) {
         responder_json(false, 'Usuário não encontrado.', ['user_id' => $user_id], 404);
     }
+
+    log_registrar($pdo, 'usuario', 'editou',
+        "Editou o usuário {$user_id}: nome='{$nome_exibicao}', nível={$nivel}, R\$ {$valor_hora}/h",
+        ['user_id' => $user_id, 'nome' => $nome_exibicao, 'nivel' => $nivel, 'valor_hora' => $valor_hora],
+        null,
+        $user_id
+    );
 
     responder_json(true, 'Usuário atualizado.', [
         'user_id' => $user_id,

@@ -9,6 +9,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function normalizar_nome_app(string $valor): string
 {
@@ -78,6 +79,13 @@ try {
             ':id'       => $id,
         ]);
 
+        log_registrar($pdo, 'auditoria', 'editou',
+            "Editou app suspeito '{$nome_app}' (id={$id}, ativo={$ativo})",
+            ['id' => $id, 'nome_app' => $nome_app, 'motivo' => $motivo_db, 'ativo' => $ativo],
+            null,
+            (string)$id
+        );
+
         responder_json(true, 'App atualizado.', [
             'id'       => $id,
             'nome_app' => $nome_app,
@@ -119,6 +127,13 @@ try {
         ':criado_por' => PAINEL_USUARIO,
     ]);
     $novo_id = (int)$pdo->lastInsertId();
+
+    log_registrar($pdo, 'auditoria', 'criou',
+        "Cadastrou app suspeito '{$nome_app}' (id={$novo_id})",
+        ['id' => $novo_id, 'nome_app' => $nome_app, 'motivo' => $motivo_db, 'ativo' => $ativo],
+        null,
+        (string)$novo_id
+    );
 
     responder_json(true, 'App cadastrado.', [
         'id'         => $novo_id,

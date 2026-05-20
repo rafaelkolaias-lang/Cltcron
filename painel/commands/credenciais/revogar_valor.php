@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -21,12 +22,24 @@ try {
     if ($apagar) {
         $stm = $pdo->prepare("DELETE FROM credenciais_usuario WHERE user_id=? AND id_modelo=?");
         $stm->execute([$user_id, $id_modelo]);
+        log_registrar($pdo, 'credencial', 'excluiu',
+            "Removeu credencial do modelo id={$id_modelo} do usuário {$user_id}",
+            ['estado' => 'vazia'],
+            ['user_id' => $user_id, 'id_modelo' => $id_modelo],
+            (string)$id_modelo
+        );
         responder_json(true, 'credencial removida', ['estado' => 'vazia', 'afetados' => $stm->rowCount()]);
     } else {
         $stm = $pdo->prepare("UPDATE credenciais_usuario
                                  SET status='revogado', atualizado_em=CURRENT_TIMESTAMP
                                WHERE user_id=? AND id_modelo=?");
         $stm->execute([$user_id, $id_modelo]);
+        log_registrar($pdo, 'credencial', 'revogou',
+            "Revogou credencial do modelo id={$id_modelo} do usuário {$user_id}",
+            ['estado' => 'revogada'],
+            ['user_id' => $user_id, 'id_modelo' => $id_modelo],
+            (string)$id_modelo
+        );
         responder_json(true, 'credencial revogada', ['estado' => 'revogada', 'afetados' => $stm->rowCount()]);
     }
 } catch (Throwable $e) {

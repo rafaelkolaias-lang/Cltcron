@@ -7,6 +7,7 @@ verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_estrutura.php';
 require_once __DIR__ . '/_comum.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 /**
  * POST — cria ou atualiza um modelo (template) de campo de upload.
@@ -53,6 +54,12 @@ try {
              WHERE id_modelo=?
         ");
         $st->execute([$nome, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_modelo]);
+        log_registrar($pdo, 'mega_modelo', 'editou',
+            "Editou modelo de campo MEGA '{$nome}' (id={$id_modelo})",
+            ['id_modelo' => $id_modelo, 'nome' => $nome, 'label' => $label],
+            null,
+            (string)$id_modelo
+        );
         responder_json(true, 'modelo atualizado', ['id_modelo' => $id_modelo]);
     } else {
         $st = $pdo->prepare("
@@ -70,7 +77,14 @@ try {
             }
             throw $e;
         }
-        responder_json(true, 'modelo criado', ['id_modelo' => (int)$pdo->lastInsertId()]);
+        $novo_id = (int)$pdo->lastInsertId();
+        log_registrar($pdo, 'mega_modelo', 'criou',
+            "Criou modelo de campo MEGA '{$nome}' (id={$novo_id})",
+            ['id_modelo' => $novo_id, 'nome' => $nome, 'label' => $label],
+            null,
+            (string)$novo_id
+        );
+        responder_json(true, 'modelo criado', ['id_modelo' => $novo_id]);
     }
 } catch (Throwable $e) {
     responder_json(false, 'falha ao salvar modelo de campo', debug_ativo() ? ['erro' => $e->getMessage()] : null, 500);

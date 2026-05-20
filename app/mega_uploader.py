@@ -113,6 +113,29 @@ TIMEOUT_UPLOAD_PADRAO_SEG: float | None = None   # uploads grandes não expiram 
 
 
 # =============================================================
+# Sanitização de caminhos remotos MEGA
+# =============================================================
+_MEGA_CHARS_PROIBIDOS = str.maketrans({
+    '"': "'",
+    '<': '',
+    '>': '',
+    '|': '',
+    '?': '',
+    '*': '',
+})
+
+
+def _sanitizar_caminho_mega(caminho: str) -> str:
+    """Remove/substitui caracteres que quebram cmd.exe ou o MEGAcmd.
+
+    Aspas duplas viram apóstrofo (legibilidade); os demais proibidos em
+    Windows/MEGA são removidos. Aplicado como defesa extra no Python
+    independente da sanitização no PHP.
+    """
+    return caminho.translate(_MEGA_CHARS_PROIBIDOS)
+
+
+# =============================================================
 # Subprocess sem console visível (Windows)
 # =============================================================
 def _flags_sem_console() -> tuple[int, subprocess.STARTUPINFO | None]:
@@ -586,10 +609,13 @@ class MegaUploader:
         if not bat.exists():
             raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
 
+        # Sanitiza args que podem conter caracteres proibidos (aspas no título
+        # de vídeo, etc.) antes de montar a linha de comando.
+        args_safe = tuple(_sanitizar_caminho_mega(a) for a in args)
         # cmd /c com aspas externas envolvendo a linha inteira: quando o caminho
         # do .bat tem espaço (ex.: "C:\Users\Marcus Vinicius\..."), cmd.exe
         # descarta as aspas internas se houver mais de um par e quebra no espaço.
-        linha = subprocess.list2cmdline([str(bat), *args])
+        linha = subprocess.list2cmdline([str(bat), *args_safe])
         comando = f'cmd.exe /c "{linha}"'
         return _executar_silencioso(comando, timeout=timeout)
 
@@ -704,6 +730,7 @@ class MegaUploader:
         arquivo = Path(arquivo_local)
         if not arquivo.exists():
             raise ErroUploadMega(f"arquivo local não encontrado: {arquivo}")
+        pasta_remota = _sanitizar_caminho_mega(pasta_remota)
         if not pasta_remota.startswith("/"):
             pasta_remota = "/" + pasta_remota
         if not pasta_remota.endswith("/"):

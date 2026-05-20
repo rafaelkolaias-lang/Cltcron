@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -26,6 +27,12 @@ try {
     // ON DELETE CASCADE derruba credenciais_usuario associadas (decisão de schema).
     $stm = $pdo->prepare("DELETE FROM credenciais_modelos WHERE id_modelo=?");
     $stm->execute([$id_modelo]);
+    log_registrar($pdo, 'credencial', 'excluiu',
+        "Excluiu modelo de credencial '{$ident}' (id={$id_modelo})",
+        null,
+        ['id_modelo' => $id_modelo, 'identificador' => $ident],
+        (string)$id_modelo
+    );
     responder_json(true, 'modelo excluído', ['afetados' => $stm->rowCount()]);
 } catch (Throwable $e) {
     responder_json(false, 'falha ao excluir modelo', debug_ativo() ? ['erro' => $e->getMessage()] : null, 500);

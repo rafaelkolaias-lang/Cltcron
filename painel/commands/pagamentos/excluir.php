@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_aplicar_pagamento.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -69,6 +70,13 @@ try {
 
     // Reprocessar pagamentos restantes do usuário para reavaliar cobertura
     pagamento_reprocessar_todos($pdo, $id_usuario, $user_id);
+
+    log_registrar($pdo, 'pagamento', 'excluiu',
+        "Excluiu pagamento id={$id_pagamento} do usuário {$user_id}. {$limpos['subtarefas']} tarefa(s) desvinculada(s).",
+        null,
+        ['id_pagamento' => $id_pagamento, 'user_id' => $user_id],
+        (string)$id_pagamento
+    );
 
     $pdo->commit();
 

@@ -17,6 +17,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -79,6 +80,13 @@ try {
             ':id_usuario'   => $id_usuario,
         ]);
     }
+
+    log_registrar($pdo, 'canal_usuario', 'vinculou',
+        "Atualizou canais do usuário {$user_id}: " . count($ids_finais) . " canal(is) vinculado(s)",
+        ['user_id' => $user_id, 'ids_atividades' => $ids_finais, 'total' => count($ids_finais)],
+        null,
+        $user_id
+    );
 
     $pdo->commit();
 

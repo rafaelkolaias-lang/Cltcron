@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_estrutura.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -45,6 +46,13 @@ try {
             upload_ativo    = VALUES(upload_ativo)
     ");
     $st->execute([$id_atividade, $nome_pasta_mega, $upload_ativo]);
+
+    log_registrar($pdo, 'mega_config', 'salvou',
+        "Salvou config MEGA do canal id={$id_atividade}: pasta='{$nome_pasta_mega}', upload_ativo=" . ($upload_ativo ? 'sim' : 'não'),
+        ['id_atividade' => $id_atividade, 'nome_pasta_mega' => $nome_pasta_mega, 'upload_ativo' => (bool)$upload_ativo],
+        null,
+        (string)$id_atividade
+    );
 
     responder_json(true, 'config salva', [
         'id_atividade'    => $id_atividade,

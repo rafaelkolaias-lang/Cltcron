@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/credenciais_upsert.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $entrada = ler_json_do_corpo();
@@ -33,6 +34,13 @@ try {
     // Defesa em camadas: _auth_cliente.php já barra inativos com 403,
     // mas marcar as linhas como 'revogado' fecha a porta na camada de dados.
     $credenciais_revogadas = revogar_credenciais_de_usuario($pdo, $user_id);
+
+    log_registrar($pdo, 'usuario', 'excluiu',
+        "Inativou o usuário {$user_id} (credenciais revogadas: {$credenciais_revogadas})",
+        ['user_id' => $user_id, 'status' => 'inativa', 'credenciais_revogadas' => $credenciais_revogadas],
+        ['user_id' => $user_id, 'status' => 'ativa'],
+        $user_id
+    );
 
     responder_json(true, "Usuário inativado", [
         'user_id' => $user_id,

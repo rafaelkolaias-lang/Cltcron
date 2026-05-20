@@ -181,7 +181,7 @@
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio", "abaCredenciais", "abaAuditoria", "abaMega"];
+    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio", "abaCredenciais", "abaAuditoria", "abaMega", "abaLogAtividades"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -202,6 +202,7 @@
       abaCredenciais: "Credenciais e APIs · segredos por usuário",
       abaAuditoria: "Auditoria · apps suspeitos e alertas por usuário",
       abaMega: "MEGA · upload obrigatório por canal e usuário",
+      abaLogAtividades: "Log · registro de todas as ações do servidor",
     }[idAba] || "";
 
     const elSub = document.getElementById("textoSubtitulo");
@@ -248,6 +249,11 @@
       return;
     }
 
+    if (idAba === "abaLogAtividades") {
+      window.logAtividadesCarregar?.();
+      return;
+    }
+
     // Dashboard — renderiza tabela + carrega gráficos
     renderizarDashboard();
     window.PainelAbaGraficos?.renderizarAbaGraficos?.();
@@ -279,6 +285,9 @@
     const abaAuditoria = document.getElementById("abaAuditoria");
     if (abaAuditoria && !abaAuditoria.classList.contains("d-none")) return "abaAuditoria";
 
+    const abaLogAtividades = document.getElementById("abaLogAtividades");
+    if (abaLogAtividades && !abaLogAtividades.classList.contains("d-none")) return "abaLogAtividades";
+
     return "abaDashboard";
   }
 
@@ -305,6 +314,11 @@
 
       if (aba === "abaAuditoria") {
         window.PainelAbaAuditoria?.renderizarAbaAuditoria?.();
+        return;
+      }
+
+      if (aba === "abaLogAtividades") {
+        window.logAtividadesCarregar?.();
         return;
       }
 

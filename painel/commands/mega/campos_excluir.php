@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_estrutura.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 /**
  * POST — soft-delete (ativo=0) de um campo de upload.
@@ -24,6 +25,13 @@ try {
 
     $st = $pdo->prepare("UPDATE mega_campos_upload SET ativo=0 WHERE id_campo=?");
     $st->execute([$id_campo]);
+
+    log_registrar($pdo, 'mega_campo', 'soft_delete',
+        "Desativou campo de upload id={$id_campo}",
+        ['id_campo' => $id_campo, 'ativo' => 0],
+        null,
+        (string)$id_campo
+    );
 
     responder_json(true, 'campo desativado', ['id_campo' => $id_campo]);
 } catch (Throwable $e) {

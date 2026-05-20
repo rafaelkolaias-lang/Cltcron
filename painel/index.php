@@ -83,6 +83,9 @@ header('Content-Type: text/html; charset=utf-8');
       <li class="nav-item">
         <a class="nav-link" href="#" data-aba="abaMega" title="Configuração de upload obrigatório no MEGA">MEGA</a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link" href="#" data-aba="abaLogAtividades" title="Log de todas as ações do servidor">Log</a>
+      </li>
     </ul>
 
     <!-- Bloco inferior: ações globais (Sair / Baixar App / Recarregar). -->
@@ -1085,6 +1088,82 @@ header('Content-Type: text/html; charset=utf-8');
 
           </section>
 
+          <!-- ════════════════════════════════════════════════════════════
+               ABA: LOG DE ATIVIDADES
+               ════════════════════════════════════════════════════════════ -->
+          <section id="abaLogAtividades" class="d-none" aria-label="Log de Atividades">
+
+            <article class="cartao-grafite p-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Log de Atividades</h2>
+                  <span class="badge badge-suave" id="logBadgeTotal">—</span>
+                </div>
+                <span class="texto-fraco small">Retidos por 60 dias</span>
+              </div>
+
+              <hr class="border-light opacity-10 my-3">
+
+              <!-- Filtros -->
+              <div class="row g-2 align-items-end mb-3">
+                <div class="col-6 col-md-2">
+                  <label class="form-label texto-fraco small mb-1">Data inicio</label>
+                  <input type="date" id="logDataInicio" class="form-control bg-transparent text-white border-secondary">
+                </div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label texto-fraco small mb-1">Data fim</label>
+                  <input type="date" id="logDataFim" class="form-control bg-transparent text-white border-secondary">
+                </div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label texto-fraco small mb-1">Entidade</label>
+                  <select id="logFiltroEntidade" class="form-select bg-transparent text-white border-secondary">
+                    <option value="">Todas</option>
+                  </select>
+                </div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label texto-fraco small mb-1">Acao</label>
+                  <select id="logFiltroAcao" class="form-select bg-transparent text-white border-secondary">
+                    <option value="">Todas</option>
+                  </select>
+                </div>
+                <div class="col-6 col-md-2">
+                  <label class="form-label texto-fraco small mb-1">Executor</label>
+                  <select id="logFiltroExecutor" class="form-select bg-transparent text-white border-secondary">
+                    <option value="">Todos</option>
+                  </select>
+                </div>
+                <div class="col-6 col-md-2 d-flex gap-2 align-items-end">
+                  <div class="input-group campo-busca flex-grow-1">
+                    <input id="logFiltroBusca" class="form-control bg-transparent text-white border-secondary" placeholder="Buscar...">
+                  </div>
+                  <button type="button" class="btn btn-light" id="logBtnBuscar">Buscar</button>
+                </div>
+              </div>
+
+              <!-- Tabela -->
+              <div class="table-responsive tabela-limite" style="max-height: 640px;">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:150px;">Data/Hora</th>
+                      <th style="min-width:100px;">Executor</th>
+                      <th style="min-width:110px;">Entidade</th>
+                      <th style="min-width:90px;">Acao</th>
+                      <th style="min-width:280px;">Descricao</th>
+                      <th style="min-width:110px;">IP</th>
+                      <th class="text-end" style="min-width:80px;">Detalhe</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyLogAtividades">
+                    <tr><td colspan="7" class="texto-fraco text-center py-3">Clique em Buscar para carregar os logs.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <nav class="mt-2 d-flex justify-content-end" id="paginacaoLog" aria-label="Paginacao dos logs"></nav>
+            </article>
+
+          </section>
+
         </main>
 
         <footer class="texto-fraco small mt-4" aria-label="Rodapé">
@@ -1311,6 +1390,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
   <script src="./js/aba-mega.js?v=5"></script>
+  <script src="./js/aba-log-atividades.js?v=1"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=8"></script>
   <script src="./js/painel.js?v=8"></script>

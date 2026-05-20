@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_aplicar_pagamento.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -185,6 +186,13 @@ try {
     );
     $travadas = $resultado['subtarefas'];
     $horasMarcadas = $resultado['registros'];
+
+    log_registrar($pdo, 'pagamento', 'criou',
+        "Registrou pagamento de R\$ " . number_format($valor, 2, ',', '.') . " para {$user_id} em {$data_pagamento}. {$travadas} tarefa(s) travada(s).",
+        ['id_pagamento' => $id_pagamento, 'user_id' => $user_id, 'valor' => $valor, 'data_pagamento' => $data_pagamento, 'observacao' => $observacao, 'tarefas_travadas' => $travadas],
+        null,
+        (string)$id_pagamento
+    );
 
     $pdo->commit();
 

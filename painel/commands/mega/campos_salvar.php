@@ -7,6 +7,7 @@ verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/_estrutura.php';
 require_once __DIR__ . '/_comum.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 /**
  * POST — cria ou atualiza UM campo de upload.
@@ -72,6 +73,12 @@ try {
              WHERE id_campo=?
         ");
         $st->execute([$user_id, $id_atividade, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_campo]);
+        log_registrar($pdo, 'mega_campo', 'editou',
+            "Editou campo de upload '{$label}' (id={$id_campo}) do usuário {$user_id}",
+            ['id_campo' => $id_campo, 'user_id' => $user_id, 'id_atividade' => $id_atividade, 'label' => $label, 'obrigatorio' => $obrigatorio, 'ativo' => $ativo],
+            null,
+            (string)$id_campo
+        );
         responder_json(true, 'campo atualizado', ['id_campo' => $id_campo]);
     } else {
         $st = $pdo->prepare("
@@ -81,7 +88,14 @@ try {
             VALUES (?,?,?,?,?,?,?,?)
         ");
         $st->execute([$user_id, $id_atividade, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo]);
-        responder_json(true, 'campo criado', ['id_campo' => (int)$pdo->lastInsertId()]);
+        $novo_id = (int)$pdo->lastInsertId();
+        log_registrar($pdo, 'mega_campo', 'criou',
+            "Criou campo de upload '{$label}' (id={$novo_id}) para o usuário {$user_id}",
+            ['id_campo' => $novo_id, 'user_id' => $user_id, 'id_atividade' => $id_atividade, 'label' => $label, 'obrigatorio' => $obrigatorio],
+            null,
+            (string)$novo_id
+        );
+        responder_json(true, 'campo criado', ['id_campo' => $novo_id]);
     }
 } catch (Throwable $e) {
     responder_json(false, 'falha ao salvar campo de upload', debug_ativo() ? ['erro' => $e->getMessage()] : null, 500);

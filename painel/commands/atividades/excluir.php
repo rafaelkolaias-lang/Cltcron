@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -67,6 +68,13 @@ try {
 
     $st = $pdo->prepare("DELETE FROM atividades WHERE id_atividade = :id");
     $st->execute([':id' => $id_atividade]);
+
+    log_registrar($pdo, 'atividade', 'excluiu',
+        "Excluiu o canal id={$id_atividade}",
+        null,
+        ['id_atividade' => $id_atividade],
+        (string)$id_atividade
+    );
 
     responder_json(true, 'Atividade excluída.', ['id_atividade' => $id_atividade], 200);
 } catch (Throwable $e) {

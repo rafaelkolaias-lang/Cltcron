@@ -6,6 +6,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 function ler_json_entrada(): array
 {
@@ -41,6 +42,13 @@ try {
         ':status' => $status,
         ':id' => $id_atividade,
     ]);
+
+    log_registrar($pdo, 'atividade', 'alterou_status',
+        "Alterou status do canal id={$id_atividade} para '{$status}'",
+        ['id_atividade' => $id_atividade, 'status' => $status],
+        null,
+        (string)$id_atividade
+    );
 
     responder_json(true, 'Status atualizado.', ['id_atividade' => $id_atividade, 'status' => $status], 200);
 } catch (Throwable $e) {

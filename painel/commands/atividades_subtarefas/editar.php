@@ -7,6 +7,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/declaracoes_dia_itens.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -203,6 +204,13 @@ try {
     // relatório — o desktop já mantém esse espelho via
     // `declaracoes_dia.py::_sincronizar_item_espelho_da_subtarefa`.
     declaracoes_itens_sincronizar_espelho($pdo, $id_subtarefa);
+
+    log_registrar($pdo, 'subtarefa', 'editou',
+        "Editou subtarefa id={$id_subtarefa} do usuário " . ($atual['user_id'] ?? '?') . ": '{$titulo}'",
+        $dados_depois,
+        $dados_antes,
+        (string)$id_subtarefa
+    );
 
     $pdo->commit();
 

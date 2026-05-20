@@ -5,6 +5,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
     $in = ler_json_do_corpo();
@@ -30,13 +31,26 @@ try {
                                  SET identificador=?, nome_exibicao=?, categoria=?, descricao=?, ordem_exibicao=?
                                WHERE id_modelo=?");
         $stm->execute([$identificador, $nome, $categoria, $descricao !== '' ? $descricao : null, $ordem, $id_modelo]);
+        log_registrar($pdo, 'credencial', 'editou',
+            "Editou modelo de credencial '{$identificador}' ({$nome})",
+            ['id_modelo' => $id_modelo, 'identificador' => $identificador, 'nome' => $nome, 'categoria' => $categoria],
+            null,
+            (string)$id_modelo
+        );
         responder_json(true, 'modelo atualizado', ['id_modelo' => $id_modelo]);
     } else {
         $stm = $pdo->prepare("INSERT INTO credenciais_modelos
                                 (identificador, nome_exibicao, categoria, descricao, ordem_exibicao)
                               VALUES (?,?,?,?,?)");
         $stm->execute([$identificador, $nome, $categoria, $descricao !== '' ? $descricao : null, $ordem]);
-        responder_json(true, 'modelo criado', ['id_modelo' => (int)$pdo->lastInsertId()]);
+        $novo_id = (int)$pdo->lastInsertId();
+        log_registrar($pdo, 'credencial', 'criou',
+            "Criou modelo de credencial '{$identificador}' ({$nome})",
+            ['id_modelo' => $novo_id, 'identificador' => $identificador, 'nome' => $nome, 'categoria' => $categoria],
+            null,
+            (string)$novo_id
+        );
+        responder_json(true, 'modelo criado', ['id_modelo' => $novo_id]);
     }
 } catch (Throwable $e) {
     $msg = $e->getMessage();

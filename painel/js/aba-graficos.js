@@ -996,7 +996,7 @@
         const fim = (i + 1 < grupo.length && grupo[i + 1].value[1] < d.value[2])
           ? grupo[i + 1].value[1]
           : d.value[2];
-        if (fim > ini) resultado.push({ ...d, value: [d.value[0], ini, fim, ...d.value.slice(3)] });
+        if (fim > ini) resultado.push({ ...d, value: [d.value[0], ini, fim, Math.round((fim - ini) / 1000), ...d.value.slice(4)] });
       }
     });
     return resultado;

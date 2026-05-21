@@ -68,6 +68,8 @@
     filtroCanalPastas: 0,
     filtroStatusPastas: '',
     buscaPastas: '',
+    // Ordenação de colunas da tabela de pastas: { campo, direcao: 'asc'|'desc'|null }
+    sortPastas: { campo: null, direcao: null },
   };
 
   // ===========================================================
@@ -582,11 +584,53 @@
     });
   }
 
+  function ordenarPastas(lista) {
+    const { campo, direcao } = estado.sortPastas;
+    if (!campo || !direcao) return lista;
+    const copia = lista.slice();
+    copia.sort((a, b) => {
+      let va = a[campo], vb = b[campo];
+      // numero_video: comparação numérica
+      if (campo === 'numero_video') {
+        va = parseInt(va, 10) || 0;
+        vb = parseInt(vb, 10) || 0;
+      } else if (campo === 'video_publicado') {
+        // booleano → 0/1
+        va = va ? 1 : 0;
+        vb = vb ? 1 : 0;
+      } else if (campo === 'criado_em') {
+        va = va ? new Date(String(va).replace(' ', 'T')).getTime() : 0;
+        vb = vb ? new Date(String(vb).replace(' ', 'T')).getTime() : 0;
+      } else {
+        va = String(va || '').toLowerCase();
+        vb = String(vb || '').toLowerCase();
+      }
+      if (va < vb) return direcao === 'asc' ? -1 : 1;
+      if (va > vb) return direcao === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return copia;
+  }
+
+  function atualizarIconesSort() {
+    const thead = document.querySelector('#tbodyMegaPastas')?.closest('table')?.querySelector('thead');
+    if (!thead) return;
+    thead.querySelectorAll('[data-mega-sort]').forEach((th) => {
+      const icone = th.querySelector('.mega-sort-icon');
+      if (!icone) return;
+      if (th.dataset.megaSort === estado.sortPastas.campo && estado.sortPastas.direcao) {
+        icone.textContent = estado.sortPastas.direcao === 'asc' ? ' \u25B2' : ' \u25BC';
+      } else {
+        icone.textContent = '';
+      }
+    });
+  }
+
   function renderizarPastas() {
     const tbody = document.getElementById('tbodyMegaPastas');
     if (!tbody) return;
 
-    const filtradas = filtrarPastas();
+    const filtradas = ordenarPastas(filtrarPastas());
     const b = document.getElementById('megaBadgePastas');
     if (b) b.textContent = filtradas.length === estado.pastas.length
       ? String(estado.pastas.length)
@@ -608,7 +652,7 @@
         : `<span class="badge bg-danger">Pendente</span>`;
       const btnAcao = pub
         ? `<button class="btn btn-sm btn-outline-danger" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Cancelar publicação">Cancelar</button>`
-        : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicado</button>`;
+        : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicar</button>`;
 
       return `<tr class="${classeRow}">
         <td>${esc(p.titulo_atividade || '—')}</td>
@@ -622,6 +666,7 @@
     }).join('');
 
     bindPastasActions();
+    atualizarIconesSort();
   }
 
   function bindPastasActions() {
@@ -697,6 +742,26 @@
     document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', aplicarModeloCampoSelecionado);
     document.getElementById('megaBotaoSalvarComoModelo')?.addEventListener('click', salvarLinhaComoModelo);
     document.getElementById('megaBotaoGerenciarModelos')?.addEventListener('click', gerenciarModelos);
+
+    // Ordenação clicável nos cabeçalhos da tabela de pastas lógicas
+    document.querySelectorAll('[data-mega-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const campo = th.dataset.megaSort;
+        if (estado.sortPastas.campo === campo) {
+          // Ciclo: asc → desc → sem filtro
+          if (estado.sortPastas.direcao === 'asc') {
+            estado.sortPastas.direcao = 'desc';
+          } else {
+            estado.sortPastas.campo = null;
+            estado.sortPastas.direcao = null;
+          }
+        } else {
+          estado.sortPastas.campo = campo;
+          estado.sortPastas.direcao = 'asc';
+        }
+        renderizarPastas();
+      });
+    });
   }
 
   let _eventosBindados = false;

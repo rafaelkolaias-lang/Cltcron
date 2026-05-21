@@ -67,7 +67,6 @@
     filtroIdAtividade: 0,
     filtroCanalPastas: 0,
     filtroStatusPastas: '',
-    filtroCriadoPor: '',
     filtroUpadoPor: '',
     buscaPastas: '',
     // Ordenação de colunas da tabela de pastas: { campo, direcao: 'asc'|'desc'|null }
@@ -252,7 +251,7 @@
     if (!tbody) return;
 
     if (!estado.filtroUserId || !estado.filtroIdAtividade) {
-      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
       const b = document.getElementById('megaBadgeCampos');
       if (b) b.textContent = '—';
       const btn = document.getElementById('megaBotaoNovoCampo');
@@ -261,7 +260,7 @@
       return;
     }
 
-    tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
 
     try {
       const url = `${API}campos_listar.php?user_id=${encodeURIComponent(estado.filtroUserId)}&id_atividade=${estado.filtroIdAtividade}&incluir_inativos=1`;
@@ -274,7 +273,7 @@
       renderizarCampos();
       atualizarBotoesModelos();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 
@@ -330,7 +329,7 @@
 
     if (!estado.campos.length) {
       tbody.innerHTML = `
-        <tr><td colspan="8" class="texto-fraco">
+        <tr><td colspan="7" class="texto-fraco">
           Nenhum campo cadastrado para esse usuário neste canal. Clique em <strong>+ Novo campo</strong>.
         </td></tr>`;
       bindCamposActions();
@@ -556,7 +555,7 @@
     const tbody = document.getElementById('tbodyMegaPastas');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
 
     let url = API + 'pasta_logica_listar.php';
     if (estado.filtroCanalPastas > 0) {
@@ -569,45 +568,33 @@
       popularSelectUsuariosPastas();
       renderizarPastas();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 
   function popularSelectUsuariosPastas() {
-    const selCriado = document.getElementById('megaFiltroCriadoPor');
-    const selUpado  = document.getElementById('megaFiltroUpadoPor');
-    if (!selCriado && !selUpado) return;
+    const selUpado = document.getElementById('megaFiltroUpadoPor');
+    if (!selUpado) return;
 
-    const criadores = new Set();
     const uploaders = new Set();
     estado.pastas.forEach((p) => {
-      if (p.criado_por) criadores.add(p.criado_por);
       if (p.upado_por) {
         p.upado_por.split(',').forEach((u) => { const t = u.trim(); if (t) uploaders.add(t); });
       }
     });
 
-    if (selCriado) {
-      const prev = estado.filtroCriadoPor;
-      selCriado.innerHTML = '<option value="">Criado por</option>'
-        + [...criadores].sort().map((u) => `<option value="${esc(u)}"${u === prev ? ' selected' : ''}>${esc(u)}</option>`).join('');
-    }
-    if (selUpado) {
-      const prev = estado.filtroUpadoPor;
-      selUpado.innerHTML = '<option value="">Upado por</option>'
-        + [...uploaders].sort().map((u) => `<option value="${esc(u)}"${u === prev ? ' selected' : ''}>${esc(u)}</option>`).join('');
-    }
+    const prev = estado.filtroUpadoPor;
+    selUpado.innerHTML = '<option value="">Upado por</option>'
+      + [...uploaders].sort().map((u) => `<option value="${esc(u)}"${u === prev ? ' selected' : ''}>${esc(u)}</option>`).join('');
   }
 
   function filtrarPastas() {
     const busca = estado.buscaPastas.toLowerCase().trim();
     const status = estado.filtroStatusPastas;
-    const criadoPor = estado.filtroCriadoPor;
     const upadoPor = estado.filtroUpadoPor;
     return estado.pastas.filter((p) => {
       if (status === 'publicado' && !p.video_publicado) return false;
       if (status === 'pendente' && p.video_publicado) return false;
-      if (criadoPor && (p.criado_por || '') !== criadoPor) return false;
       if (upadoPor) {
         const uploaders = (p.upado_por || '').split(',').map((u) => u.trim());
         if (!uploaders.includes(upadoPor)) return false;
@@ -673,7 +660,7 @@
       : filtradas.length + '/' + estado.pastas.length;
 
     if (!filtradas.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Nenhuma pasta encontrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Nenhuma pasta encontrada.</td></tr>';
       return;
     }
 
@@ -691,7 +678,6 @@
         : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicar</button>`;
 
       return `<tr class="${classeRow}">
-        <td>${esc(p.criado_por || '—')}</td>
         <td>${esc(p.titulo_atividade || '—')}</td>
         <td><strong>${nomePasta}</strong></td>
         <td>${esc(p.upado_por || '—')}</td>
@@ -762,10 +748,6 @@
     });
     document.getElementById('megaBuscaPastas')?.addEventListener('input', (ev) => {
       estado.buscaPastas = ev.target.value;
-      renderizarPastas();
-    });
-    document.getElementById('megaFiltroCriadoPor')?.addEventListener('change', (ev) => {
-      estado.filtroCriadoPor = ev.target.value;
       renderizarPastas();
     });
     document.getElementById('megaFiltroUpadoPor')?.addEventListener('change', (ev) => {

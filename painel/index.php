@@ -974,9 +974,6 @@ header('Content-Type: text/html; charset=utf-8');
                   <select id="megaFiltroCanalPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
                     <option value="">Todos os canais</option>
                   </select>
-                  <select id="megaFiltroCriadoPor" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:160px;">
-                    <option value="">Criado por</option>
-                  </select>
                   <select id="megaFiltroUpadoPor" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:160px;">
                     <option value="">Upado por</option>
                   </select>
@@ -992,7 +989,6 @@ header('Content-Type: text/html; charset=utf-8');
                 <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
                   <thead>
                     <tr class="texto-fraco small">
-                      <th style="min-width:160px;cursor:pointer;user-select:none;" data-mega-sort="criado_por">Criado por <span class="mega-sort-icon"></span></th>
                       <th style="min-width:180px;cursor:pointer;user-select:none;" data-mega-sort="titulo_atividade">Canal <span class="mega-sort-icon"></span></th>
                       <th style="min-width:240px;cursor:pointer;user-select:none;" data-mega-sort="nome_pasta">Nome da pasta <span class="mega-sort-icon"></span></th>
                       <th style="min-width:140px;cursor:pointer;user-select:none;" data-mega-sort="upado_por">Upado por <span class="mega-sort-icon"></span></th>
@@ -1003,7 +999,7 @@ header('Content-Type: text/html; charset=utf-8');
                     </tr>
                   </thead>
                   <tbody id="tbodyMegaPastas">
-                    <tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>
+                    <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
                   </tbody>
                 </table>
               </div>

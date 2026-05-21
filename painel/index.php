@@ -992,12 +992,12 @@ header('Content-Type: text/html; charset=utf-8');
                 <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
                   <thead>
                     <tr class="texto-fraco small">
+                      <th style="min-width:160px;cursor:pointer;user-select:none;" data-mega-sort="criado_por">Criado por <span class="mega-sort-icon"></span></th>
                       <th style="min-width:180px;cursor:pointer;user-select:none;" data-mega-sort="titulo_atividade">Canal <span class="mega-sort-icon"></span></th>
                       <th style="min-width:240px;cursor:pointer;user-select:none;" data-mega-sort="nome_pasta">Nome da pasta <span class="mega-sort-icon"></span></th>
                       <th style="min-width:140px;cursor:pointer;user-select:none;" data-mega-sort="upado_por">Upado por <span class="mega-sort-icon"></span></th>
                       <th style="min-width:80px;cursor:pointer;user-select:none;" data-mega-sort="numero_video">Nº <span class="mega-sort-icon"></span></th>
                       <th style="min-width:100px;cursor:pointer;user-select:none;" data-mega-sort="video_publicado">Status <span class="mega-sort-icon"></span></th>
-                      <th style="min-width:160px;cursor:pointer;user-select:none;" data-mega-sort="criado_por">Criado por <span class="mega-sort-icon"></span></th>
                       <th style="min-width:140px;cursor:pointer;user-select:none;" data-mega-sort="criado_em">Criado em <span class="mega-sort-icon"></span></th>
                       <th style="min-width:120px;">Ações</th>
                     </tr>

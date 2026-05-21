@@ -691,12 +691,12 @@
         : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicar</button>`;
 
       return `<tr class="${classeRow}">
+        <td>${esc(p.criado_por || '—')}</td>
         <td>${esc(p.titulo_atividade || '—')}</td>
         <td><strong>${nomePasta}</strong></td>
         <td>${esc(p.upado_por || '—')}</td>
         <td>${esc(p.numero_video)}</td>
         <td>${badge}</td>
-        <td>${esc(p.criado_por || '—')}</td>
         <td class="texto-fraco small">${formatarData(p.criado_em)}</td>
         <td>${btnAcao}</td>
       </tr>`;

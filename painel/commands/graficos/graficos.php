@@ -634,11 +634,12 @@ try {
         $usuarios[$user_id]['segundos_total_segundo_plano'] += $segundos_segundo_plano;
     }
 
-    // Duração do foco vem da coluna cumulativa fj.segundos_em_foco (atualizada pelo
-    // app.py a cada 10s — sobrevive a crash). Para registros legados (segundos_em_foco=0
-    // E fim_em IS NULL), aplica cap defensivo de 3h sobre TIMESTAMPDIFF como fallback.
-    // Registros novos NUNCA caem no fallback porque _flush_foco_periodico grava antes de
-    // qualquer crash (intervalo de 10s = perda máxima de 10s, não 3h).
+    // Prioridade para fim_em: quando o registro foi fechado corretamente, fim_em é a
+    // verdade (datetime.now() no momento do fechamento). segundos_em_foco pode estar
+    // inflado com tempo de sleep/hibernação do Windows (time.monotonic inclui suspensão).
+    // segundos_em_foco só é usado como fallback para registros crashados (fim_em IS NULL)
+    // onde é a melhor estimativa disponível (flush periódico a cada 10s).
+    // Registros legados (segundos_em_foco=0 E fim_em IS NULL): cap defensivo de 3h.
     $sqlPeriodos = "
         SELECT
             fj.id_foco,
@@ -649,14 +650,14 @@ try {
             fj.titulo_janela,
             fj.inicio_em,
             CASE
-                WHEN fj.segundos_em_foco > 0 THEN fj.inicio_em + INTERVAL fj.segundos_em_foco SECOND
                 WHEN fj.fim_em IS NOT NULL THEN fj.fim_em
+                WHEN fj.segundos_em_foco > 0 THEN fj.inicio_em + INTERVAL fj.segundos_em_foco SECOND
                 WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
                 ELSE LEAST(NOW(), fj.inicio_em + INTERVAL 3 HOUR)
             END AS fim_em,
             CASE
-                WHEN fj.segundos_em_foco > 0 THEN fj.segundos_em_foco
                 WHEN fj.fim_em IS NOT NULL THEN GREATEST(0, TIMESTAMPDIFF(SECOND, fj.inicio_em, fj.fim_em))
+                WHEN fj.segundos_em_foco > 0 THEN fj.segundos_em_foco
                 WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE
                     THEN GREATEST(0, TIMESTAMPDIFF(SECOND, fj.inicio_em, s.ultimo_em))
                 ELSE LEAST(
@@ -701,23 +702,19 @@ try {
     }
 
     // ── Períodos de todos os apps abertos (foco + 2.º plano) ──────────────────
-    // Duração da barra na timeline de apps:
-    // 1.º) (segundos_em_foco + segundos_segundo_plano) cumulativo — fonte de verdade
-    //      (atualizado a cada 10s pelo app, sobrevive a crash com perda máx ~10s).
-    // 2.º) fim_em explícito (fechamento limpo).
-    // 3.º) ultima_atualizacao_em (ON UPDATE CURRENT_TIMESTAMP — apontou pro último flush).
-    // 4.º) usuarios_status_atual.ultimo_em (cliente offline há mais de 3min).
-    // 5.º) cap defensivo de 20h sobre NOW() — só se nada acima resolveu.
+    // Prioridade para fim_em: mesma razão dos periodos_foco — segundos cumulativos
+    // podem estar inflados com tempo de sleep/hibernação do Windows.
+    // fim_em > ultima_atualizacao_em > segundos cumulativos (fallback crash) > caps.
     $sqlPeriodosAbertos = "
         SELECT
             ai.user_id,
             ai.nome_app,
             ai.inicio_em,
             CASE
-                WHEN (ai.segundos_em_foco + ai.segundos_segundo_plano) > 0
-                    THEN ai.inicio_em + INTERVAL (ai.segundos_em_foco + ai.segundos_segundo_plano) SECOND
                 WHEN ai.fim_em IS NOT NULL THEN ai.fim_em
                 WHEN ai.ultima_atualizacao_em IS NOT NULL THEN ai.ultima_atualizacao_em
+                WHEN (ai.segundos_em_foco + ai.segundos_segundo_plano) > 0
+                    THEN ai.inicio_em + INTERVAL (ai.segundos_em_foco + ai.segundos_segundo_plano) SECOND
                 WHEN s.ultimo_em IS NOT NULL AND s.ultimo_em < NOW() - INTERVAL 3 MINUTE THEN s.ultimo_em
                 ELSE LEAST(NOW(), ai.inicio_em + INTERVAL 20 HOUR)
             END AS fim_em,

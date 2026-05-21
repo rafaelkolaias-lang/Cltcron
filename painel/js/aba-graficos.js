@@ -345,7 +345,7 @@
                 </tr>
               </thead>
               <tbody id="tbodyResumoUsuariosGraficos">
-                <tr><td colspan="6" class="texto-fraco">Carregando…</td></tr>
+                <tr><td colspan="10" class="texto-fraco">Carregando…</td></tr>
               </tbody>
             </table>
           </div>

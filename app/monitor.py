@@ -193,6 +193,11 @@ class MonitorDeUso:
                 pausado += delta
             return int(pausado)
 
+    # Cap de delta para _acumular_tempo_ate_agora_locked: mesma razão do foco —
+    # time.monotonic() no Windows inclui suspensão/hibernação e inflaria
+    # segundos_trabalhando/ocioso/pausado com horas de inatividade.
+    _MAX_DELTA_TEMPO_SEGUNDOS = 60.0
+
     def _acumular_tempo_ate_agora_locked(self, mono_agora: float) -> None:
         if self._ultimo_marco_mono <= 0:
             self._ultimo_marco_mono = mono_agora
@@ -204,6 +209,11 @@ class MonitorDeUso:
 
         delta = max(0.0, mono_agora - self._ultimo_marco_mono)
         if delta <= 0:
+            return
+
+        # Descarta deltas absurdos causados por sleep/hibernação do Windows.
+        if delta > self._MAX_DELTA_TEMPO_SEGUNDOS:
+            self._ultimo_marco_mono = mono_agora
             return
 
         if self._situacao_manual == "pausado":
@@ -627,11 +637,18 @@ class MonitorDeUso:
         self._mono_ultimo_acumulo_foco = 0.0
         self._mono_ultimo_flush_foco = 0.0
 
+    # Cap de delta para _acumular_foco_locked: se o intervalo entre dois ticks
+    # exceder este valor, assume-se que o PC dormiu/hibernou e o delta é descartado.
+    # O loop roda a cada 0.2s; em carga alta pode atrasar até alguns segundos.
+    # 60s dá margem generosa sem deixar sleep de minutos/horas vazar.
+    _MAX_DELTA_FOCO_SEGUNDOS = 60.0
+
     def _acumular_foco_locked(self, mono_agora: float) -> None:
         """Soma delta desde o último acúmulo no contador em memória.
 
         Chamado a cada tick do _loop e antes de qualquer UPDATE/fechamento.
         Operação puramente em memória — UPDATE periódico vai pra _flush_foco_periodico.
+        Deltas > _MAX_DELTA_FOCO_SEGUNDOS são descartados (tempo de sleep/hibernação).
         """
         if self._id_foco_aberto is None:
             return
@@ -640,6 +657,12 @@ class MonitorDeUso:
             return
         delta = mono_agora - self._mono_ultimo_acumulo_foco
         if delta <= 0:
+            return
+        # Descarta deltas absurdos causados por sleep/hibernação do Windows.
+        # time.monotonic() no Windows (GetTickCount64) inclui tempo de suspensão,
+        # o que inflaria segundos_em_foco com horas de inatividade.
+        if delta > self._MAX_DELTA_FOCO_SEGUNDOS:
+            self._mono_ultimo_acumulo_foco = mono_agora
             return
         self._segundos_em_foco_atual += int(delta)
         self._mono_ultimo_acumulo_foco = mono_agora
@@ -1442,7 +1465,9 @@ class MonitorDeUso:
                         apps_visiveis_scan = listar_nomes_apps_visiveis()
                     except Exception:
                         apps_visiveis_scan = set()
-                    delta_scan = max(1, int(mono_agora - self._ultimo_scan_apps_mono)) if self._ultimo_scan_apps_mono > 0 else int(INTERVALO_SCAN_APPS_SEGUNDOS)
+                    delta_scan_raw = max(1, int(mono_agora - self._ultimo_scan_apps_mono)) if self._ultimo_scan_apps_mono > 0 else int(INTERVALO_SCAN_APPS_SEGUNDOS)
+                    # Cap: descarta deltas absurdos de sleep/hibernação (mesma razão dos acumuladores de foco/tempo).
+                    delta_scan = min(delta_scan_raw, int(self._MAX_DELTA_TEMPO_SEGUNDOS))
                     self._ultimo_scan_apps_mono = mono_agora
 
                 # Flags para operações de banco — decididas dentro do lock,

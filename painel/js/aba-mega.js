@@ -605,10 +605,10 @@
         : `<span title="Link MEGA não disponível">${esc(p.nome_pasta)}</span>`;
       const badge = pub
         ? `<span class="badge bg-success">Publicado</span>`
-        : `<span class="badge bg-secondary">Pendente</span>`;
+        : `<span class="badge bg-danger">Pendente</span>`;
       const btnAcao = pub
-        ? `<button class="btn btn-sm btn-outline-warning" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Cancelar publicação">Cancelar</button>`
-        : `<button class="btn btn-sm btn-outline-success" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicado</button>`;
+        ? `<button class="btn btn-sm btn-outline-danger" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Cancelar publicação">Cancelar</button>`
+        : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicado</button>`;
 
       return `<tr class="${classeRow}">
         <td>${esc(p.titulo_atividade || '—')}</td>

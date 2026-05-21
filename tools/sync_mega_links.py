@@ -23,6 +23,7 @@ import re
 import ssl
 import subprocess
 import sys
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -52,7 +53,8 @@ def localizar_megacmd() -> Path:
     sys.exit(1)
 
 
-def run_mega(dir_megacmd: Path, comando: str, *args: str, timeout: float = 30.0) -> str:
+def run_mega(dir_megacmd: Path, comando: str, *args: str, timeout: float = 30.0) -> tuple[int, str, str]:
+    """Retorna (returncode, stdout, stderr)."""
     bat = dir_megacmd / f"{comando}.bat"
     cmd_line = subprocess.list2cmdline([str(bat), *args])
     cmd_str = f'cmd.exe /c "{cmd_line}"'
@@ -64,24 +66,41 @@ def run_mega(dir_megacmd: Path, comando: str, *args: str, timeout: float = 30.0)
     r = subprocess.run(
         cmd_str,
         capture_output=True,
-        text=True,
         timeout=timeout,
         startupinfo=startupinfo,
+        encoding="utf-8",
+        errors="replace",
     )
-    return r.stdout.strip()
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
 
 
 # ──────────────────────────────────────────────────────────
 # API do painel
 # ──────────────────────────────────────────────────────────
+def _fetch(url: str, method: str, headers: dict, data: bytes | None = None, tentativas: int = 3) -> bytes:
+    """Executa request com retry automático em 429 (rate limit)."""
+    for i in range(tentativas):
+        try:
+            req = urllib.request.Request(url, data=data, method=method)
+            for k, v in headers.items():
+                req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and i < tentativas - 1:
+                espera = 30 * (i + 1)
+                print(f"\n  [429] Rate limit — aguardando {espera}s...", flush=True)
+                time.sleep(espera)
+                continue
+            raise
+    return b""
+
+
 def api_get(url_base: str, endpoint: str, user_id: str, chave: str) -> list:
     url = f"{url_base}/commands/mega/{endpoint}"
-    req = urllib.request.Request(url, method="GET")
-    req.add_header("Authorization", f"Bearer {user_id}:{chave}")
-    with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as resp:
-        raw = resp.read().decode("utf-8")
+    raw = _fetch(url, "GET", {"Authorization": f"Bearer {user_id}:{chave}"}).decode("utf-8")
     if not raw.strip():
-        print(f"[ERRO] {endpoint}: resposta vazia (URL final: {resp.url})")
+        print(f"[ERRO] {endpoint}: resposta vazia")
         sys.exit(1)
     try:
         data = json.loads(raw)
@@ -98,11 +117,12 @@ def api_get(url_base: str, endpoint: str, user_id: str, chave: str) -> list:
 def api_post(url_base: str, endpoint: str, user_id: str, chave: str, corpo: dict) -> dict:
     url = f"{url_base}/commands/mega/{endpoint}"
     payload = json.dumps(corpo).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, method="POST")
-    req.add_header("Authorization", f"Bearer {user_id}:{chave}")
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    headers = {
+        "Authorization": f"Bearer {user_id}:{chave}",
+        "Content-Type": "application/json",
+    }
+    raw = _fetch(url, "POST", headers, data=payload).decode("utf-8")
+    return json.loads(raw)
 
 
 # ──────────────────────────────────────────────────────────
@@ -130,11 +150,11 @@ def main():
     print(f"[INFO] MEGAcmd encontrado em: {dir_mega}")
 
     # 2. Verificar se está logado
-    whoami = run_mega(dir_mega, "mega-whoami")
-    if "not logged in" in whoami.lower() or not whoami:
+    _, whoami_out, _ = run_mega(dir_mega, "mega-whoami")
+    if "not logged in" in whoami_out.lower() or not whoami_out:
         print("[ERRO] MEGAcmd nao esta logado. Faca login primeiro (mega-login).")
         sys.exit(1)
-    print(f"[INFO] Logado como: {whoami}")
+    print(f"[INFO] Logado como: {whoami_out}")
 
     # 3. Puxar lista de pastas do painel
     pastas = api_get(url_base, "pasta_logica_listar_para_sync.php", args.user, args.chave)
@@ -165,14 +185,29 @@ def main():
             continue
 
         caminho = f"/{nome_pasta_mega}/{nome_pasta}"
+
+        # Pausa entre requests para não estourar rate limit do servidor (120 req/min)
+        time.sleep(1.2)
+
         print(f"  [EXPORT] #{id_pasta} {caminho}...", end=" ")
 
         try:
-            saida = run_mega(dir_mega, "mega-export", "-a", caminho, timeout=15.0)
-            link = extrair_link(saida)
+            rc, stdout, stderr = run_mega(dir_mega, "mega-export", "-a", caminho, timeout=15.0)
+            link = extrair_link(stdout)
+
+            # Se "already exported", pegar o link existente (sem -a)
+            if not link and "already exported" in stderr:
+                rc2, stdout2, _ = run_mega(dir_mega, "mega-export", caminho, timeout=15.0)
+                link = extrair_link(stdout2)
 
             if not link:
-                print(f"FALHA (saida: {saida[:100]})")
+                # Verificar se a pasta existe no MEGA
+                rc3, _, _ = run_mega(dir_mega, "mega-ls", caminho, timeout=10.0)
+                if rc3 != 0:
+                    print(f"NAO EXISTE no MEGA")
+                else:
+                    motivo = stderr or stdout or f"rc={rc}"
+                    print(f"FALHA ({motivo[:120]})")
                 erro_count += 1
                 continue
 

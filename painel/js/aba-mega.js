@@ -67,6 +67,8 @@
     filtroIdAtividade: 0,
     filtroCanalPastas: 0,
     filtroStatusPastas: '',
+    filtroCriadoPor: '',
+    filtroUpadoPor: '',
     buscaPastas: '',
     // Ordenação de colunas da tabela de pastas: { campo, direcao: 'asc'|'desc'|null }
     sortPastas: { campo: null, direcao: null },
@@ -564,18 +566,52 @@
     try {
       const dados = await requisitar(url);
       estado.pastas = Array.isArray(dados) ? dados : [];
+      popularSelectUsuariosPastas();
       renderizarPastas();
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 
+  function popularSelectUsuariosPastas() {
+    const selCriado = document.getElementById('megaFiltroCriadoPor');
+    const selUpado  = document.getElementById('megaFiltroUpadoPor');
+    if (!selCriado && !selUpado) return;
+
+    const criadores = new Set();
+    const uploaders = new Set();
+    estado.pastas.forEach((p) => {
+      if (p.criado_por) criadores.add(p.criado_por);
+      if (p.upado_por) {
+        p.upado_por.split(',').forEach((u) => { const t = u.trim(); if (t) uploaders.add(t); });
+      }
+    });
+
+    if (selCriado) {
+      const prev = estado.filtroCriadoPor;
+      selCriado.innerHTML = '<option value="">Criado por</option>'
+        + [...criadores].sort().map((u) => `<option value="${esc(u)}"${u === prev ? ' selected' : ''}>${esc(u)}</option>`).join('');
+    }
+    if (selUpado) {
+      const prev = estado.filtroUpadoPor;
+      selUpado.innerHTML = '<option value="">Upado por</option>'
+        + [...uploaders].sort().map((u) => `<option value="${esc(u)}"${u === prev ? ' selected' : ''}>${esc(u)}</option>`).join('');
+    }
+  }
+
   function filtrarPastas() {
     const busca = estado.buscaPastas.toLowerCase().trim();
     const status = estado.filtroStatusPastas;
+    const criadoPor = estado.filtroCriadoPor;
+    const upadoPor = estado.filtroUpadoPor;
     return estado.pastas.filter((p) => {
       if (status === 'publicado' && !p.video_publicado) return false;
       if (status === 'pendente' && p.video_publicado) return false;
+      if (criadoPor && (p.criado_por || '') !== criadoPor) return false;
+      if (upadoPor) {
+        const uploaders = (p.upado_por || '').split(',').map((u) => u.trim());
+        if (!uploaders.includes(upadoPor)) return false;
+      }
       if (busca) {
         const texto = ((p.nome_pasta || '') + ' ' + (p.numero_video || '') + ' ' + (p.titulo_atividade || '') + ' ' + (p.upado_por || '')).toLowerCase();
         if (!texto.includes(busca)) return false;
@@ -726,6 +762,14 @@
     });
     document.getElementById('megaBuscaPastas')?.addEventListener('input', (ev) => {
       estado.buscaPastas = ev.target.value;
+      renderizarPastas();
+    });
+    document.getElementById('megaFiltroCriadoPor')?.addEventListener('change', (ev) => {
+      estado.filtroCriadoPor = ev.target.value;
+      renderizarPastas();
+    });
+    document.getElementById('megaFiltroUpadoPor')?.addEventListener('change', (ev) => {
+      estado.filtroUpadoPor = ev.target.value;
       renderizarPastas();
     });
 

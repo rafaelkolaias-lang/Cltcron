@@ -974,6 +974,12 @@ header('Content-Type: text/html; charset=utf-8');
                   <select id="megaFiltroCanalPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
                     <option value="">Todos os canais</option>
                   </select>
+                  <select id="megaFiltroCriadoPor" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:160px;">
+                    <option value="">Criado por</option>
+                  </select>
+                  <select id="megaFiltroUpadoPor" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:160px;">
+                    <option value="">Upado por</option>
+                  </select>
                   <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoRecarregarPastas">&#x21BB;</button>
                 </div>
               </div>

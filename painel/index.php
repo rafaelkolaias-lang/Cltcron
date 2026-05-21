@@ -17,7 +17,7 @@ header('Content-Type: text/html; charset=utf-8');
   <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css?v=9" rel="stylesheet">
+  <link href="./css/painel.css?v=10" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>
 
@@ -1049,14 +1049,20 @@ header('Content-Type: text/html; charset=utf-8');
               </div>
             </article>
 
-            <!-- Bloco 3: Pastas lógicas existentes (read-only) -->
+            <!-- Bloco 3: Pastas lógicas existentes -->
             <article class="cartao-grafite p-3">
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
                   <h2 class="h6 mb-0">Pastas lógicas cadastradas</h2>
                   <span class="badge badge-suave" id="megaBadgePastas">—</span>
                 </div>
-                <div class="d-flex gap-2 align-items-center">
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                  <input type="text" id="megaBuscaPastas" class="form-control form-control-sm bg-transparent text-white border-secondary" placeholder="Buscar pasta…" style="min-width:160px;max-width:220px;">
+                  <select id="megaFiltroStatusPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:140px;">
+                    <option value="">Todos os status</option>
+                    <option value="pendente">Pendentes</option>
+                    <option value="publicado">Publicados</option>
+                  </select>
                   <select id="megaFiltroCanalPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
                     <option value="">Todos os canais</option>
                   </select>
@@ -1065,7 +1071,7 @@ header('Content-Type: text/html; charset=utf-8');
               </div>
 
               <div class="texto-fraco small mb-2">
-                Pastas criadas pelos usuários ao declarar tarefas. O nome canônico (<code>NN - Titulo</code>) é único por canal.
+                Pastas criadas pelos usuários ao declarar tarefas. O nome canônico (<code>NN - Titulo</code>) é único por canal. Clique no nome para abrir no MEGA.
               </div>
 
               <div class="table-responsive">
@@ -1075,12 +1081,14 @@ header('Content-Type: text/html; charset=utf-8');
                       <th style="min-width:180px;">Canal</th>
                       <th style="min-width:240px;">Nome da pasta</th>
                       <th style="min-width:80px;">Nº</th>
+                      <th style="min-width:100px;">Status</th>
                       <th style="min-width:160px;">Criado por</th>
                       <th style="min-width:140px;">Criado em</th>
+                      <th style="min-width:120px;">Ações</th>
                     </tr>
                   </thead>
                   <tbody id="tbodyMegaPastas">
-                    <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
+                    <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -1389,7 +1397,7 @@ header('Content-Type: text/html; charset=utf-8');
   <script src="./js/aba-gerenciar-tarefas.js?v=11"></script>
   <script src="./js/aba-credenciais.js?v=2"></script>
   <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=5"></script>
+  <script src="./js/aba-mega.js?v=6"></script>
   <script src="./js/aba-log-atividades.js?v=1"></script>
   <script src="./js/aba-graficos.js?v=7"></script>
   <script src="./js/aba-relatorio.js?v=8"></script>

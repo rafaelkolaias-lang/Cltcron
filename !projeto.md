@@ -147,7 +147,7 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 | `js/aba-relatorio.js` | Relatório com export CSV (`;` + BOM UTF-8). |
 | `js/aba-credenciais.js` | Aba Credenciais e APIs: CRUD de modelos + gestão de credenciais por usuário (cifradas) + seção "APIs globais ativas" (`#boxApisGlobais`/`#listaApisGlobais`) listando modelos com `aplicar_novos_usuarios=1` e botão "Remover global". Integração automática com Gestão do Usuário via `data-user-id`. |
 | `js/aba-auditoria.js` | **Aba Auditoria (v2.6):** CRUD de apps suspeitos + lista global de usuários com flag 🚩. Expõe cache compartilhado de flags (`PainelAbaAuditoria.obterFlagUsuarioSync`) reusado pelo Dashboard e Gestão. Renderiza card "Input automatizado detectado" + gráfico ECharts na Gestão do Usuário. |
-| `js/aba-mega.js` | **Aba MEGA (Fase 1 — admin):** 3 blocos: (1) config de pasta raiz no MEGA + flag `upload_ativo` por canal; (2) CRUD inline de campos de upload por `user_id + id_atividade`; (3) lista read-only de pastas lógicas cadastradas. Edição via linha inline (sem modal). **Filtros operacionais:** não exibe canais `status='cancelada'`; no bloco "Campos por usuário + canal", só lista usuários `status_conta='ativa'` e `ocultar_dashboard=0`. Expõe `window.PainelAbaMega.renderizarAbaMega()`. Ainda **não** consome MEGA real — só configura. Integração Python (`mega_uploader.py`) e formulário do desktop são Fase 2/3. |
+| `js/aba-mega.js` | **Aba MEGA (Fase 1+2 — admin):** 3 blocos: (1) config de pasta raiz no MEGA + flag `upload_ativo` por canal; (2) CRUD inline de campos de upload por `user_id + id_atividade`; (3) pastas lógicas cadastradas com **link clicável pro MEGA** (abre nova aba), **status de publicação** (Publicado/Pendente com badge + linha verde), **botões "Publicado"/"Cancelar"**, **filtros** (busca texto, status, canal). Edição via linha inline (sem modal). Expõe `window.PainelAbaMega.renderizarAbaMega()`. |
 | `js/aba-log-atividades.js` | **Aba Log de Atividades:** exibe log geral de todas as ações do servidor com filtros (entidade, ação, executor, busca, período), paginação, e modal de detalhe (dados antes/depois em JSON). Expõe `window.logAtividadesCarregar()`. |
 | `js/aba-timeline.js` | **PLACEHOLDER (~25 linhas).** Apenas registra `window.PainelAbaTimeline` com funções vazias. Não há aba "Timeline" funcional ainda — só esqueleto reservado. |
 | `css/painel.css` | Tema RK Produções dark. |
@@ -234,8 +234,16 @@ mega/                          — Módulo MEGA (Fase 1 — config admin + endpo
                                  campos_modelos_listar.php  — GET templates globais de campo (?incluir_inativos=1 opcional).
                                  campos_modelos_salvar.php  — POST upsert template; UNIQUE nome_modelo (colisão = 409).
                                  campos_modelos_excluir.php — POST soft-delete do template.
-                                 pasta_logica_listar.php    — GET (?id_atividade=Y opcional) read-only.
+                                 pasta_logica_listar.php    — GET (?id_atividade=Y opcional). Retorna link_mega,
+                                                              video_publicado, publicado_em.
+                                 pasta_logica_marcar_publicado.php — POST {id_pasta_logica, publicado:0|1}.
+                                                              Marca/desmarca vídeo como publicado no YouTube.
+                                                              Registra no log de atividades.
                                  (desktop — auth user_id+chave via _auth_cliente.php de credenciais/api)
+                                 pasta_logica_listar_para_sync.php — GET todas as pastas ativas com nome_pasta_mega
+                                                              (sem IDOR). Usado pelo script sync_mega_links.py.
+                                 pasta_logica_salvar_link.php — POST {id_pasta_logica, link_mega}. Salva link
+                                                              público do MEGA gerado por mega-export.
                                  desktop_obter_config.php   — GET ?id_atividade=Y → {upload_ativo, pasta_raiz_mega,
                                                               campos_exigidos[], pastas_logicas[]}. Sem config retorna
                                                               upload_ativo=false (preserva fluxo legado).

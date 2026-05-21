@@ -76,6 +76,13 @@ body{
   background: rgba(255,255,255,.04);
 }
 
+.mega-linha-publicado{
+  background: rgba(40,167,69,.15) !important;
+}
+.mega-linha-publicado:hover{
+  background: rgba(40,167,69,.22) !important;
+}
+
 .texto-mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   letter-spacing: .2px;

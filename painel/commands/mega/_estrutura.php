@@ -111,6 +111,21 @@ function mega_garantir_estrutura(?PDO $pdo = null): void
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     ");
 
+    // F. Colunas adicionais em mega_pasta_logica: link MEGA + controle de publicação
+    $colunas_extras_pasta = [
+        'link_mega'        => "VARCHAR(512) NULL DEFAULT NULL AFTER ativo",
+        'video_publicado'  => "TINYINT(1) NOT NULL DEFAULT 0 AFTER link_mega",
+        'publicado_em'     => "DATETIME NULL DEFAULT NULL AFTER video_publicado",
+    ];
+    foreach ($colunas_extras_pasta as $col => $def) {
+        try {
+            $pdo->exec("ALTER TABLE mega_pasta_logica ADD COLUMN {$col} {$def}");
+        } catch (PDOException $e) {
+            // 1060 = Duplicate column name — já existe, ignora.
+            if ((int)$e->errorInfo[1] !== 1060) throw $e;
+        }
+    }
+
     // Modelos de credenciais para login automático no MEGA. Aproveitam a infra
     // existente (cifragem MASTER no banco, recifragem CLIENT na entrega ao
     // desktop). O admin preenche os valores em modo global (aplicar_todos=true)

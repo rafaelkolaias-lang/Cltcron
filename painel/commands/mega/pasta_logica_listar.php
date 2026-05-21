@@ -27,6 +27,7 @@ try {
     $sql = "
         SELECT p.id_pasta_logica, p.id_atividade, p.nome_pasta,
                p.numero_video, p.titulo_video, p.criado_por, p.criado_em, p.ativo,
+               p.link_mega, p.video_publicado, p.publicado_em,
                a.titulo AS titulo_atividade
         FROM mega_pasta_logica p
         JOIN atividades a ON a.id_atividade = p.id_atividade
@@ -42,6 +43,9 @@ try {
         $l['id_pasta_logica'] = (int)$l['id_pasta_logica'];
         $l['id_atividade']    = (int)$l['id_atividade'];
         $l['ativo']           = (int)$l['ativo'] === 1;
+        $l['video_publicado'] = (int)($l['video_publicado'] ?? 0) === 1;
+        $l['link_mega']       = $l['link_mega'] ?? null;
+        $l['publicado_em']    = $l['publicado_em'] ?? null;
     }
 
     responder_json(true, 'OK', $linhas);

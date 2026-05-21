@@ -66,6 +66,8 @@
     filtroUserId: '',
     filtroIdAtividade: 0,
     filtroCanalPastas: 0,
+    filtroStatusPastas: '',
+    buscaPastas: '',
   };
 
   // ===========================================================
@@ -544,13 +546,13 @@
   }
 
   // ===========================================================
-  // BLOCO 3 — Pastas lógicas (read-only)
+  // BLOCO 3 — Pastas lógicas (com link MEGA + status publicação)
   // ===========================================================
   async function carregarPastas() {
     const tbody = document.getElementById('tbodyMegaPastas');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
 
     let url = API + 'pasta_logica_listar.php';
     if (estado.filtroCanalPastas > 0) {
@@ -560,25 +562,94 @@
     try {
       const dados = await requisitar(url);
       estado.pastas = Array.isArray(dados) ? dados : [];
-      const b = document.getElementById('megaBadgePastas');
-      if (b) b.textContent = String(estado.pastas.length);
-
-      if (!estado.pastas.length) {
-        tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Nenhuma pasta lógica cadastrada.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = estado.pastas.map((p) => `
-        <tr>
-          <td>${esc(p.titulo_atividade || '—')}</td>
-          <td><strong>${esc(p.nome_pasta)}</strong></td>
-          <td>${esc(p.numero_video)}</td>
-          <td>${esc(p.criado_por || '—')}</td>
-          <td class="texto-fraco small">${formatarData(p.criado_em)}</td>
-        </tr>`).join('');
+      renderizarPastas();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
+  }
+
+  function filtrarPastas() {
+    const busca = estado.buscaPastas.toLowerCase().trim();
+    const status = estado.filtroStatusPastas;
+    return estado.pastas.filter((p) => {
+      if (status === 'publicado' && !p.video_publicado) return false;
+      if (status === 'pendente' && p.video_publicado) return false;
+      if (busca) {
+        const texto = ((p.nome_pasta || '') + ' ' + (p.numero_video || '') + ' ' + (p.titulo_atividade || '')).toLowerCase();
+        if (!texto.includes(busca)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderizarPastas() {
+    const tbody = document.getElementById('tbodyMegaPastas');
+    if (!tbody) return;
+
+    const filtradas = filtrarPastas();
+    const b = document.getElementById('megaBadgePastas');
+    if (b) b.textContent = filtradas.length === estado.pastas.length
+      ? String(estado.pastas.length)
+      : filtradas.length + '/' + estado.pastas.length;
+
+    if (!filtradas.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Nenhuma pasta encontrada.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = filtradas.map((p) => {
+      const pub = p.video_publicado;
+      const classeRow = pub ? 'mega-linha-publicado' : '';
+      const nomePasta = p.link_mega
+        ? `<a href="${esc(p.link_mega)}" target="_blank" rel="noopener" class="text-white text-decoration-underline" title="Abrir no MEGA">${esc(p.nome_pasta)}</a>`
+        : `<span title="Link MEGA não disponível">${esc(p.nome_pasta)}</span>`;
+      const badge = pub
+        ? `<span class="badge bg-success">Publicado</span>`
+        : `<span class="badge bg-secondary">Pendente</span>`;
+      const btnAcao = pub
+        ? `<button class="btn btn-sm btn-outline-warning" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Cancelar publicação">Cancelar</button>`
+        : `<button class="btn btn-sm btn-outline-success" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicado</button>`;
+
+      return `<tr class="${classeRow}">
+        <td>${esc(p.titulo_atividade || '—')}</td>
+        <td><strong>${nomePasta}</strong></td>
+        <td>${esc(p.numero_video)}</td>
+        <td>${badge}</td>
+        <td>${esc(p.criado_por || '—')}</td>
+        <td class="texto-fraco small">${formatarData(p.criado_em)}</td>
+        <td>${btnAcao}</td>
+      </tr>`;
+    }).join('');
+
+    bindPastasActions();
+  }
+
+  function bindPastasActions() {
+    document.querySelectorAll('[data-acao-pasta]').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const id = parseInt(ev.currentTarget.dataset.id, 10);
+        const acao = ev.currentTarget.dataset.acaoPasta;
+        const publicado = acao === 'marcar' ? 1 : 0;
+        ev.currentTarget.disabled = true;
+        try {
+          await requisitar(API + 'pasta_logica_marcar_publicado.php', 'POST', {
+            id_pasta_logica: id,
+            publicado: publicado,
+          });
+          // Atualiza no estado local sem recarregar tudo
+          const p = estado.pastas.find((x) => x.id_pasta_logica === id);
+          if (p) {
+            p.video_publicado = publicado === 1;
+            p.publicado_em = publicado === 1 ? new Date().toISOString() : null;
+          }
+          renderizarPastas();
+          alerta('sucesso', 'MEGA', publicado ? 'Vídeo marcado como publicado' : 'Publicação cancelada');
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message);
+          ev.currentTarget.disabled = false;
+        }
+      });
+    });
   }
 
   // ===========================================================
@@ -602,6 +673,14 @@
     document.getElementById('megaFiltroCanalPastas')?.addEventListener('change', (ev) => {
       estado.filtroCanalPastas = parseInt(ev.target.value, 10) || 0;
       carregarPastas();
+    });
+    document.getElementById('megaFiltroStatusPastas')?.addEventListener('change', (ev) => {
+      estado.filtroStatusPastas = ev.target.value;
+      renderizarPastas();
+    });
+    document.getElementById('megaBuscaPastas')?.addEventListener('input', (ev) => {
+      estado.buscaPastas = ev.target.value;
+      renderizarPastas();
     });
 
     document.getElementById('megaBotaoNovoCampo')?.addEventListener('click', () => {

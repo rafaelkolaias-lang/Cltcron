@@ -133,8 +133,11 @@ try {
         $params[':travado_ate_data'] = $travado_ate_data_novo;
     }
 
-    // Quando ambos os limites do período forem alterados, validar coerência.
-    if ($referencia_inicio_nova !== null && $referencia_fim_nova !== null && $referencia_inicio_nova > $referencia_fim_nova) {
+    // Validar coerência do período cruzando com valores existentes no banco
+    // quando apenas um dos limites é editado.
+    $inicio_efetivo = $referencia_inicio_nova ?? ($existente['referencia_inicio'] ?? null);
+    $fim_efetivo    = $referencia_fim_nova    ?? ($existente['referencia_fim']    ?? null);
+    if ($inicio_efetivo !== null && $fim_efetivo !== null && $inicio_efetivo > $fim_efetivo) {
         responder_json(false, 'referencia_inicio não pode ser maior que referencia_fim.', ['campo' => 'referencia_inicio'], 400);
     }
 

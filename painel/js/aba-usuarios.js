@@ -1200,6 +1200,8 @@
     btnSalvar.parentNode.replaceChild(novoBtn, btnSalvar);
 
     novoBtn.addEventListener("click", async () => {
+      if (novoBtn.disabled) return;
+
       const novaData = document.getElementById("_editPagData")?.value || "";
       const novoValor = normalizarDinheiroBr(document.getElementById("_editPagValor")?.value);
       const novaObs = document.getElementById("_editPagObs")?.value || "";
@@ -1212,6 +1214,8 @@
         nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior que zero.");
         return;
       }
+
+      novoBtn.disabled = true;
 
       try {
         // O modal atual não expõe edição de período. Antes o payload mandava
@@ -1241,6 +1245,8 @@
         nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento atualizado", `Pagamento #${idPagamento} salvo.`);
       } catch (e) {
         nucleo.utilidades.mostrarAlerta("erro", "Erro ao editar", String(e && e.message ? e.message : e));
+      } finally {
+        novoBtn.disabled = false;
       }
     });
   }
@@ -1275,9 +1281,12 @@
   window.__editarPagamento = editarPagamentoModal;
   window.__excluirPagamento = excluirPagamentoConfirmar;
 
+  let _registrandoPagamento = false;
+
   async function registrarPagamentoReal() {
     const nucleo = obterNucleo();
     if (!usuarioGestaoAbertoId) return;
+    if (_registrandoPagamento) return;
 
     const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
     if (!u) return;
@@ -1285,6 +1294,7 @@
     const elData = document.getElementById("entradaPagamentoData");
     const elValor = document.getElementById("entradaPagamentoValor");
     const elObs = document.getElementById("entradaPagamentoObs");
+    const elBtn = document.getElementById("botaoRegistrarPagamento");
 
     const data = String(elData?.value || "").trim();
     const valor = normalizarDinheiroBr(elValor?.value);
@@ -1298,6 +1308,9 @@
       nucleo.utilidades.mostrarAlerta("aviso", "Valor inválido", "Informe um valor maior que zero.");
       return;
     }
+
+    _registrandoPagamento = true;
+    if (elBtn) elBtn.disabled = true;
 
     try {
       await criarPagamentoNoBackend({
@@ -1320,6 +1333,9 @@
       nucleo.utilidades.mostrarAlerta("sucesso", "Pagamento registrado", `${u.user_id}: ${formatarDinheiroBr(valor)}`);
     } catch (e) {
       nucleo.utilidades.mostrarAlerta("erro", "Erro ao registrar pagamento", String(e && e.message ? e.message : e));
+    } finally {
+      _registrandoPagamento = false;
+      if (elBtn) elBtn.disabled = false;
     }
   }
 

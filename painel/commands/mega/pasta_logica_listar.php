@@ -28,7 +28,13 @@ try {
         SELECT p.id_pasta_logica, p.id_atividade, p.nome_pasta,
                p.numero_video, p.titulo_video, p.criado_por, p.criado_em, p.ativo,
                p.link_mega, p.video_publicado, p.publicado_em,
-               a.titulo AS titulo_atividade
+               a.titulo AS titulo_atividade,
+               (SELECT GROUP_CONCAT(DISTINCT u2.user_id ORDER BY u2.user_id SEPARATOR ', ')
+                FROM mega_uploads mu
+                JOIN usuarios u2 ON u2.user_id = mu.user_id
+                WHERE mu.id_pasta_logica = p.id_pasta_logica
+                  AND mu.status_upload = 'concluido'
+               ) AS upado_por
         FROM mega_pasta_logica p
         JOIN atividades a ON a.id_atividade = p.id_atividade
     ";

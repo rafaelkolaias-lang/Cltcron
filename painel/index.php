@@ -988,6 +988,7 @@ header('Content-Type: text/html; charset=utf-8');
                     <tr class="texto-fraco small">
                       <th style="min-width:180px;cursor:pointer;user-select:none;" data-mega-sort="titulo_atividade">Canal <span class="mega-sort-icon"></span></th>
                       <th style="min-width:240px;cursor:pointer;user-select:none;" data-mega-sort="nome_pasta">Nome da pasta <span class="mega-sort-icon"></span></th>
+                      <th style="min-width:140px;cursor:pointer;user-select:none;" data-mega-sort="upado_por">Upado por <span class="mega-sort-icon"></span></th>
                       <th style="min-width:80px;cursor:pointer;user-select:none;" data-mega-sort="numero_video">Nº <span class="mega-sort-icon"></span></th>
                       <th style="min-width:100px;cursor:pointer;user-select:none;" data-mega-sort="video_publicado">Status <span class="mega-sort-icon"></span></th>
                       <th style="min-width:160px;cursor:pointer;user-select:none;" data-mega-sort="criado_por">Criado por <span class="mega-sort-icon"></span></th>
@@ -996,7 +997,7 @@ header('Content-Type: text/html; charset=utf-8');
                     </tr>
                   </thead>
                   <tbody id="tbodyMegaPastas">
-                    <tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>
+                    <tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>
                   </tbody>
                 </table>
               </div>

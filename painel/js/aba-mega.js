@@ -250,7 +250,7 @@
     if (!tbody) return;
 
     if (!estado.filtroUserId || !estado.filtroIdAtividade) {
-      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
       const b = document.getElementById('megaBadgeCampos');
       if (b) b.textContent = '—';
       const btn = document.getElementById('megaBotaoNovoCampo');
@@ -259,7 +259,7 @@
       return;
     }
 
-    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>';
 
     try {
       const url = `${API}campos_listar.php?user_id=${encodeURIComponent(estado.filtroUserId)}&id_atividade=${estado.filtroIdAtividade}&incluir_inativos=1`;
@@ -272,7 +272,7 @@
       renderizarCampos();
       atualizarBotoesModelos();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 
@@ -328,7 +328,7 @@
 
     if (!estado.campos.length) {
       tbody.innerHTML = `
-        <tr><td colspan="7" class="texto-fraco">
+        <tr><td colspan="8" class="texto-fraco">
           Nenhum campo cadastrado para esse usuário neste canal. Clique em <strong>+ Novo campo</strong>.
         </td></tr>`;
       bindCamposActions();
@@ -554,7 +554,7 @@
     const tbody = document.getElementById('tbodyMegaPastas');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>';
 
     let url = API + 'pasta_logica_listar.php';
     if (estado.filtroCanalPastas > 0) {
@@ -566,7 +566,7 @@
       estado.pastas = Array.isArray(dados) ? dados : [];
       renderizarPastas();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 
@@ -577,7 +577,7 @@
       if (status === 'publicado' && !p.video_publicado) return false;
       if (status === 'pendente' && p.video_publicado) return false;
       if (busca) {
-        const texto = ((p.nome_pasta || '') + ' ' + (p.numero_video || '') + ' ' + (p.titulo_atividade || '')).toLowerCase();
+        const texto = ((p.nome_pasta || '') + ' ' + (p.numero_video || '') + ' ' + (p.titulo_atividade || '') + ' ' + (p.upado_por || '')).toLowerCase();
         if (!texto.includes(busca)) return false;
       }
       return true;
@@ -637,7 +637,7 @@
       : filtradas.length + '/' + estado.pastas.length;
 
     if (!filtradas.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Nenhuma pasta encontrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Nenhuma pasta encontrada.</td></tr>';
       return;
     }
 
@@ -657,6 +657,7 @@
       return `<tr class="${classeRow}">
         <td>${esc(p.titulo_atividade || '—')}</td>
         <td><strong>${nomePasta}</strong></td>
+        <td>${esc(p.upado_por || '—')}</td>
         <td>${esc(p.numero_video)}</td>
         <td>${badge}</td>
         <td>${esc(p.criado_por || '—')}</td>

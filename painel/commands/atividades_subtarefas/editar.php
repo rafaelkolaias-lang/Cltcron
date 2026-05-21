@@ -141,7 +141,7 @@ try {
             $disponivel = max(0, $trabalhado_total - $declarado_outros);
             $disp_h = intdiv($disponivel, 3600);
             $disp_m = intdiv($disponivel % 3600, 60);
-            responder_json(false, "Tempo excede o total trabalhado. Disponível: {$disp_h}h {$disp_m}m.", [
+            responder_json(false, "Não é permitido declarar mais horas do que o trabalhado.", [
                 'segundos_trabalhados_total' => $trabalhado_total,
                 'segundos_declarados_outros' => $declarado_outros,
                 'segundos_disponiveis' => $disponivel,

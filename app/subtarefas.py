@@ -3762,7 +3762,7 @@ class JanelaSubtarefas(tk.Toplevel):
         if declarado > (monitorado + int(TOLERANCIA_VALIDACAO_SEGUNDOS)):
             messagebox.showwarning(
                 "Atenção",
-                "O total declarado ultrapassa o tempo monitorado pelo cronômetro.",
+                "Não é permitido declarar mais horas do que o trabalhado.",
                 parent=self,
             )
             return

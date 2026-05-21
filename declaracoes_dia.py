@@ -528,56 +528,46 @@ class RepositorioDeclaracoesDia:
         (FK, NOT NULL, tipo, etc. propagam normalmente).
         """
         uid = self._normalizar_user_id(user_id)
-        # Janela temporal: monitorado somado APENAS até o instante da última
-        # declaração feita pelo usuário naquela atividade. Trabalho cronometrado
-        # após esse instante NÃO é abatido — carrega para o próximo ciclo.
-        atividades = self._banco.consultar_todos(
+        # Cronômetro neutro — calcula saldo GLOBAL (sem separar por atividade).
+        # Janela temporal: monitorado somado até a última declaração do usuário.
+        corte = self._banco.consultar_um(
             """
-            SELECT
-              r.id_atividade,
-              COALESCE(SUM(r.segundos_trabalhando), 0) AS monitorado,
-              COALESCE((
-                SELECT SUM(s.segundos_gastos)
-                FROM atividades_subtarefas s
-                WHERE s.user_id = %s
-                  AND s.id_atividade = r.id_atividade
-                  AND s.concluida = 1
-              ), 0) AS declarado,
-              COALESCE((
-                SELECT SUM(a.segundos_abatidos)
-                FROM pagamento_abatimentos a
-                WHERE a.user_id = %s
-                  AND a.id_atividade = r.id_atividade
-              ), 0) AS abatido
-            FROM cronometro_relatorios r
-            WHERE r.user_id = %s
-              AND r.criado_em <= COALESCE((
-                SELECT MAX(COALESCE(s.concluida_em, s.criada_em))
-                FROM atividades_subtarefas s
-                WHERE s.user_id = %s
-                  AND s.id_atividade = r.id_atividade
-                  AND s.concluida = 1
-              ), '1900-01-01 00:00:00')
-            GROUP BY r.id_atividade
+            SELECT MAX(COALESCE(concluida_em, criada_em)) AS corte
+            FROM atividades_subtarefas
+            WHERE user_id = %s AND concluida = 1
             """,
-            [uid, uid, uid, uid],
+            [uid],
         )
-        for row in atividades:
-            id_ativ = int(row["id_atividade"])
-            monitorado = int(row.get("monitorado") or 0)
-            declarado = int(row.get("declarado") or 0)
-            abatido = int(row.get("abatido") or 0)
-            pendente = max(0, monitorado - declarado - abatido)
-            if pendente <= 0:
-                continue
+        corte_val = (corte or {}).get("corte") or "1900-01-01 00:00:00"
+
+        monit = self._banco.consultar_um(
+            "SELECT COALESCE(SUM(segundos_trabalhando), 0) AS total FROM cronometro_relatorios WHERE user_id = %s AND criado_em <= %s",
+            [uid, corte_val],
+        )
+        monitorado = int((monit or {}).get("total") or 0)
+
+        decl = self._banco.consultar_um(
+            "SELECT COALESCE(SUM(segundos_gastos), 0) AS total FROM atividades_subtarefas WHERE user_id = %s AND concluida = 1",
+            [uid],
+        )
+        declarado = int((decl or {}).get("total") or 0)
+
+        abat = self._banco.consultar_um(
+            "SELECT COALESCE(SUM(segundos_abatidos), 0) AS total FROM pagamento_abatimentos WHERE user_id = %s",
+            [uid],
+        )
+        abatido = int((abat or {}).get("total") or 0)
+
+        pendente = max(0, monitorado - declarado - abatido)
+        if pendente > 0:
             self._banco.executar(
                 """
                 INSERT INTO pagamento_abatimentos
                   (user_id, id_pagamento, id_atividade, segundos_abatidos)
-                VALUES (%s, %s, %s, %s)
+                VALUES (%s, %s, NULL, %s)
                 ON DUPLICATE KEY UPDATE id_abatimento = id_abatimento
                 """,
-                [uid, id_pagamento, id_ativ, pendente],
+                [uid, id_pagamento, pendente],
             )
 
     # ==========================================================
@@ -589,22 +579,17 @@ class RepositorioDeclaracoesDia:
         referencia_data: date | None = None,
         id_atividade: int = 0,
     ) -> int:
+        """Cronômetro neutro — id_atividade ignorado (mantido na assinatura por compatibilidade)."""
         self._garantir_estrutura()
 
         try:
-            id_ativ = int(id_atividade)
             sql = """
                 SELECT COALESCE(SUM(segundos_trabalhando), 0) AS total
                 FROM cronometro_relatorios
                 WHERE user_id = %s
             """
             parametros: list[Any] = [self._normalizar_user_id(user_id)]
-            if id_ativ > 0:
-                sql += " AND id_atividade = %s"
-                parametros.append(id_ativ)
             if referencia_data is not None:
-                # Usa referencia_data (data real trabalhada). Fallback para DATE(criado_em)
-                # apenas em relatórios legados que ainda não tenham referencia_data preenchida.
                 sql += """
                     AND (
                         (referencia_data IS NOT NULL AND referencia_data = %s)
@@ -619,31 +604,25 @@ class RepositorioDeclaracoesDia:
         except Exception:
             return 0
 
-    def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int) -> int:
-        """Total cronometrado = trabalhando + ocioso, do ciclo atual.
+    def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int = 0) -> int:
+        """Total cronometrado = trabalhando + ocioso, do ciclo atual (global).
 
-        Métrica neutra para a UI: não revela saldo declarável.
-        `id_atividade <= 0` = soma de todas as atividades do user (overview).
+        Cronômetro neutro — id_atividade ignorado (mantido na assinatura por compatibilidade).
 
-        Reseta a cada pagamento: soma só relatórios com `criado_em >= MAX(data_pagamento)`
-        do mesmo user (e atividade, se filtrado). Sem pagamento = soma todo o histórico.
-        Granularidade por dia (DATE vs DATETIME) — ver !projeto.md.
+        Reseta a cada pagamento: soma só relatórios com `criado_em >= MAX(data_pagamento)`.
+        Sem pagamento = soma todo o histórico.
         """
         self._garantir_estrutura()
         try:
-            id_ativ = int(id_atividade)
             uid_norm = self._normalizar_user_id(user_id)
 
-            # Pagamentos.id_usuario (FK int), nao user_id direto. id_atividade nao
-            # existe nessa tabela — pagamento eh por usuario.
             sql_pag = """
                 SELECT MAX(p.data_pagamento) AS ultimo
                 FROM Pagamentos p
                 JOIN usuarios u ON u.id_usuario = p.id_usuario
                 WHERE u.user_id = %s
             """
-            params_pag: list[Any] = [uid_norm]
-            linha_pag = self._banco.consultar_um(sql_pag, params_pag)
+            linha_pag = self._banco.consultar_um(sql_pag, [uid_norm])
             ultimo_pagamento = (linha_pag or {}).get("ultimo")
 
             sql = """
@@ -652,9 +631,6 @@ class RepositorioDeclaracoesDia:
                 WHERE user_id = %s
             """
             params: list[Any] = [uid_norm]
-            if id_ativ > 0:
-                sql += " AND id_atividade = %s"
-                params.append(id_ativ)
             if ultimo_pagamento is not None:
                 sql += " AND criado_em >= %s"
                 params.append(ultimo_pagamento)
@@ -663,32 +639,26 @@ class RepositorioDeclaracoesDia:
         except Exception:
             return 0
 
-    def obter_abatimento_total_atividade(self, user_id: str, id_atividade: int) -> int:
-        """Retorna o total de segundos abatidos por pagamentos para user+atividade.
-        `id_atividade <= 0` = soma de todas as atividades do user."""
+    def obter_abatimento_total_atividade(self, user_id: str, id_atividade: int = 0) -> int:
+        """Retorna o total de segundos abatidos por pagamentos para o usuário (global).
+        id_atividade ignorado (mantido na assinatura por compatibilidade)."""
         self._garantir_estrutura()
         try:
-            id_ativ = int(id_atividade)
             sql = """
                 SELECT COALESCE(SUM(segundos_abatidos), 0) AS total
                 FROM pagamento_abatimentos
                 WHERE user_id = %s
             """
-            params: list[Any] = [self._normalizar_user_id(user_id)]
-            if id_ativ > 0:
-                sql += " AND id_atividade = %s"
-                params.append(id_ativ)
-            linha = self._banco.consultar_um(sql, params)
+            linha = self._banco.consultar_um(sql, [self._normalizar_user_id(user_id)])
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
 
-    def obter_segundos_declarados_desbloqueados(self, user_id: str, id_atividade: int) -> int:
+    def obter_segundos_declarados_desbloqueados(self, user_id: str, id_atividade: int = 0) -> int:
         """Retorna segundos declarados do ciclo atual (subtarefas não bloqueadas por pagamento).
-        `id_atividade <= 0` = soma de todas as atividades do user."""
+        Global — id_atividade ignorado (mantido na assinatura por compatibilidade)."""
         self._garantir_estrutura()
         try:
-            id_ativ = int(id_atividade)
             sql = """
                 SELECT COALESCE(SUM(segundos_gastos), 0) AS total
                 FROM atividades_subtarefas
@@ -696,11 +666,7 @@ class RepositorioDeclaracoesDia:
                   AND concluida = 1
                   AND bloqueada_pagamento = 0
             """
-            params: list[Any] = [self._normalizar_user_id(user_id)]
-            if id_ativ > 0:
-                sql += " AND id_atividade = %s"
-                params.append(id_ativ)
-            linha = self._banco.consultar_um(sql, params)
+            linha = self._banco.consultar_um(sql, [self._normalizar_user_id(user_id)])
             return int((linha or {}).get("total") or 0)
         except Exception:
             return 0
@@ -713,9 +679,9 @@ class RepositorioDeclaracoesDia:
         *,
         id_subtarefa_ignorar: int | None = None,
     ) -> int:
+        """Global — id_atividade ignorado (mantido na assinatura por compatibilidade)."""
         self._garantir_estrutura()
 
-        id_ativ = int(id_atividade)
         sql = """
             SELECT COALESCE(SUM(segundos_gastos), 0) AS total
             FROM atividades_subtarefas
@@ -723,9 +689,6 @@ class RepositorioDeclaracoesDia:
               AND concluida = 1
         """
         parametros: list[Any] = [self._normalizar_user_id(user_id)]
-        if id_ativ > 0:
-            sql += " AND id_atividade = %s"
-            parametros.append(id_ativ)
         if referencia_data is not None:
             sql += " AND referencia_data = %s"
             parametros.append(referencia_data)

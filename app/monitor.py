@@ -1185,7 +1185,6 @@ class MonitorDeUso:
         self,
         id_sessao: int,
         user_id: str,
-        id_atividade: int,
         seg_trab_float: float,
         seg_oci_float: float,
         seg_pau_float: float,
@@ -1194,6 +1193,7 @@ class MonitorDeUso:
         com_fechamento: bool,
     ) -> None:
         """Grava/atualiza `cronometro_relatorios` por (id_sessao, referencia_data).
+        Cronômetro neutro — id_atividade sempre NULL.
         Usa SELECT + UPDATE/INSERT para não depender de UNIQUE KEY (evita ALTER no banco).
         Divide totais por dia quando a sessão cruza meia-noite.
         """
@@ -1239,8 +1239,7 @@ class MonitorDeUso:
                     self._banco.executar(
                         """
                         UPDATE cronometro_relatorios
-                           SET id_atividade = %s,
-                               relatorio = %s,
+                           SET relatorio = %s,
                                segundos_total = %s,
                                segundos_trabalhando = %s,
                                segundos_ocioso = %s,
@@ -1249,7 +1248,6 @@ class MonitorDeUso:
                          WHERE id_relatorio = %s
                         """,
                         [
-                            int(id_atividade) if id_atividade else None,
                             texto_efetivo,
                             int(segundos_total_dia),
                             int(seg_trab_dia),
@@ -1270,12 +1268,11 @@ class MonitorDeUso:
                         INSERT INTO cronometro_relatorios
                             (id_sessao, user_id, id_atividade, relatorio, segundos_total,
                              segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         [
                             id_sessao,
                             user_id,
-                            int(id_atividade) if id_atividade else None,
                             texto_efetivo,
                             int(segundos_total_dia),
                             int(seg_trab_dia),
@@ -1302,14 +1299,13 @@ class MonitorDeUso:
             self._acumular_tempo_ate_agora_locked(time.monotonic())
             id_sessao_snap = self._id_sessao
             user_id_snap = self._user_id
-            id_ativ_snap = int(self._id_atividade) if self._id_atividade else 0
             seg_trab_snap = self._segundos_trabalhando_float
             seg_oci_snap = self._segundos_ocioso_float
             seg_pau_snap = self._segundos_pausado_float
             ref_data_snap = self._referencia_data_sessao or date.today()
 
         self._upsert_relatorio_com_snapshots(
-            id_sessao_snap, user_id_snap, id_ativ_snap,
+            id_sessao_snap, user_id_snap,
             seg_trab_snap, seg_oci_snap, seg_pau_snap,
             ref_data_snap, texto_relatorio="", com_fechamento=False,
         )
@@ -1340,7 +1336,6 @@ class MonitorDeUso:
             # Capturar snapshots dentro do lock antes de zerar
             _id_snap = self._id_sessao
             _uid_snap = self._user_id
-            _id_ativ_snap = self._id_atividade
             _seg_trab_snap = self._segundos_trabalhando_float
             _seg_ocio_snap = self._segundos_ocioso_float
             _seg_paus_snap = self._segundos_pausado_float
@@ -1371,7 +1366,7 @@ class MonitorDeUso:
         # Sessões que cruzam meia-noite continuam sendo divididas em múltiplas linhas por referencia_data.
         try:
             self._upsert_relatorio_com_snapshots(
-                _id_snap, _uid_snap, int(_id_ativ_snap) if _id_ativ_snap else 0,
+                _id_snap, _uid_snap,
                 _seg_trab_snap, _seg_ocio_snap, _seg_paus_snap,
                 _ref_data_snap, texto_relatorio="Sessão zerada", com_fechamento=True,
             )
@@ -1424,7 +1419,7 @@ class MonitorDeUso:
         texto_relatorio = (relatorio or "").strip()
         try:
             self._upsert_relatorio_com_snapshots(
-                self._id_sessao, self._user_id, int(self._id_atividade),
+                self._id_sessao, self._user_id,
                 self._segundos_trabalhando_float, self._segundos_ocioso_float, self._segundos_pausado_float,
                 ref_data_fallback, texto_relatorio=texto_relatorio, com_fechamento=True,
             )

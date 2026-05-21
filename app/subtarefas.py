@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json as _json
+import os
 import threading
 import tkinter as tk
 import time
@@ -115,6 +116,7 @@ class JanelaSubtarefas(tk.Toplevel):
         self._id_subtarefa_criada_nesta_janela: int | None = None  # evita duplicação ao reter erro
         self._upload_popup_ativo = False
         self._fechar_apos_upload_popup = False
+        self._formularios_abertos: dict[int | None, tk.Toplevel] = {}  # id_subtarefa → janela
 
         # Ordenação manual triestada
         self._sort_col: str | None = None
@@ -1100,6 +1102,29 @@ class JanelaSubtarefas(tk.Toplevel):
         Se MEGA não estiver configurado/disponível, abre o legado direto — sem
         nenhuma penalidade de UX além do tempo do fetch (~5s timeout).
         """
+        # Impede abrir a mesma subtarefa mais de uma vez simultaneamente.
+        # O valor pode ser um Toplevel (janela já criada) ou um sentinela
+        # string "pendente" (fetch MEGA em andamento, janela ainda não criou).
+        janela_existente = self._formularios_abertos.get(id_subtarefa)
+        if janela_existente is not None:
+            if isinstance(janela_existente, str):
+                # Fetch em andamento, ignora clique duplicado.
+                self._recarregar_dados()
+                return
+            try:
+                if janela_existente.winfo_exists():
+                    janela_existente.deiconify()
+                    janela_existente.lift()
+                    janela_existente.focus_force()
+                    self._recarregar_dados()
+                    return
+            except Exception:
+                pass
+            self._formularios_abertos.pop(id_subtarefa, None)
+
+        # Reserva a vaga antes do fetch async para bloquear cliques duplicados.
+        self._formularios_abertos[id_subtarefa] = "pendente"
+
         # Refresca canais antes de abrir: vínculos/desvínculos feitos no
         # painel passam a aparecer/sumir imediatamente, sem precisar relogar.
         # Só em "nova" (subtarefa=None) — em edição o canal é fixo da sub.
@@ -1168,7 +1193,12 @@ class JanelaSubtarefas(tk.Toplevel):
                     bloquear_sem_upload=True,
                 )
 
-        self._executar_em_background(_buscar_config, _despachar)
+        def _falha_config(erro: Exception) -> None:
+            self._formularios_abertos.pop(id_subtarefa, None)
+            self._recarregar_dados()
+            messagebox.showerror("Erro", str(erro), parent=self)
+
+        self._executar_em_background(_buscar_config, _despachar, _falha_config)
 
     def _abrir_formulario_subtarefa_legado(
         self,
@@ -1194,6 +1224,10 @@ class JanelaSubtarefas(tk.Toplevel):
         janela.resizable(False, False)
         janela.transient(self)
         janela.configure(bg="#111111")
+
+        _id_form = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else None
+        self._formularios_abertos[_id_form] = janela
+        janela.bind("<Destroy>", lambda _e, _j=janela, _k=_id_form: self._formularios_abertos.pop(_k, None) if _e.widget is _j else None, add=True)
 
         # Edição: prioriza titulo_atividade (canal real da sub) sobre
         # canal_entrega (texto livre legado).
@@ -1747,6 +1781,10 @@ class JanelaSubtarefas(tk.Toplevel):
         janela.minsize(720, 640)
         janela.transient(self)
         janela.configure(bg="#111111")
+
+        _id_form = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else None
+        self._formularios_abertos[_id_form] = janela
+        janela.bind("<Destroy>", lambda _e, _j=janela, _k=_id_form: self._formularios_abertos.pop(_k, None) if _e.widget is _j else None, add=True)
 
         _C = "#1a1a1a"
         _D = "#6a6a6a"
@@ -2670,6 +2708,8 @@ class JanelaSubtarefas(tk.Toplevel):
                 (nome, st) for nome, st in estado_campos.items()
                 if st.get("state") != "concluido" and str(st.get("arquivo_local") or "").strip()
             ]
+            # Envia arquivos menores primeiro para liberar mais rápido.
+            fila.sort(key=lambda item: os.path.getsize(str(item[1].get("arquivo_local", ""))) if os.path.isfile(str(item[1].get("arquivo_local", ""))) else 0)
             if not fila:
                 messagebox.showwarning("Atenção", "Selecione os arquivos obrigatórios antes de enviar.", parent=janela)
                 return

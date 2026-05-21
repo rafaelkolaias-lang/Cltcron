@@ -56,13 +56,16 @@ function pagamento_apagar_abatimentos_usuario(PDO $pdo, string $user_id): int
 }
 
 /**
- * Snapshot do saldo pendente por atividade no momento do pagamento.
- * Para cada atividade do usuário com saldo > 0, insere uma linha em
- * pagamento_abatimentos com o pendente = monitorado − declarado − abatido_anterior.
+ * Snapshot GLOBAL do saldo pendente no momento do pagamento.
+ * Calcula: monitorado_total − declarado_total − abatido_anterior e grava
+ * UMA ÚNICA linha em pagamento_abatimentos (id_atividade = NULL).
  *
- * Idempotente: a UNIQUE KEY (id_pagamento, user_id, id_atividade) protege
- * contra dupla execução. Diferente de INSERT IGNORE, aqui distinguimos
- * duplicate key (SQLSTATE 23000, ignorado) de outros erros (re-lançados).
+ * O cronômetro é neutro — conta horas do usuário sem vínculo com canal.
+ * Só na declaração de subtarefa o usuário direciona horas para um canal.
+ *
+ * Janela temporal: monitorado é somado até o instante da última declaração
+ * do usuário (qualquer atividade). Trabalho cronometrado após esse instante
+ * fica como saldo disponível para o próximo ciclo.
  */
 function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $user_id): int
 {
@@ -70,84 +73,66 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
         return 0;
     }
 
-    // Janela temporal: monitorado é somado APENAS até o instante da última
-    // declaração feita pelo usuário naquela atividade. Trabalho cronometrado
-    // após esse instante (e antes do pagamento) NÃO é abatido — fica como saldo
-    // disponível para o próximo ciclo.
-    //
-    // Sem declaração na atividade → janela vazia → monitorado=0 → pendente=0
-    // (nenhum abatimento gravado, todo trabalho carrega para frente).
-    //
-    // Filtra direto por :user_id em cada subquery para evitar conflito de
-    // collation entre cronometro_relatorios e atividades_subtarefas / pagamento_abatimentos.
-    $st = $pdo->prepare("
-        SELECT
-          r.id_atividade,
-          COALESCE(SUM(r.segundos_trabalhando), 0) AS monitorado,
-          COALESCE((
-            SELECT SUM(s.segundos_gastos)
-            FROM atividades_subtarefas s
-            WHERE s.user_id = :user_id_decl
-              AND s.id_atividade = r.id_atividade
-              AND s.concluida = 1
-          ), 0) AS declarado,
-          COALESCE((
-            SELECT SUM(a.segundos_abatidos)
-            FROM pagamento_abatimentos a
-            WHERE a.user_id = :user_id_abat
-              AND a.id_atividade = r.id_atividade
-          ), 0) AS abatido
-        FROM cronometro_relatorios r
-        WHERE r.user_id = :user_id
-          AND r.criado_em <= COALESCE((
-            SELECT MAX(COALESCE(s.concluida_em, s.criada_em))
-            FROM atividades_subtarefas s
-            WHERE s.user_id = :user_id_corte
-              AND s.id_atividade = r.id_atividade
-              AND s.concluida = 1
-          ), '1900-01-01 00:00:00')
-        GROUP BY r.id_atividade
+    // Corte temporal: última conclusão de qualquer subtarefa do usuário
+    $stCorte = $pdo->prepare("
+        SELECT MAX(COALESCE(concluida_em, criada_em))
+        FROM atividades_subtarefas
+        WHERE user_id = :uid AND concluida = 1
     ");
-    $st->execute([
-        ':user_id'       => $user_id,
-        ':user_id_decl'  => $user_id,
-        ':user_id_abat'  => $user_id,
-        ':user_id_corte' => $user_id,
-    ]);
+    $stCorte->execute([':uid' => $user_id]);
+    $corte = $stCorte->fetchColumn() ?: '1900-01-01 00:00:00';
 
-    $stIns = $pdo->prepare("
-        INSERT INTO pagamento_abatimentos
-            (user_id, id_pagamento, id_atividade, segundos_abatidos)
-        VALUES (:user_id, :id_pag, :id_ativ, :segs)
+    // Monitorado global (cronômetro neutro — ignora id_atividade)
+    $stMon = $pdo->prepare("
+        SELECT COALESCE(SUM(segundos_trabalhando), 0)
+        FROM cronometro_relatorios
+        WHERE user_id = :uid AND criado_em <= :corte
     ");
+    $stMon->execute([':uid' => $user_id, ':corte' => $corte]);
+    $monitorado = (int)$stMon->fetchColumn();
 
-    $registrados = 0;
-    while ($row = $st->fetch(PDO::FETCH_ASSOC)) {
-        $monitorado = (int)($row['monitorado'] ?? 0);
-        $declarado  = (int)($row['declarado'] ?? 0);
-        $abatido    = (int)($row['abatido'] ?? 0);
-        $pendente   = max(0, $monitorado - $declarado - $abatido);
-        if ($pendente <= 0) {
-            continue;
-        }
-        try {
-            $stIns->execute([
-                ':user_id' => $user_id,
-                ':id_pag'  => $id_pagamento,
-                ':id_ativ' => (int)$row['id_atividade'],
-                ':segs'    => $pendente,
-            ]);
-            $registrados++;
-        } catch (PDOException $e) {
-            // Só engole MySQL errno 1062 (duplicate entry) — re-execução após retry.
-            // Qualquer outro erro de integridade (FK 1452, NOT NULL 1048, etc.) sobe.
-            $errno = (int)($e->errorInfo[1] ?? 0);
-            if ($errno !== 1062) {
-                throw $e;
-            }
-        }
+    // Declarado global (todas subtarefas concluídas)
+    $stDecl = $pdo->prepare("
+        SELECT COALESCE(SUM(segundos_gastos), 0)
+        FROM atividades_subtarefas
+        WHERE user_id = :uid AND concluida = 1
+    ");
+    $stDecl->execute([':uid' => $user_id]);
+    $declarado = (int)$stDecl->fetchColumn();
+
+    // Já abatido em pagamentos anteriores
+    $stAbat = $pdo->prepare("
+        SELECT COALESCE(SUM(segundos_abatidos), 0)
+        FROM pagamento_abatimentos
+        WHERE user_id = :uid
+    ");
+    $stAbat->execute([':uid' => $user_id]);
+    $abatido = (int)$stAbat->fetchColumn();
+
+    $pendente = max(0, $monitorado - $declarado - $abatido);
+    if ($pendente <= 0) {
+        return 0;
     }
-    return $registrados;
+
+    try {
+        $stIns = $pdo->prepare("
+            INSERT INTO pagamento_abatimentos
+                (user_id, id_pagamento, id_atividade, segundos_abatidos)
+            VALUES (:user_id, :id_pag, NULL, :segs)
+        ");
+        $stIns->execute([
+            ':user_id' => $user_id,
+            ':id_pag'  => $id_pagamento,
+            ':segs'    => $pendente,
+        ]);
+        return 1;
+    } catch (PDOException $e) {
+        $errno = (int)($e->errorInfo[1] ?? 0);
+        if ($errno !== 1062) {
+            throw $e;
+        }
+        return 0;
+    }
 }
 
 /**
@@ -352,7 +337,7 @@ function pagamento_aplicar(
         // Coluna id_pagamento pode não existir em bancos antigos
     }
 
-    // --- Registrar snapshot de abatimento (saldo pendente por atividade) ---
+    // --- Registrar snapshot de abatimento (saldo pendente global) ---
     $abatimentos = 0;
     if ($registrar_abatimento) {
         $abatimentos = pagamento_registrar_abatimentos($pdo, $id_pagamento, $user_id);

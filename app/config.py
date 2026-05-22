@@ -106,9 +106,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0"
+VERSAO_APLICACAO = "v4.0.1"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.1",
+        "data": "21/05/2026",
+        "notas": [
+            "Fix: validação de horas disponíveis contava subtarefas já pagas, bloqueando declarações indevidamente após pagamento.",
+            "Fix: restauração de sessão offline não descartava sessão válida quando o banco estava temporariamente inalcançável.",
+        ],
+    },
     {
         "versao": "v4.0",
         "data": "20/05/2026",

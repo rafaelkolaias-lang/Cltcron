@@ -970,8 +970,13 @@ class MonitorDeUso:
         try:
             if not self._sessao_do_banco_esta_aberta(id_sessao, token_sessao, user_id):
                 return None
-        except Exception:
-            return None
+        except Exception as e:
+            # DB inalcançável — confiar no estado local em vez de descartar.
+            # A sessão era válida quando foi salva; falha de conexão não
+            # significa que ela foi finalizada.
+            LOG_TEC.log("sessao", "validacao_banco_falhou_confiando_estado_local", {
+                "id_sessao": id_sessao, "user_id": user_id, "erro": str(e),
+            })
 
         return dados
 
@@ -1017,7 +1022,10 @@ class MonitorDeUso:
             self._ultimo_erro = ""
 
             self._salvar_estado_local_locked(sessao_em_aberto=True)
-            self._atualizar_status_atual_locked()
+            try:
+                self._atualizar_status_atual_locked()
+            except Exception:
+                pass  # status não-crítico na restauração; o loop retenta ao retomar
 
     def iniciar(self, user_id: str, nome_exibicao: str, id_atividade: int, titulo_atividade: str) -> None:
         LOG_TEC.log("sessao", "iniciar()", {

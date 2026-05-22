@@ -687,6 +687,7 @@ class RepositorioDeclaracoesDia:
             FROM atividades_subtarefas
             WHERE user_id = %s
               AND concluida = 1
+              AND bloqueada_pagamento = 0
         """
         parametros: list[Any] = [self._normalizar_user_id(user_id)]
         if referencia_data is not None:

@@ -92,7 +92,7 @@
     if (!filtrosPopulados && filtros) {
       popularSelect(selectEntidade, filtros.entidades, 'Todas');
       popularSelect(selectAcao, filtros.acoes, 'Todas');
-      popularSelect(selectExecutor, filtros.executores, 'Todos');
+      popularSelectExecutores(selectExecutor, filtros.executores);
       filtrosPopulados = true;
     }
 
@@ -108,7 +108,7 @@
                       || r.tem_dados_depois === '1' || r.tem_dados_depois === 1;
       html += `<tr>
         <td class="small">${formatarDataHora(r.data_hora)}</td>
-        <td class="small">${esc(r.user_id_executor || '—')}</td>
+        <td class="small">${esc(r.nome_executor || r.user_id_executor || '—')}</td>
         <td class="small">${badgeEntidade(r.entidade)}</td>
         <td class="small">${badgeAcao(r.acao)}</td>
         <td class="small" style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.descricao)}">${esc(r.descricao)}</td>
@@ -133,6 +133,18 @@
       const opt = document.createElement('option');
       opt.value = v;
       opt.textContent = v;
+      sel.appendChild(opt);
+    }
+    if (atual) sel.value = atual;
+  }
+
+  function popularSelectExecutores(sel, executores) {
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>';
+    for (const ex of executores) {
+      const opt = document.createElement('option');
+      opt.value = typeof ex === 'object' ? ex.user_id : ex;
+      opt.textContent = typeof ex === 'object' ? ex.nome : ex;
       sel.appendChild(opt);
     }
     if (atual) sel.value = atual;
@@ -227,7 +239,7 @@
               </div>
               <div class="col-6">
                 <div class="texto-fraco small">Executor</div>
-                <div class="fw-semibold">${esc(r.user_id_executor || '—')}</div>
+                <div class="fw-semibold">${esc(r.nome_executor || r.user_id_executor || '—')}</div>
               </div>
               <div class="col-4">
                 <div class="texto-fraco small">Entidade</div>

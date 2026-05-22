@@ -65,8 +65,10 @@ try {
         SELECT l.id_log, l.data_hora, l.user_id_executor, l.entidade, l.acao,
                l.id_entidade, l.descricao, l.ip,
                CASE WHEN l.dados_antes IS NOT NULL THEN 1 ELSE 0 END AS tem_dados_antes,
-               CASE WHEN l.dados_depois IS NOT NULL THEN 1 ELSE 0 END AS tem_dados_depois
+               CASE WHEN l.dados_depois IS NOT NULL THEN 1 ELSE 0 END AS tem_dados_depois,
+               u.nome_exibicao AS nome_executor
         FROM log_atividades l
+        LEFT JOIN usuarios u ON u.user_id = l.user_id_executor
         $where_sql
         ORDER BY l.data_hora DESC, l.id_log DESC
         LIMIT :limite OFFSET :offset
@@ -82,7 +84,19 @@ try {
     // Buscar valores distintos para os filtros
     $entidades = $pdo->query("SELECT DISTINCT entidade FROM log_atividades ORDER BY entidade")->fetchAll(PDO::FETCH_COLUMN);
     $acoes     = $pdo->query("SELECT DISTINCT acao FROM log_atividades ORDER BY acao")->fetchAll(PDO::FETCH_COLUMN);
-    $executores = $pdo->query("SELECT DISTINCT user_id_executor FROM log_atividades WHERE user_id_executor IS NOT NULL ORDER BY user_id_executor")->fetchAll(PDO::FETCH_COLUMN);
+    $executoresRaw = $pdo->query("
+        SELECT DISTINCT l.user_id_executor, u.nome_exibicao
+        FROM log_atividades l
+        LEFT JOIN usuarios u ON u.user_id = l.user_id_executor
+        WHERE l.user_id_executor IS NOT NULL
+        ORDER BY COALESCE(u.nome_exibicao, l.user_id_executor)
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    $executores = array_map(function($r) {
+        return [
+            'user_id' => $r['user_id_executor'],
+            'nome'    => $r['nome_exibicao'] ?? $r['user_id_executor'],
+        ];
+    }, $executoresRaw);
 
     responder_json(true, 'ok', [
         'registros'    => $registros,

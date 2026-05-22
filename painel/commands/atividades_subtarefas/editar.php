@@ -132,7 +132,7 @@ try {
         $stDecl = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid AND id_subtarefa != :id_excluir
+            WHERE user_id = :uid AND id_subtarefa != :id_excluir AND bloqueada_pagamento = 0
         ");
         $stDecl->execute([':uid' => $atual['user_id'], ':id_excluir' => $id_subtarefa]);
         $declarado_outros = (int)$stDecl->fetchColumn();

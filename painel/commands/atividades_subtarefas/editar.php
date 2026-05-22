@@ -219,6 +219,6 @@ try {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         try { $pdo->rollBack(); } catch (Throwable $t) {}
     }
-    $dados = debug_ativo() ? ['erro' => $e->getMessage(), 'linha' => $e->getLine()] : null;
+    $dados = ['erro' => $e->getMessage(), 'arquivo' => $e->getFile(), 'linha' => $e->getLine()];
     responder_json(false, 'Falha ao editar tarefa.', $dados, 500);
 }

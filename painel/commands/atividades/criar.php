@@ -130,14 +130,14 @@ try {
         ]);
     }
 
+    $pdo->commit();
+
     log_registrar($pdo, 'atividade', 'criou',
         "Criou o canal '{$titulo}' (id={$id_atividade}), dificuldade {$dificuldade}, status {$status}, " . count($encontrados) . " usuário(s)",
         ['id_atividade' => $id_atividade, 'titulo' => $titulo, 'dificuldade' => $dificuldade, 'status' => $status, 'estimativa' => $estimativa_float, 'usuarios' => $encontrados],
         null,
         (string)$id_atividade
     );
-
-    $pdo->commit();
 
     responder_json(true, 'Atividade criada.', [
         'id_atividade' => $id_atividade,

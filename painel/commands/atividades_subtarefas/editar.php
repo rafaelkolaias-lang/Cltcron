@@ -141,7 +141,11 @@ try {
             $disponivel = max(0, $trabalhado_total - $declarado_outros);
             $disp_h = intdiv($disponivel, 3600);
             $disp_m = intdiv($disponivel % 3600, 60);
-            responder_json(false, "Não é permitido declarar mais horas do que o trabalhado.", [
+            $novo_h = intdiv($segundos, 3600);
+            $novo_m = intdiv($segundos % 3600, 60);
+            $msg_disp = $disp_h > 0 ? "{$disp_h}h {$disp_m}min" : "{$disp_m}min";
+            $msg_novo = $novo_h > 0 ? "{$novo_h}h {$novo_m}min" : "{$novo_m}min";
+            responder_json(false, "Só tem {$msg_disp} disponível para declarar, mas está tentando declarar {$msg_novo}.", [
                 'segundos_trabalhados_total' => $trabalhado_total,
                 'segundos_declarados_outros' => $declarado_outros,
                 'segundos_disponiveis' => $disponivel,
@@ -205,6 +209,8 @@ try {
     // `declaracoes_dia.py::_sincronizar_item_espelho_da_subtarefa`.
     declaracoes_itens_sincronizar_espelho($pdo, $id_subtarefa);
 
+    $pdo->commit();
+
     log_registrar($pdo, 'subtarefa', 'editou',
         "Editou subtarefa id={$id_subtarefa} do usuário " . ($atual['user_id'] ?? '?') . ": '{$titulo}'",
         $dados_depois,
@@ -212,13 +218,11 @@ try {
         (string)$id_subtarefa
     );
 
-    $pdo->commit();
-
     responder_json(true, 'Tarefa atualizada com sucesso.', ['id_subtarefa' => $id_subtarefa], 200);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
         try { $pdo->rollBack(); } catch (Throwable $t) {}
     }
-    $dados = ['erro' => $e->getMessage(), 'arquivo' => $e->getFile(), 'linha' => $e->getLine()];
+    $dados = debug_ativo() ? ['erro' => $e->getMessage(), 'linha' => $e->getLine()] : null;
     responder_json(false, 'Falha ao editar tarefa.', $dados, 500);
 }

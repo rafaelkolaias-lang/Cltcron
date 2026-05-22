@@ -81,14 +81,14 @@ try {
         ]);
     }
 
+    $pdo->commit();
+
     log_registrar($pdo, 'canal_usuario', 'vinculou',
         "Atualizou canais do usuário {$user_id}: " . count($ids_finais) . " canal(is) vinculado(s)",
         ['user_id' => $user_id, 'ids_atividades' => $ids_finais, 'total' => count($ids_finais)],
         null,
         $user_id
     );
-
-    $pdo->commit();
 
     responder_json(true, 'Canais vinculados atualizados.', [
         'user_id'        => $user_id,

@@ -71,14 +71,14 @@ try {
     // Reprocessar pagamentos restantes do usuário para reavaliar cobertura
     pagamento_reprocessar_todos($pdo, $id_usuario, $user_id);
 
+    $pdo->commit();
+
     log_registrar($pdo, 'pagamento', 'excluiu',
         "Excluiu pagamento id={$id_pagamento} do usuário {$user_id}. {$limpos['subtarefas']} tarefa(s) desvinculada(s).",
         null,
         ['id_pagamento' => $id_pagamento, 'user_id' => $user_id],
         (string)$id_pagamento
     );
-
-    $pdo->commit();
 
     responder_json(true, "Pagamento excluído. Vínculos reprocessados.", [
         'id_pagamento' => $id_pagamento,

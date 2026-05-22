@@ -162,14 +162,14 @@ try {
         ]);
     }
 
+    $pdo->commit();
+
     log_registrar($pdo, 'atividade', 'editou',
         "Editou o canal '{$titulo}' (id={$id_atividade})",
         ['id_atividade' => $id_atividade, 'titulo' => $titulo, 'dificuldade' => $dificuldade, 'status' => $status, 'estimativa' => $estimativa_float, 'usuarios' => $encontrados],
         null,
         (string)$id_atividade
     );
-
-    $pdo->commit();
 
     responder_json(true, 'Atividade editada.', [
         'id_atividade' => $id_atividade,

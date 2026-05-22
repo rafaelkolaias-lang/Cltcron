@@ -187,14 +187,14 @@ try {
     $travadas = $resultado['subtarefas'];
     $horasMarcadas = $resultado['registros'];
 
+    $pdo->commit();
+
     log_registrar($pdo, 'pagamento', 'criou',
         "Registrou pagamento de R\$ " . number_format($valor, 2, ',', '.') . " para {$user_id} em {$data_pagamento}. {$travadas} tarefa(s) travada(s).",
         ['id_pagamento' => $id_pagamento, 'user_id' => $user_id, 'valor' => $valor, 'data_pagamento' => $data_pagamento, 'observacao' => $observacao, 'tarefas_travadas' => $travadas],
         null,
         (string)$id_pagamento
     );
-
-    $pdo->commit();
 
     responder_json(true, "Pagamento registrado. {$travadas} tarefa(s) travada(s). {$horasMarcadas} registro(s) de tempo marcado(s).", [
         'id_pagamento' => $id_pagamento,

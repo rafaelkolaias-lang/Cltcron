@@ -198,14 +198,14 @@ try {
         pagamento_reprocessar_todos($pdo, (int)$existente['id_usuario'], $user_id);
     }
 
+    $pdo->commit();
+
     log_registrar($pdo, 'pagamento', 'editou',
         "Editou pagamento id={$id_pagamento} do usuário {$user_id}" . ($periodo_mudou ? ' (período alterado, reprocessamento aplicado)' : ''),
         $params,
         ['id_pagamento' => $id_pagamento, 'existente' => $existente],
         (string)$id_pagamento
     );
-
-    $pdo->commit();
 
     // Retornar pagamento atualizado
     $stR = $pdo->prepare("SELECT * FROM Pagamentos WHERE id_pagamento = :id LIMIT 1");

@@ -732,8 +732,10 @@ class RepositorioDeclaracoesDia:
         )
         total_resultante = ja_declarado + segundos_novos
         if total_resultante > disponivel:
+            saldo = max(0, disponivel - ja_declarado)
             raise RuntimeError(
-                f"Você está tentando declarar {formatar_hhmmss(total_resultante)}, mas o total disponível é {formatar_hhmmss(disponivel)}."
+                f"Você só tem {formatar_hhmmss(saldo)} disponível para declarar, "
+                f"mas está tentando declarar {formatar_hhmmss(segundos_novos)}."
             )
 
     # ==========================================================

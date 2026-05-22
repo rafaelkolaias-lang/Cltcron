@@ -91,11 +91,11 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
     $stMon->execute([':uid' => $user_id, ':corte' => $corte]);
     $monitorado = (int)$stMon->fetchColumn();
 
-    // Declarado global (todas subtarefas concluídas)
+    // Declarado global (subtarefas concluídas do ciclo atual — ignora já pagas)
     $stDecl = $pdo->prepare("
         SELECT COALESCE(SUM(segundos_gastos), 0)
         FROM atividades_subtarefas
-        WHERE user_id = :uid AND concluida = 1
+        WHERE user_id = :uid AND concluida = 1 AND bloqueada_pagamento = 0
     ");
     $stDecl->execute([':uid' => $user_id]);
     $declarado = (int)$stDecl->fetchColumn();

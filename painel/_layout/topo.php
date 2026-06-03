@@ -89,7 +89,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
         </ul>
       </li>
       <li class="nav-item nav-hover-submenu">
-        <a class="<?= $_classeNav('abaAtividades') ?>" href="./index.php?aba=abaAtividades" data-aba="abaAtividades">Canal</a>
+        <a class="<?= $_classeNav('abaAtividades') ?>" href="./canal.php">Canal</a>
         <ul class="submenu-nav">
           <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</a></li>
         </ul>

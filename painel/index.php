@@ -459,53 +459,9 @@ require __DIR__ . '/_layout/topo.php';
             </div>
           </div>
 
-          <section id="abaAtividades" class="d-none" aria-label="Atividades">
-            <article class="cartao-grafite p-3">
-
-              <div class="linha-header-card">
-                <div class="d-flex align-items-center gap-2">
-                  <h2 class="h6 mb-0">Canais</h2>
-                  <span class="badge badge-suave">BANCO</span>
-                </div>
-
-                <div class="d-flex gap-2 align-items-center">
-                  <div class="input-group campo-busca">
-                    <span class="input-group-text bg-transparent text-white border-secondary">🔎</span>
-                    <input id="entradaBuscaAtividades" class="form-control bg-transparent text-white border-secondary"
-                      placeholder="Buscar por título, status, usuário...">
-                  </div>
-
-                  <button class="btn btn-light botao-mini" type="button" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">
-                    + Adicionar Canal
-                  </button>
-                </div>
-              </div>
-
-              <div class="table-responsive tabela-limite" style="max-height: 680px;">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width: 320px;">Canal</th>
-                      <th class="text-center" style="min-width: 150px;">Dificuldade</th>
-                      <th class="text-center" style="min-width: 160px;">Estimativa</th>
-                      <th style="min-width: 320px;">Usuários</th>
-                      <th class="text-center" style="min-width: 170px;">Status</th>
-                      <th class="text-end" style="min-width: 210px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyAtividades">
-                    <tr>
-                      <td colspan="6" class="texto-fraco">Carregando…</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div class="texto-fraco small mt-2">
-                Dica: uma atividade pode ser atribuída para 1 ou mais usuários.
-              </div>
-            </article>
-          </section>
+          <!-- Aba "Canal" (Atividades) migrada para ./canal.php (Parte 5). O modalNovaAtividade
+               e o script aba-atividades.js PERMANECEM neste index.php porque o atalho
+               "+ Adicionar Canal" do Dashboard depende deles. -->
 
           <!-- ════════════════════════════════════════════════════════════
                ABA: GERENCIAR TAREFAS DECLARADAS

@@ -69,3 +69,6 @@ painel/.env
 
 # Memória persistente / projetos do Claude
 .anthropic/
+
+# Override LOCAL de conexão com o banco (dev) — nunca versionar credenciais locais
+painel/commands/conexao/conexao.local.php

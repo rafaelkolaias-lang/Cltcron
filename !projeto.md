@@ -148,7 +148,7 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 | `_layout/topo.php` | **(Parte 0)** Cabeçalho compartilhado: guard de sessão + `<head>` + topbar/sidebar (menu) + abre `<main>`. Params da página: `$tituloPagina`, `$subtituloPagina`, `$abaAtiva`, `$cssExtra`. |
 | `_layout/fim_conteudo.php` | **(Parte 0)** Fecha `<main>`/rodapé/container (vem ANTES dos modais — z-index). |
 | `_layout/rodape.php` | **(Parte 0)** Scripts base (bootstrap+chart.js) + `$scriptsAba` da página + `painel.js` (núcleo) + toggle mobile + fecha `</body>`. |
-| `index.php` | Página **Dashboard** (home) + ainda hospeda as abas NÃO migradas via SPA (`#abaUsuarios`, `#abaAtividades`, `#abaGerenciarTarefas`, `#abaCredenciais`, `#abaRelatorio`, `#abaAuditoria`, `#abaMega`, sub-tela `#abaGestaoUsuario`, modais). Usa os partials de `_layout/`. |
+| `index.php` | Página **Dashboard** (home). **(Parte 9)** Todas as outras abas já viraram páginas próprias — sobra só `#abaDashboard` (cards + gráficos em `#areaGraficos`). Mantém os atalhos "+ Adicionar Usuário/Canal" (modais + `aba-usuarios.js`/`aba-atividades.js`) e `aba-auditoria.js` (flags dos gráficos) + `aba-graficos.js`. Usa os partials de `_layout/`. |
 | `log.php` | **(Parte 1)** Página dedicada do Log de Atividades (usa `_layout/` + `js/aba-log-atividades.js`). |
 | `relatorio.php` | **(Parte 2)** Página dedicada do Relatório de Tempo Trabalhado (`js/aba-relatorio.js`). Relatório agregado por período — sem paginação de linhas. |
 | `gerenciar-tarefas.php` | **(Parte 3)** Página dedicada de Gerenciar Tarefas Declaradas + modal de edição (`js/aba-gerenciar-tarefas.js`). Lista paginada (`page`/`per_page`); o JS ganhou fallback local de paginação p/ não depender do `aba-usuarios.js`. |

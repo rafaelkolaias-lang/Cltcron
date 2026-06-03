@@ -1,8 +1,11 @@
 <?php
 // Página Dashboard (home do painel). Cabeçalho, menu e rodapé vêm dos partials
-// compartilhados em _layout/ (ver Parte 0 da refatoração do painel). As seções
-// das demais abas ainda vivem aqui e são alternadas via SPA (painel.js) até
-// cada uma virar sua própria página.
+// compartilhados em _layout/ (ver Parte 0 da refatoração do painel).
+// Parte 9: TODAS as demais abas já viraram páginas próprias (log/relatorio/
+// gerenciar-tarefas/credenciais/canal/auditoria/mega/usuarios.php). Sobra aqui
+// só o Dashboard (cards + gráficos em #areaGraficos). Mantém-se também os
+// atalhos "+ Adicionar Usuário/Canal" (modalAdicionarUsuario/modalNovaAtividade
+// + aba-usuarios.js/aba-atividades.js) e aba-auditoria.js (flags dos gráficos).
 $tituloPagina    = 'Painel ADM · RK Produções Digitais';
 $subtituloPagina = 'Dashboard · visão geral';
 $abaAtiva        = 'abaDashboard';
@@ -228,8 +231,12 @@ require __DIR__ . '/_layout/topo.php';
   <!-- Modal "novo/editar app suspeito" migrado para ./auditoria.php (Parte 6). -->
 
 <?php
-// Scripts específicos desta página (Dashboard, que ainda hospeda todas as abas
-// via SPA). O rodapé já carrega bootstrap + chart.js (base) e painel.js (núcleo).
+// Scripts do Dashboard. O rodapé já carrega bootstrap + chart.js (base) e
+// painel.js (núcleo). Aqui:
+//  - aba-graficos.js: os gráficos/cards do Dashboard (#areaGraficos);
+//  - aba-auditoria.js: cache de flags 🚩 consumido pelos gráficos;
+//  - aba-usuarios.js / aba-atividades.js: handlers dos atalhos "+ Adicionar
+//    Usuário" / "+ Adicionar Canal" (modais mantidos neste index).
 $scriptsAba = [
     './js/aba-usuarios.js?v=10',
     './js/aba-atividades.js?v=8',

@@ -823,4 +823,13 @@
     recarregarCampos: carregarCampos,
     recarregarPastas: carregarPastas,
   };
+
+  // Página dedicada (mega.php): sem o SPA do index (#abaDashboard), renderiza a
+  // aba ao abrir. No index é sob demanda (painel.js chama renderizarAbaMega ao
+  // trocar para a aba MEGA).
+  if (!document.getElementById("abaDashboard") && document.getElementById("abaMega")) {
+    const _bootMega = () => renderizarAbaMega().catch((e) => console.error("[mega]", e));
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", _bootMega);
+    else _bootMega();
+  }
 })();

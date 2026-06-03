@@ -63,5 +63,5 @@ try {
 
     responder_json(true, 'OK', $dados, 200);
 } catch (Throwable $e) {
-    responder_json(false, 'falha ao listar pagamentos', ['erro' => $e->getMessage()], 500);
+    responder_json(false, 'falha ao listar pagamentos', debug_ativo() ? ['erro' => $e->getMessage()] : null, 500);
 }

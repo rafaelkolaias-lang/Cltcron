@@ -11,11 +11,15 @@ import urllib.request
 from collections.abc import Callable
 from datetime import date, datetime
 from tkinter import messagebox, ttk
+from typing import TYPE_CHECKING
 
 from app.config import LOG_TEC, carregar_prefs, salvar_pref
 from app.win32_utils import formatar_hhmmss
 from atividades import RepositorioAtividades
 from declaracoes_dia import RepositorioDeclaracoesDia
+
+if TYPE_CHECKING:
+    from app.monitor import MonitorDeUso
 
 try:
     import winsound  # type: ignore[import-not-found]
@@ -89,6 +93,7 @@ class JanelaSubtarefas(tk.Toplevel):
         opcoes_canal: list[str] | None = None,
         mapa_canal_para_id: dict[str, int] | None = None,
         repositorio_atividades: RepositorioAtividades | None = None,
+        monitor: "MonitorDeUso | None" = None,
     ) -> None:
         super().__init__(mestre)
         self.title("Tarefas da Atividade")
@@ -103,6 +108,10 @@ class JanelaSubtarefas(tk.Toplevel):
         self._opcoes_canal: list[str] = opcoes_canal or []
         self._mapa_canal_para_id: dict[str, int] = dict(mapa_canal_para_id or {})
         self._repositorio_atividades = repositorio_atividades
+        self._monitor = monitor
+        # Snapshot do tempo trabalhado no momento da abertura — usado só como
+        # fallback quando não há monitor (ex.: testes). Com monitor disponível,
+        # `_sincronizar_e_obter_adicional` reconsulta o valor vivo via flush.
         self._segundos_trabalhando = int(segundos_trabalhando or 0)
         self._segundos_pausado = int(segundos_pausado or 0)
         self._modo_finalizacao = bool(modo_finalizacao)
@@ -699,6 +708,28 @@ class JanelaSubtarefas(tk.Toplevel):
                 f"Pago em {travado_ate.strftime('%d/%m/%Y')}. Tarefas após o pagamento ainda podem ser alteradas."
             )
 
+    def _sincronizar_e_obter_adicional(self) -> int:
+        """Garante que a sessão atual do cronômetro esteja gravada no banco
+        (fonte autoritativa) antes de calcular saldo/validar declaração, e
+        retorna o "adicional monitorado" a somar.
+
+        Com o monitor disponível: faz o flush parcial da sessão para o banco e
+        retorna 0 — assim o tempo recém-trabalhado conta (via banco) sem dupla
+        contagem (o total do banco já inclui o parcial flushado) e sem recusar
+        horas recém-trabalhadas ainda não flushadas. Sem monitor (ex.: testes),
+        cai no snapshot estático capturado na construção da janela.
+
+        Faz I/O de banco — chamar SEMPRE em thread de fundo.
+        """
+        monitor = self._monitor
+        if monitor is not None:
+            try:
+                monitor.sincronizar_relatorio_parcial()
+                return 0
+            except Exception:
+                pass
+        return self._segundos_trabalhando
+
     def _recarregar_dados(self) -> None:
         self._var_resumo.set("Carregando...")
         self._definir_carregando_dados(True)
@@ -708,9 +739,11 @@ class JanelaSubtarefas(tk.Toplevel):
         # mostra tarefas/horas de TODOS os canais (não filtra por self._id_atividade).
         # A precisão por canal acontece no form "Declarar Tarefa" — onde o canal
         # selecionado define a pasta MEGA, os campos e o id_atividade da sub.
-        segundos_trabalhando = self._segundos_trabalhando
 
         def _buscar() -> tuple:
+            # Sincroniza a sessão no banco (em background) e usa banco como
+            # fonte — evita dupla contagem e valor congelado da abertura.
+            segundos_trabalhando = self._sincronizar_e_obter_adicional()
             subtarefas = self._repositorio.listar_subtarefas_do_dia(user_id, id_atividade=0)
             resumo = self._repositorio.obter_resumo_do_dia(
                 user_id,
@@ -1564,7 +1597,6 @@ class JanelaSubtarefas(tk.Toplevel):
             titulo = f"{numero_video} - {titulo_nome}"
             canal = var_canal.get()
             observacao = var_observacao.get()
-            segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
 
             # Validação de nome duplicado (mesmo título no MESMO canal/atividade —
@@ -1586,6 +1618,10 @@ class JanelaSubtarefas(tk.Toplevel):
                     return
 
             def _operacao() -> None:
+                # Sincroniza a sessão no banco (background) e usa banco como
+                # fonte: tempo recém-trabalhado conta sem dupla contagem nem
+                # valor congelado da abertura da janela.
+                segundos_trabalhando = self._sincronizar_e_obter_adicional()
                 if subtarefa is None:
                     # Reutiliza ID já criado se houve falha na tentativa anterior
                     if self._id_subtarefa_criada_nesta_janela is None:
@@ -3034,7 +3070,6 @@ class JanelaSubtarefas(tk.Toplevel):
             titulo = pasta_logica["nome_pasta"]
             canal = var_canal.get()
             observacao = var_observacao.get()
-            segundos_trabalhando = self._segundos_trabalhando
             id_sub = int(getattr(subtarefa, "id_subtarefa", 0)) if subtarefa else 0
 
             # Duplicidade só se trocou de pasta lógica — e apenas DENTRO do
@@ -3062,6 +3097,10 @@ class JanelaSubtarefas(tk.Toplevel):
                     return
 
             def _operacao() -> int:
+                # Sincroniza a sessão no banco (background) e usa banco como
+                # fonte: tempo recém-trabalhado conta sem dupla contagem nem
+                # valor congelado da abertura da janela.
+                segundos_trabalhando = self._sincronizar_e_obter_adicional()
                 if subtarefa is None:
                     sub_ja_criada = self._id_subtarefa_criada_nesta_janela is not None
                     if not sub_ja_criada:

@@ -1656,6 +1656,7 @@ class App(tk.Tk):
             opcoes_canal=list(self._combo["values"]),
             mapa_canal_para_id=dict(self._mapa_item_para_id),
             repositorio_atividades=self._repositorio,
+            monitor=self._monitor,
         )
         try:
             self._btn_tarefas.configure(state="disabled")

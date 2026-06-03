@@ -405,6 +405,7 @@ class RepositorioDeclaracoesDia:
             """
             SELECT
               p.id_pagamento,
+              p.criado_em,
               COALESCE(p.travado_ate_data, p.referencia_fim, p.data_pagamento) AS travado_ate
             FROM Pagamentos p
             JOIN usuarios u ON u.id_usuario = p.id_usuario
@@ -1104,8 +1105,20 @@ class RepositorioDeclaracoesDia:
 
         pagamento = self._obter_pagamento_que_trava_data(user_id, referencia)
         if pagamento:
-            # Só marca como paga se a subtarefa foi criada ANTES do pagamento
-            dt_pagamento = self.obter_datetime_ultimo_pagamento(user_id)
+            # Só marca como paga se a subtarefa foi criada ANTES do pagamento que
+            # EFETIVAMENTE trava esta data. Usa o `criado_em` do próprio `pagamento`
+            # retornado acima (o mais antigo que cobre a referência) — NÃO o pagamento
+            # mais recente do usuário. Usar o mais recente fazia tarefas declaradas
+            # entre dois pagamentos serem marcadas como pagas pelo pagamento antigo
+            # que não as cobriu, travando trabalho real que nunca seria pago.
+            dt_pagamento = pagamento.get("criado_em")
+            if isinstance(dt_pagamento, str):
+                try:
+                    dt_pagamento = datetime.fromisoformat(dt_pagamento)
+                except (ValueError, TypeError):
+                    dt_pagamento = None
+            if not isinstance(dt_pagamento, datetime):
+                dt_pagamento = None
             subtarefa_info = self._obter_subtarefa(user_id, int(id_subtarefa))
             criada_em = subtarefa_info.get("criada_em") if subtarefa_info else None
             marcar = False  # Não marcar por padrão — só se tiver certeza

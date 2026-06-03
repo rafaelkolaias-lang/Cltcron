@@ -111,32 +111,33 @@ try {
     $linhas_raw = $cmd->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
     // -------------------------------------------------------
-    // 2. Horas TRABALHADAS por usuário × dia (registros_tempo)
-    // -------------------------------------------------------
+    // 2. Horas TRABALHADAS por usuário × dia (cronometro_relatorios)
+    //    Fonte REAL do cronômetro — o desktop grava em
+    //    `cronometro_relatorios.segundos_trabalhando`, nunca em
+    //    `registros_tempo` (tabela legada/vazia). Antes este relatório lia de
+    //    `registros_tempo`, então "Trabalhado" aparecia 00:00:00 pra todo
+    //    mundo e o selo de divergência (declarado > trabalhado) nunca
+    //    disparava. `referencia_data` é nullable: relatórios antigos sem data
+    //    caem em DATE(criado_em) (mesmo critério de graficos.php).
+    $col_data_trab = "COALESCE(cr.referencia_data, DATE(cr.criado_em))";
     $params_trab = [':data_inicio' => $data_inicio, ':data_fim' => $data_fim];
-    // Tenta filtrar horas já pagas; fallback se coluna id_pagamento não existe
-    $tem_col_pagamento = true;
-    try {
-        $pdo->query("SELECT id_pagamento FROM registros_tempo LIMIT 0");
-    } catch (Throwable $_) {
-        $tem_col_pagamento = false;
-    }
-    $filtro_pago = $tem_col_pagamento ? " AND rt.id_pagamento IS NULL" : "";
-    $where_trab = "rt.referencia_data BETWEEN :data_inicio AND :data_fim AND rt.situacao = 'trabalhando'" . $filtro_pago;
+    $where_trab = "{$col_data_trab} BETWEEN :data_inicio AND :data_fim";
 
     if ($membro_filtro !== '') {
-        $where_trab .= " AND rt.user_id = :membro";
+        $where_trab .= " AND cr.user_id = :membro";
         $params_trab[':membro'] = $membro_filtro;
     } elseif (!empty($usuarios_filtro)) {
         $in = relatorio_montar_in('ut', $usuarios_filtro, $params_trab);
-        $where_trab .= " AND rt.user_id IN {$in}";
+        $where_trab .= " AND cr.user_id IN {$in}";
     }
 
     $sql_trab = "
-        SELECT rt.user_id, rt.referencia_data, SUM(rt.segundos) AS segundos_trabalhados
-        FROM registros_tempo rt
+        SELECT cr.user_id,
+               {$col_data_trab} AS referencia_data,
+               SUM(cr.segundos_trabalhando) AS segundos_trabalhados
+        FROM cronometro_relatorios cr
         WHERE {$where_trab}
-        GROUP BY rt.user_id, rt.referencia_data
+        GROUP BY cr.user_id, {$col_data_trab}
     ";
     $cmd2 = $pdo->prepare($sql_trab);
     $cmd2->execute($params_trab);

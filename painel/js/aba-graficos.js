@@ -1688,9 +1688,16 @@
     if (!area) return;
     const periodo = dados.periodo ?? {};
     setTexto("declTotalHoras", dados.total_geral_horas ?? "—");
-    // Pendente = total geral - total pago (soma de todos os pagamentos)
-    const totalGeralValor = dados.total_geral_valor ?? 0;
-    const valorPendente = Math.max(0, totalGeralValor - (totalPago ?? 0));
+    // "A pagar" total = soma dos pendentes JÁ CLAMPADOS por usuário
+    // (max(0, estimado − pago) calculado pelo backend, mesmo valor exibido em
+    // cada card). Antes somava o estimado bruto e subtraía o pago total, o que
+    // deixava o excedente pago a um membro abater a dívida com os outros e
+    // subestimava o total a pagar (#6 da auditoria).
+    const totaisPend = dados.totais_por_usuario ?? [];
+    const valorPendente = totaisPend.reduce(
+      (acc, t) => acc + Math.max(0, Number(t.valor_pendente ?? t.valor_estimado ?? 0)),
+      0
+    );
     setTexto("declTotalValor", formatarRs(valorPendente));
     setTexto("declTotalPago", formatarRs(totalPago ?? 0));
     setTexto("declTotalEditores", String((dados.totais_por_usuario ?? []).length));

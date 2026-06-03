@@ -17,27 +17,31 @@ try {
 
     $pdo = obter_conexao_pdo();
 
-    // Tenta filtrar horas já pagas; fallback se coluna id_pagamento não existe
-    try {
-        $pdo->query("SELECT id_pagamento FROM registros_tempo LIMIT 0");
-        $filtro_pago = " AND id_pagamento IS NULL";
-    } catch (Throwable $_) {
-        $filtro_pago = "";
-    }
-
-    $sql = "SELECT situacao, SUM(segundos) AS total_segundos
-            FROM registros_tempo
-            WHERE user_id = :user_id AND referencia_mes = :mes{$filtro_pago}
-            GROUP BY situacao";
+    // Fonte REAL do cronômetro é `cronometro_relatorios` (o desktop grava aqui).
+    // `registros_tempo` é tabela legada e VAZIA — a versão anterior lia dela e
+    // retornava sempre 00:00 pra todo mundo. Mês derivado de
+    // COALESCE(referencia_data, DATE(criado_em)), mesmo critério de
+    // tempo_trabalhado.php/graficos.php para relatórios antigos sem referencia_data.
+    // Obs.: cronometro_relatorios não tem marcador de pagamento por linha, então o
+    // antigo filtro "excluir horas já pagas" (coluna de registros_tempo) não se
+    // aplica aqui — o retorno é o total cronometrado do mês.
+    $sql = "SELECT
+                COALESCE(SUM(segundos_trabalhando), 0) AS trabalhando,
+                COALESCE(SUM(segundos_ocioso), 0)      AS ocioso,
+                COALESCE(SUM(segundos_pausado), 0)     AS pausado
+            FROM cronometro_relatorios
+            WHERE user_id = :user_id
+              AND DATE_FORMAT(COALESCE(referencia_data, DATE(criado_em)), '%Y-%m') = :mes";
 
     $stm = $pdo->prepare($sql);
     $stm->execute([':user_id' => $user_id, ':mes' => $mes]);
+    $r = $stm->fetch() ?: [];
 
-    $mapa = ['trabalhando' => 0, 'ocioso' => 0, 'pausado' => 0];
-    while ($r = $stm->fetch()) {
-        $sit = (string)$r['situacao'];
-        $mapa[$sit] = (int)($r['total_segundos'] ?? 0);
-    }
+    $mapa = [
+        'trabalhando' => (int)($r['trabalhando'] ?? 0),
+        'ocioso'      => (int)($r['ocioso'] ?? 0),
+        'pausado'     => (int)($r['pausado'] ?? 0),
+    ];
 
     responder_json(true, "OK", [
         'user_id' => $user_id,

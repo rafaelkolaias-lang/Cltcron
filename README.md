@@ -179,6 +179,31 @@ python -m PyInstaller --clean --noconfirm CronometroLeve.spec
 
 ---
 
+## Troubleshooting
+
+### "Sem conexao com o servidor" so em alguns usuarios
+
+**Sintoma:** o app desktop fica em "Verificando..." e depois mostra `Sem conexao com o servidor.` para um usuario especifico, enquanto no PC do dev/admin e em outros usuarios conecta normalmente. Abrir `https://banco-painel.cpgdmb.easypanel.host` no **navegador do PC afetado** tambem falha com `ERR_CONNECTION_TIMED_OUT`.
+
+**Causa:** nao e o app — e a rota de internet do usuario ate o servidor EasyPanel. Alguns provedores (ISPs) brasileiros tem peering ruim com o datacenter do EasyPanel/Hetzner e o TCP do PC dele nao consegue fechar handshake com o IP de destino. Antivirus com protecao web e firewalls corporativos podem causar o mesmo timeout.
+
+**Como diagnosticar (2 passos):**
+
+1. Pedir para o usuario abrir `https://banco-painel.cpgdmb.easypanel.host/baixar_app.php` no navegador.
+   - Se der `ERR_CONNECTION_TIMED_OUT` -> e rota/firewall (siga passo 2).
+   - Se abrir normal mas o app continua falhando -> ai sim e problema local do app (antivirus bloqueando o .exe, versao desatualizada, etc).
+2. Pedir para ele conectar o PC no **4G/5G do celular** (hotspot) e testar. Se funcionar no 4G, confirma que e a rede dele.
+
+**Solucao validada (caso real, 2026-05-25):**
+
+Instalar o **Cloudflare WARP** ([1.1.1.1](https://1.1.1.1)), abrir o app, escolher o modo **"Trafego e DNS (UDP)"** e clicar em Conectar. A nuvem fica colorida ("Conectado") e o app desktop conecta na hora.
+
+> Os modos "Somente DNS (HTTPS/TLS)" **nao resolvem** este caso — o problema nao e DNS, e rota TCP. So o modo de trafego completo passa o trafego pela rede Cloudflare e contorna o roteamento ruim do provedor.
+
+**Se mesmo com WARP nao funcionar:** investigar antivirus (Kaspersky/ESET/Avast com protecao web ativa bloqueando o dominio), firewall do roteador ou VPN/proxy ativos no PC do usuario.
+
+---
+
 ## Changelog
 
 ### v2.2 (2026-04-05)

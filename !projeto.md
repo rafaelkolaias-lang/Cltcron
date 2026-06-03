@@ -116,6 +116,12 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 - Ler `App._verificar_atualizacao()` + `_verificar_atualizacao_periodica()`.
 - Em v3.0+ usa `MonitorDeUso.pausar_e_preservar_sessao()` antes do restart (não zera mais — sessão é restaurada automaticamente como PAUSADA).
 - Se envolver perda de horas no restart, conferir `MonitorDeUso.pausar_e_preservar_sessao()` e `obter_dados_sessao_pendente_do_usuario` (auto-restore).
+- **`pausar_e_preservar_sessao()` força persistência mesmo OCIOSO (bug #19):** `pausar()` tem early-return quando a situação é "ocioso"; sozinho ele não consolidava nada ao fechar/logout/auto-update com o PC parado. Agora `pausar_e_preservar_sessao()`, após o `pausar()`, chama `_upsert_relatorio_parcial()` + (sob lock) `_salvar_estado_local_locked()` + `_atualizar_status_atual_locked()` de forma idempotente.
+
+**Se o problema for declaração que recusa/libera horas erradas (validação anti-fraude)**
+- A janela "Declarar Tarefa" agora recebe `monitor` e, antes de validar, chama `JanelaSubtarefas._sincronizar_e_obter_adicional()` → faz `monitor.sincronizar_relatorio_parcial()` (flush da sessão no banco) e passa `segundos_monitorados_adicionais=0`. O **banco é a fonte autoritativa**. Isso evita a **dupla contagem** (banco já inclui o parcial flushado + somar a sessão de novo → liberava horas a mais, bug #20) e a **recusa de horas recém-trabalhadas** (valor da sessão congelava na abertura da janela, bug #18). `declaracoes_dia.py::_validar_tempo_contra_monitoramento` é inalterado (recebe adicional=0). Sem monitor (testes), cai no snapshot estático.
+- **Foco por janela acumula em float (bug #21):** `_segundos_em_foco_atual` é float; `_acumular_foco_locked` faz `+= delta` (antes `+= int(delta)` truncava cada tick de ~0,2s pra 0). Conversão pra int só ao gravar no banco.
+- **Upsert do relatório parcial é serializado por lock próprio (bug #22):** `_upsert_relatorio_com_snapshots` faz `SELECT→UPDATE/INSERT` sem UNIQUE KEY no banco. Para não criar linha duplicada (que dobraria horas) quando dois flushes correm juntos (loop de 5min + flush sob demanda da declaração/fechamento), o corpo do worker roda dentro de `self._trava_upsert_relatorio` (lock **separado** de `self._trava` — nunca bloqueia o loop principal). **Não** chamar `_upsert_relatorio_com_snapshots` segurando esse lock.
 - **Update "não atualiza sozinho na máquina do user" (v3.1.2+):** primeiro suspeito é `.bak` antigo travado na pasta — ver armadilha #33. Limpeza preventiva via `_limpar_bak_residuais()` em `app/main.py` roda em todo `main()` (frozen). Como confirmação manual: pedir pro user fechar o app, apagar `CronometroLeve.exe.bak` (e `_novo.exe` residual) da pasta do exe, reabrir. Auto-update compara só `Content-Length` (HEAD no GitHub raw) — se algum dia o build tiver byte-equivalente, não detecta diff (não foi observado em prática).
 
 **Armadilhas específicas do desktop**
@@ -172,7 +178,10 @@ conexao/
 status/          — TODOS PÚBLICOS (sem auth) — usados pelo app desktop:
   atualizar.php (UPSERT heartbeat), listar.php (status ao vivo), horas_mes.php
 graficos/graficos.php          — dados de TODOS os charts ECharts
-relatorio/tempo_trabalhado.php — relatório com valor_pendente = valor_estimado − total_pago
+relatorio/tempo_trabalhado.php — relatório com valor_pendente = valor_estimado − total_pago.
+                                 **Horas TRABALHADAS lidas de `cronometro_relatorios` (não `registros_tempo`,
+                                 que é legada/vazia)** — antes lia da legada e "Trabalhado" saía 00:00:00 pra
+                                 todos (bug #17). Agrupa por COALESCE(referencia_data, DATE(criado_em)).
 atividades/                    — listar, criar, editar, excluir, alterar_status
 atividades_subtarefas/         — listar (inclui agregados de horas/pagamentos), editar
 usuarios/                      — listar, listar_ativos, criar, editar, excluir, atualizar_status,
@@ -562,6 +571,24 @@ log_atividades/                — Log geral de atividades do servidor (auth pai
   - Autenticação dos apps = `user_id + chave` do próprio usuário (sem "token de serviço" separado).
   - Rate limit de 4 buckets em `credenciais/api/_auth_cliente.php`.
   - Valor puro NUNCA é retornado nem logado em nenhum caminho.
+
+---
+
+## 🌐 Troubleshooting — "Sem conexão com o servidor" só em alguns usuários
+
+**Sintoma:** app desktop fica em "Verificando…" e depois exibe `Sem conexão com o servidor.` para um usuário específico. No PC do dev/admin e em outros usuários conecta normalmente. Abrir `https://banco-painel.cpgdmb.easypanel.host` no **navegador do PC afetado** também falha com `ERR_CONNECTION_TIMED_OUT`.
+
+**Causa:** não é o app — é a rota de internet do usuário até o servidor EasyPanel. Provedores (ISPs) brasileiros eventualmente têm peering ruim com datacenters do EasyPanel/Hetzner, e o TCP do PC dele não fecha handshake com o IP de destino. Antivírus com proteção web e firewalls corporativos também podem causar o mesmo timeout.
+
+**Diagnóstico rápido (2 passos):**
+1. Pedir pro usuário abrir `https://banco-painel.cpgdmb.easypanel.host/baixar_app.php` no **navegador** dele.
+   - Se der `ERR_CONNECTION_TIMED_OUT` → problema de rota/firewall (segue passo 2).
+   - Se abrir normal mas o app não conecta → aí sim é problema local do app (antivírus bloqueando `.exe`, versão desatualizada, etc.).
+2. Pedir pra ele conectar o PC no **4G/5G do celular (hotspot)** e testar. Se funcionar no 4G, confirma que é a rede dele.
+
+**Solução validada (caso real — usuário em 2026-05-25):** instalar **Cloudflare WARP** ([1.1.1.1](https://1.1.1.1)), abrir o app, selecionar modo **"Tráfego e DNS (UDP)"** e clicar em Conectar. A nuvem fica colorida ("Conectado") e o app destrava na hora. Os modos "Somente DNS (HTTPS/TLS)" **não resolvem** porque o problema não é DNS — é rota TCP; só o modo de tráfego completo passa pela rede da Cloudflare e contorna o roteamento ruim do ISP.
+
+**Quando o WARP não resolve:** investigar antivírus (Kaspersky/ESET/Avast com proteção web ativa bloqueando o domínio), firewall do roteador, ou VPN/proxy ativos no PC do usuário.
 
 ---
 

@@ -672,7 +672,10 @@
     try {
       const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}&resumo_periodo=${encodeURIComponent(_resumoPeriodoAtivo)}`);
       const subs = rSub.dados || [];
-      const first = subs.length > 0 ? subs[0] : {};
+      // `resumo` (campo de topo) existe mesmo sem nenhuma subtarefa no período —
+      // garante que Pago / A pagar / cronometrado não zerem indevidamente quando
+      // a lista vem vazia. Fallback para `subs[0]` mantém compatibilidade.
+      const first = rSub.resumo || (subs.length > 0 ? subs[0] : {});
 
       // Dados do cronômetro (cronometro_relatorios) + declarações + pagamentos
       const declarado    = Number(first.segundos_declarados_total_geral || 0);

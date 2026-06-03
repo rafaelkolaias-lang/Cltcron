@@ -105,11 +105,16 @@ try {
     }
     if ($segundos !== null) {
         // Validar: total declarado ACUMULADO (excluindo esta tarefa) + novo valor não pode exceder total trabalhado
-        // Fonte primária: cronometro_relatorios.segundos_trabalhando filtrado por referencia_data (trabalho líquido real)
+        // Fonte primária: cronometro_relatorios.segundos_trabalhando (trabalho líquido real).
+        // NÃO filtrar por `referencia_data IS NOT NULL`: o desktop (fonte da verdade,
+        // declaracoes_dia.py::obter_segundos_monitorados_do_dia) soma TODAS as linhas,
+        // inclusive as de `referencia_data NULL` (registros legados). Filtrar aqui fazia
+        // o teto do painel ficar menor que o do desktop e bloquear a declaração de horas
+        // reais que o desktop aceitava.
         $stTrab = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_trabalhando), 0)
             FROM cronometro_relatorios
-            WHERE user_id = :uid AND referencia_data IS NOT NULL
+            WHERE user_id = :uid
         ");
         $stTrab->execute([':uid' => $atual['user_id']]);
         $trabalhado_total = (int)$stTrab->fetchColumn();

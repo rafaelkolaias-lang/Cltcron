@@ -56,6 +56,13 @@ class MonitorDeUso:
     def __init__(self, banco: BancoDados) -> None:
         self._banco = banco
         self._trava = threading.Lock()
+        # Lock dedicado para serializar o upsert do relatório parcial
+        # (`_upsert_relatorio_com_snapshots`). O upsert faz SELECT→UPDATE/INSERT
+        # sem UNIQUE KEY no banco; sem serializar, dois upserts concorrentes
+        # para o mesmo (id_sessao, dia) podem ambos "não achar" a linha e
+        # inserir duplicado, dobrando as horas do dia em todas as somas. É um
+        # lock SEPARADO de `self._trava` (não pode bloquear o loop principal).
+        self._trava_upsert_relatorio = threading.Lock()
         self._parar = threading.Event()
         self._thread_loop: threading.Thread | None = None
 
@@ -83,7 +90,11 @@ class MonitorDeUso:
         # Acumulação cumulativa do foco atual — espelha o padrão de cronometro_apps_intervalos.
         # Se o app crashar, o último UPDATE periódico já gravou os segundos até ali, eliminando
         # o "fantasma de 3h" que vinha do cap aplicado a registros com fim_em IS NULL.
-        self._segundos_em_foco_atual: int = 0
+        # Float (não int): o _loop roda a cada ~0.2s, então cada delta de foco
+        # é ~0.2. Acumular com `int(delta)` truncava cada tick para 0 e o tempo
+        # de foco por janela quase nunca era contado. Mantém fração e só
+        # converte para int ao gravar no banco.
+        self._segundos_em_foco_atual: float = 0.0
         self._mono_ultimo_acumulo_foco: float = 0.0
         self._mono_ultimo_flush_foco: float = 0.0
 
@@ -627,7 +638,7 @@ class MonitorDeUso:
             [self._id_sessao, self._user_id, nome_app, (titulo or None), datetime.now()],
         )
         # Reseta contadores cumulativos do foco recém-aberto.
-        self._segundos_em_foco_atual = 0
+        self._segundos_em_foco_atual = 0.0
         self._mono_ultimo_acumulo_foco = time.monotonic()
         self._mono_ultimo_flush_foco = self._mono_ultimo_acumulo_foco
         LOG_TEC.log("foco", f"abrir {nome_app}", {"titulo": titulo or "", "id_foco": self._id_foco_aberto})
@@ -648,7 +659,7 @@ class MonitorDeUso:
             "segundos_em_foco": int(self._segundos_em_foco_atual),
         })
         self._id_foco_aberto = None
-        self._segundos_em_foco_atual = 0
+        self._segundos_em_foco_atual = 0.0
         self._mono_ultimo_acumulo_foco = 0.0
         self._mono_ultimo_flush_foco = 0.0
 
@@ -679,7 +690,7 @@ class MonitorDeUso:
         if delta > self._MAX_DELTA_FOCO_SEGUNDOS:
             self._mono_ultimo_acumulo_foco = mono_agora
             return
-        self._segundos_em_foco_atual += int(delta)
+        self._segundos_em_foco_atual += delta
         self._mono_ultimo_acumulo_foco = mono_agora
 
     def _flush_foco_periodico(self, mono_agora: float, intervalo: float) -> bool:
@@ -1028,7 +1039,7 @@ class MonitorDeUso:
             self._nome_app_foco = "desconhecido"
             self._titulo_janela_foco = ""
             self._id_foco_aberto = None
-            self._segundos_em_foco_atual = 0
+            self._segundos_em_foco_atual = 0.0
             self._mono_ultimo_acumulo_foco = 0.0
             self._mono_ultimo_flush_foco = 0.0
 
@@ -1208,6 +1219,37 @@ class MonitorDeUso:
 
     def pausar_e_preservar_sessao(self) -> None:
         self.pausar()
+        # `pausar()` retorna cedo quando a situação é "ocioso" (pra não esconder
+        # tempo ocioso como pausa durante o uso normal). Mas no fechamento /
+        # logout / auto-update precisamos consolidar a sessão no banco e no
+        # estado local MESMO estando ocioso — senão o tempo recém-trabalhado e o
+        # status ficam defasados (e no auto-update vem `sys.exit(0)` logo
+        # depois). Persistência idempotente: se `pausar()` já gravou, repetir
+        # não causa dano.
+        try:
+            self._upsert_relatorio_parcial()
+        except Exception:
+            pass
+        with self._trava:
+            if not self._sessao_carregada or self._id_sessao is None:
+                return
+            try:
+                self._salvar_estado_local_locked(sessao_em_aberto=True)
+                self._atualizar_status_atual_locked()
+            except Exception:
+                pass
+
+    def sincronizar_relatorio_parcial(self) -> None:
+        """Grava imediatamente a sessão atual em `cronometro_relatorios` (mesmo
+        upsert do flush periódico de 5min). Usado antes de validar uma
+        declaração: deixa o banco como fonte autoritativa e fresca, evitando
+        tanto a dupla contagem (somar o parcial já flushado no banco MAIS a
+        sessão em memória) quanto a recusa de horas recém-trabalhadas que ainda
+        não foram flushadas."""
+        try:
+            self._upsert_relatorio_parcial()
+        except Exception:
+            pass
 
     # -------------------- Relatório parcial (upsert) --------------------
     def _upsert_relatorio_com_snapshots(
@@ -1228,6 +1270,12 @@ class MonitorDeUso:
         """
         if id_sessao is None or not user_id:
             return
+        # Serializa todo o corpo do upsert: o SELECT→INSERT por (id_sessao, dia)
+        # não é atômico e, sem este lock, dois upserts concorrentes (loop
+        # periódico + flush sob demanda da declaração/fechamento) podiam criar
+        # linha duplicada. acquire() fica fora do try/finally para garantir que
+        # só liberamos um lock efetivamente adquirido.
+        self._trava_upsert_relatorio.acquire()
         try:
             fim_em_agora = datetime.now()
             inicio_em = None
@@ -1322,6 +1370,8 @@ class MonitorDeUso:
                     })
         except Exception as erro:
             LOG_TEC.log("relatorio_erro", "upsert falhou", {"erro": str(erro)})
+        finally:
+            self._trava_upsert_relatorio.release()
 
     def _upsert_relatorio_parcial(self) -> None:
         """Wrapper do upsert que coleta snapshots do state atual sob lock e chama o worker fora.
@@ -1434,28 +1484,37 @@ class MonitorDeUso:
             except Exception:
                 pass
 
+            # Snapshots capturados DENTRO do lock (#11 da auditoria) — evita ler
+            # _segundos_*_float / _id_sessao / _user_id sem barreira depois que o
+            # lock já foi liberado, espelhando o que zerar_sessao() já faz.
+            _id_snap = self._id_sessao
+            _uid_snap = self._user_id
+            _seg_trab_snap = self._segundos_trabalhando_float
+            _seg_ocio_snap = self._segundos_ocioso_float
+            _seg_paus_snap = self._segundos_pausado_float
+            _ref_data_snap = self._referencia_data_sessao or date.today()
+
         try:
-            self._inserir_evento("finalizar", "pausado", 0)
+            self._inserir_evento("finalizar", "pausado", 0, _id_snap, _uid_snap)
         except Exception:
             pass
 
         try:
             self._banco.executar(
                 "UPDATE cronometro_sessoes SET finalizado_em = %s WHERE id_sessao = %s",
-                [datetime.now(), self._id_sessao],
+                [datetime.now(), _id_snap],
             )
         except Exception:
             pass
 
         # Consolida na mesma linha parcial já criada ao longo da sessão (ou insere se não existir).
         # Sessões que cruzam meia-noite continuam sendo divididas em múltiplas linhas por referencia_data.
-        ref_data_fallback = self._referencia_data_sessao or date.today()
         texto_relatorio = (relatorio or "").strip()
         try:
             self._upsert_relatorio_com_snapshots(
-                self._id_sessao, self._user_id,
-                self._segundos_trabalhando_float, self._segundos_ocioso_float, self._segundos_pausado_float,
-                ref_data_fallback, texto_relatorio=texto_relatorio, com_fechamento=True,
+                _id_snap, _uid_snap,
+                _seg_trab_snap, _seg_ocio_snap, _seg_paus_snap,
+                _ref_data_snap, texto_relatorio=texto_relatorio, com_fechamento=True,
             )
         except Exception:
             pass
@@ -1572,25 +1631,31 @@ class MonitorDeUso:
                     except Exception:
                         pass
 
-                if _foco_mudou:
-                    try:
-                        self._fechar_foco()
-                    except Exception:
-                        pass
-                    try:
-                        self._abrir_foco(nome_foco, titulo_foco)
-                    except Exception:
-                        pass
-                    ultimo_foco = foco_atual
-                else:
-                    # Foco não mudou — flush periódico do contador cumulativo
-                    # mantém segundos_em_foco em dia no banco mesmo sem troca,
-                    # de modo que crash/kill não deixe registro com fim_em NULL
-                    # e duração correta. Mesmo intervalo do scan de apps (10s).
-                    try:
-                        self._flush_foco_periodico(mono_agora, INTERVALO_SCAN_APPS_SEGUNDOS)
-                    except Exception:
-                        pass
+                # Operações de foco SOB o lock (#8 da auditoria): pausar()/retomar()/
+                # finalizar()/zerar_sessao() mexem em _id_foco_aberto e
+                # _segundos_em_foco_atual segurando self._trava; sem o mesmo lock
+                # aqui havia race condition nesses contadores. Escrita curta, mesmo
+                # padrão do _salvar_estado_local_locked acima.
+                with self._trava:
+                    if _foco_mudou:
+                        try:
+                            self._fechar_foco()
+                        except Exception:
+                            pass
+                        try:
+                            self._abrir_foco(nome_foco, titulo_foco)
+                        except Exception:
+                            pass
+                        ultimo_foco = foco_atual
+                    else:
+                        # Foco não mudou — flush periódico do contador cumulativo
+                        # mantém segundos_em_foco em dia no banco mesmo sem troca,
+                        # de modo que crash/kill não deixe registro com fim_em NULL
+                        # e duração correta. Mesmo intervalo do scan de apps (10s).
+                        try:
+                            self._flush_foco_periodico(mono_agora, INTERVALO_SCAN_APPS_SEGUNDOS)
+                        except Exception:
+                            pass
 
                 if apps_visiveis_scan is not None:
                     try:

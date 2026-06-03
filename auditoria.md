@@ -121,17 +121,7 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ---
 
-> **Varredura Claude 1 (2026-06-02) — foco: "usuário trabalha e as horas não contam / declaração fica zerada".** Achados NOVOS abaixo (#13-#16), não cobertos por #1-#12 nem pelo `!executar.md`.
-
----
-
-#### 13. 🟡 Médio (5-6) — Declarar/editar hora pelo PAINEL (Gestão) pode ignorar parte das horas trabalhadas e bloquear a declaração
-
-- **QUANDO ACONTECE:** ao declarar/editar o tempo de uma tarefa **pelo painel web (aba Gestão)** de um usuário que tem horas trabalhadas registradas em formato "antigo". O painel calcula um teto de horas menor do que o real e recusa com "Só tem Xh disponível…", mesmo o usuário tendo trabalhado mais. Pelo **app desktop** a mesma declaração passa normalmente — os dois lados discordam.
-- **ONDE:** `painel/commands/atividades_subtarefas/editar.php:109-115` (filtro `referencia_data IS NOT NULL`) vs desktop `declaracoes_dia.py:582-609` (`obter_segundos_monitorados_do_dia` conta também linhas com `referencia_data IS NULL`).
-- **SEVERIDADE:** 🟡 Médio 5-6 (bloqueio de declaração de horas reais; sem perda de dados, mas impede concluir a ação pelo painel).
-- **IMPACTO:** horas trabalhadas que ficaram gravadas sem a "data de referência" preenchida (registros legados / anteriores ao refator) **somem do teto** quando a declaração é feita pelo painel, mas continuam contando no desktop. O admin vê "saldo disponível" menor que o real e não consegue lançar o tempo.
-- **DETALHE TÉCNICO:** a query do painel soma `cronometro_relatorios.segundos_trabalhando WHERE referencia_data IS NOT NULL` — exclui linhas com `referencia_data NULL`. O desktop, na validação anti-fraude (`_validar_tempo_contra_monitoramento` → `obter_segundos_monitorados_do_dia(user_id, None, 0)`), **não** aplica esse filtro e ainda trata explicitamente o ramo `referencia_data IS NULL` (linhas 600-604), o que indica que essas linhas existem/existiram na base. Resultado: teto do painel ≤ teto do desktop. **Confiança: alta no código (verificado nos dois lados); o impacto real depende de existirem linhas com `referencia_data NULL` na base — vale conferir com `SELECT COUNT(*) FROM cronometro_relatorios WHERE referencia_data IS NULL`.**
+> **Varredura Claude 1 (2026-06-02) — foco: "usuário trabalha e as horas não contam / declaração fica zerada".** Achados NOVOS abaixo (#13-#21), não cobertos por #1-#12 nem pelo `!executar.md`. **#13, #17, #18, #19, #20, #21 → CORRIGIDOS** (ver seção Concluído). **#14, #15, #16 seguem como estão** (#14 pendente; #15 won't-fix; #16 baixo).
 
 ---
 
@@ -166,6 +156,33 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ---
 
+> ✅ **RECONCILIAÇÃO DE NUMERAÇÃO (2026-06-02, Claude 1):** a 2ª passada tinha catalogado #17/#18 (concluir-lock / horas_mes), colidindo com os #17/#18 de outra varredura (relatório zerado / declaração recusada, em Concluído). Para resolver, **renumerei os meus dois achados para #26 e #27** (números livres) e os movi para a seção **Concluído** — ambos já CORRIGIDOS. Não toquei nas entradas alheias.
+
+> **Auto-revisão Claude 1 (2026-06-02) — "minhas correções introduziram bug?"** Revisão adversarial das mudanças que apliquei (#17/relatório, #18/congelado, #19/ocioso, #20/dupla-contagem, #21/foco). Achei 1 risco real (#22, já CORRIGIDO acima) + 3 notas de comportamento abaixo (#23-#25).
+
+#### 23. 🟢 Baixo (2-3) — `tempo_trabalhado.php`: coluna "Trabalhado" agora inclui horas de ciclos JÁ PAGOS
+
+- **QUANDO ACONTECE:** sempre, na aba Relatório, após a correção #17. Ao trocar a fonte de `registros_tempo` (vazia) para `cronometro_relatorios`, o filtro `id_pagamento IS NULL` (que excluía horas pagas) foi removido — essa coluna não existe em `cronometro_relatorios`.
+- **ONDE:** `painel/commands/relatorio/tempo_trabalhado.php:135-143` (query da seção 2).
+- **SEVERIDADE:** 🟢 Baixo 2-3 (NÃO afeta cálculo de dinheiro — valor estimado/pendente vêm de declarado + `Pagamentos`; só a coluna informativa "Trabalhado" e o selo de divergência, que fica mais permissivo).
+- **IMPACTO:** "Trabalhado" passa a refletir o total trabalhado no período, inclusive horas de ciclos já pagos. Como o filtro antigo era inócuo (tabela vazia), na prática isso só "ligou" a coluna. Provavelmente é o comportamento desejado, mas é mudança vs a intenção original. Se for preciso excluir horas pagas, teria que cruzar com `pagamento_abatimentos` (não há `id_pagamento` por linha em `cronometro_relatorios`). **Confiança: alta (introduzido por mim na #17).**
+
+#### 24. 🟢 Baixo (2-3) — `tempo_trabalhado.php`: total "Trabalhado" por usuário conta só dias COM declaração + mapa `$trab_por_usuario` é código morto
+
+- **QUANDO ACONTECE:** na aba Relatório, após a #17. O relatório itera sobre as linhas **declaradas** e busca o trabalhado por `user|dia`; dias trabalhados mas **sem declaração** não viram linha nem entram no total de trabalhado do usuário.
+- **ONDE:** `painel/commands/relatorio/tempo_trabalhado.php:232-283` (loop sobre `$linhas_raw` declaradas) + `$trab_por_usuario` (l.147-153) computado e nunca usado.
+- **SEVERIDADE:** 🟢 Baixo 2-3 (limitação estrutural **pré-existente** — o relatório sempre foi orientado a declaração; antes o trabalhado era sempre 0, então não se notava).
+- **IMPACTO:** o "Trabalhado total" por usuário pode subcontar (ignora dias trabalhados-sem-declarar). Não afeta a detecção de fraude (dia sem declaração não tem o que comparar). Correção possível: usar o `$trab_por_usuario` (já calculado, total real por usuário) para o total por usuário — mas isso criaria divergência entre o total e a soma das linhas por dia; decisão de produto. **Confiança: alta (verificado que `$trab_por_usuario` não é usado na resposta).**
+
+#### 25. 🟢 Baixo (1-2) — I/O extra no banco: cada declaração/reload/fechamento agora dispara um upsert do relatório parcial
+
+- **QUANDO ACONTECE:** após as correções #18/#19/#20, cada declaração, cada "Atualizar" da janela de tarefas e cada fechamento/logout chamam `_upsert_relatorio_parcial` (flush da sessão no banco).
+- **ONDE:** `app/subtarefas.py::_sincronizar_e_obter_adicional` + `app/monitor.py::pausar_e_preservar_sessao`.
+- **SEVERIDADE:** 🟢 Baixo 1-2 (sem impacto funcional; só mais escritas, frequência comparável ao flush periódico de 5min do loop, agora também sob ação do usuário).
+- **IMPACTO:** leve aumento de escritas em `cronometro_relatorios`. Mitigado: o upsert agora é serializado por lock (#22) e é idempotente (UPDATE quando a linha já existe). **Confiança: alta (consequência direta das correções).**
+
+---
+
 ### Concluído:
 
 #### 1. 🔴 Crítico (9-10) — Painel deixava declarar/editar horas JÁ PAGAS (anti-fraude do painel não subtraía abatimentos) — CORRIGIDO 2026-06-02 (Claude 1)
@@ -193,6 +210,64 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 - **Era:** o cap `LIMITE_HORAS_MAXIMO` (30h) era aplicado só ao ramo `trabalhando`; o `ocioso` somava sem limite, distorcendo "Cronometradas" em sessões esquecidas.
 - **Solução aplicada:** em `app/monitor.py::_acumular_tempo_ate_agora_locked`, o ramo `ocioso` passou a aplicar o mesmo `min(..., LIMITE_HORAS_MAXIMO)` do `trabalhando` (teto simétrico).
 - **Decisão do usuário (2026-06-02):** o teto de 30h é **intencional** (proteção anti-runaway) e fica simétrico. Isso torna o **#15 (pendente) um won't-fix por ora** — ver nota no #15.
+
+#### 13. 🟡 Médio (5-6) — Declarar/editar hora pelo PAINEL (Gestão) ignorava horas com `referencia_data NULL` (teto menor que o desktop) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `editar.php` somava `cronometro_relatorios.segundos_trabalhando WHERE referencia_data IS NOT NULL`, excluindo linhas legadas com `referencia_data NULL`. O desktop (fonte da verdade, `obter_segundos_monitorados_do_dia`) conta **todas** as linhas. Em bases com linhas NULL, o teto do painel ficava menor que o do desktop e podia bloquear a declaração de horas reais.
+- **Verificação antes de corrigir:** o defeito de código existia, mas estava **dormente** — `SELECT COUNT(*) ... WHERE referencia_data IS NULL` retornou **0** em produção (222 linhas no total, 0 NULL). Sem impacto ativo hoje, mas a divergência de código permanecia.
+- **Solução aplicada:** removido o filtro `AND referencia_data IS NOT NULL` da query de `$trabalhado_total` em `painel/commands/atividades_subtarefas/editar.php` — agora soma todas as linhas do usuário, alinhado ao desktop. Comentário explicativo adicionado. `php -l` OK. Com 0 linhas NULL, sem mudança de comportamento em produção; correção é defensiva (impede o bug de ativar se linhas NULL voltarem).
+
+#### 17. 🟠 Alto (7-8) — Aba "Relatório de Tempo Trabalhado" mostrava "Trabalhado = 00:00:00" para todos (lia de tabela legada vazia) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** o relatório somava horas trabalhadas de `registros_tempo`, tabela **legada e vazia** (o desktop nunca grava nela — grava em `cronometro_relatorios`). Resultado: a coluna "Trabalhado" aparecia zerada para todo mundo e o selo de divergência anti-fraude (declarado > trabalhado +10%) **nunca disparava**, pois depende de `trabalhado > 0`.
+- **ONDE estava:** `painel/commands/relatorio/tempo_trabalhado.php:135-143` (query da seção 2) + consumo em `painel/js/aba-relatorio.js`.
+- **Solução aplicada:** query da seção 2 trocada para `cronometro_relatorios` (`SUM(segundos_trabalhando)`), a fonte real usada por `listar.php`/`graficos.php`/`editar.php`. Agrupamento/filtro por `COALESCE(referencia_data, DATE(criado_em))` (mesmo critério do `graficos.php`) para não perder linhas com data nula. Removido o bloco de detecção da coluna `id_pagamento` (não existe em `cronometro_relatorios`). Estrutura de saída (`$mapa_trab`/`$trab_por_usuario`) preservada — frontend inalterado. `php -l` OK.
+
+#### 18. 🟡 Médio (5) — Declaração legítima recusada no início da sessão (tempo trabalhado da sessão ficava congelado na abertura da janela) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** ao abrir "Declarar Tarefa", o tempo trabalhado da sessão era capturado **uma vez** (`JanelaSubtarefas.__init__`) e nunca atualizado. Se o usuário trabalhasse poucos minutos antes do 1º salvamento automático (5min) e tentasse declarar, sem histórico anterior, o sistema recusava com "Não existe tempo monitorado disponível no cronômetro".
+- **ONDE estava:** `app/subtarefas.py` (`self._segundos_trabalhando` capturado só no `__init__`, usado nos 3 fluxos de declaração).
+- **Solução aplicada:** corrigido em conjunto com o #20. A janela agora recebe o `monitor` e, antes de validar/calcular saldo, chama `_sincronizar_e_obter_adicional()` (em background) → faz flush da sessão atual no banco e lê o valor fresco dali. O snapshot estático virou apenas fallback (sem monitor, ex.: testes). Cobre os 3 fluxos (`_recarregar_dados`, form legado, form MEGA). `py_compile` OK.
+
+#### 19. 🟡 Médio (5-6) — Fechar app / logout / auto-update estando OCIOSO não consolidava a sessão — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `pausar_e_preservar_sessao()` só chamava `pausar()`, que tem early-return quando a situação é "ocioso". Ao fechar/sair/atualizar com o PC ocioso (>5min parado), não gravava o parcial no banco, não fechava foco/apps e não atualizava o status — o painel podia ficar com status preso e os parciais defasados (no auto-update vem `sys.exit(0)` logo depois).
+- **ONDE estava:** `app/monitor.py::pausar_e_preservar_sessao` (chamado por `app_shell.py` no fechar/logout/auto-update) + early-return em `pausar()` (`monitor.py:1129-1130`).
+- **Solução aplicada:** `pausar_e_preservar_sessao()` agora, **após** o `pausar()`, força persistência idempotente: `_upsert_relatorio_parcial()` (consolida tempo no banco) + sob lock `_salvar_estado_local_locked()` + `_atualizar_status_atual_locked()`. Funciona mesmo no caminho ocioso. O early-return de `pausar()` foi mantido (ele protege o uso normal). `py_compile` OK.
+
+#### 20. 🟠 Alto (7) — Tempo da sessão atual era contado EM DOBRO na validação da declaração (liberava mais horas que o real) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `_validar_tempo_contra_monitoramento` somava o total do banco (`obter_segundos_monitorados_do_dia`, que já inclui o parcial flushado da sessão atual a cada 5min) **e ainda somava por cima** o total cheio da sessão atual (`segundos_monitorados_adicionais`). Quanto mais longa a sessão antes de declarar, mais "tempo fantasma" liberado → dava pra declarar mais horas do que o trabalhado. Mecanismo distinto do #1 (lá era abatimento não-subtraído no painel).
+- **ONDE estava:** `declaracoes_dia.py:730-731` + `app/subtarefas.py` passando `self._segundos_trabalhando` como adicional.
+- **Solução aplicada:** banco virou a **fonte autoritativa**. Novo método `MonitorDeUso.sincronizar_relatorio_parcial()` (wrapper do flush). A janela chama `_sincronizar_e_obter_adicional()` antes de validar: faz o flush (banco fica completo e fresco) e passa `segundos_monitorados_adicionais=0` — sem dupla contagem. Mesmo helper resolve o #18. `declaracoes_dia.py` **não** foi alterado (o `+= adicional` continua válido; agora recebe 0). `py_compile` OK; 79/82 testes passando (as 3 falhas são pré-existentes, de texto de mensagem em `declaracoes_dia.py`, não tocado).
+
+#### 21. 🟠 Alto (7-8) — Tempo de foco por janela quase nunca era contado (truncava a cada 0,2s) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `_acumular_foco_locked` fazia `self._segundos_em_foco_atual += int(delta)`. Como o loop roda a cada ~0,2s, `int(0.2) == 0` e o tempo de foco era descartado tick a tick (só contava se o loop atrasasse ≥1s). `cronometro_foco_janela.segundos_em_foco` ficava ~0; gráficos de foco/timeline individual mostravam quase nada (e o saneamento de registros pós-crash fechava com duração ~zero). **Não afeta pagamento** (que usa só `segundos_trabalhando`). Bug distinto do #8 (lá é race condition por rodar fora do lock; aqui é o truncamento do delta).
+- **ONDE estava:** `app/monitor.py:682` (`+= int(delta)`).
+- **Solução aplicada:** `_segundos_em_foco_atual` passou a ser **float** (init/resets `0.0`) e o acúmulo agora é `+= delta` (preserva a fração; carry entre ticks). As gravações no banco já faziam `int(...)`, então só convertem no momento certo. `py_compile` OK.
+
+#### 22. 🟡 Médio (4-5) — Risco de linha DUPLICADA em `cronometro_relatorios` (race no upsert sem chave única) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `_upsert_relatorio_com_snapshots` faz `SELECT id_relatorio WHERE id_sessao AND referencia_data` → se não acha, `INSERT` (sem UNIQUE KEY, por decisão de não alterar o banco). Dois upserts concorrentes para o mesmo `(id_sessao, dia)` podiam ambos "não achar" e inserir → **linha duplicada**, que **dobraria as horas daquele dia** em TODAS as somas (teto de declaração, `listar.php`, gráficos, relatório). Race pré-existente (loop a cada 5min vs `pausar`/`zerar`/`finalizar`), **amplificada** ao adicionar flush sob demanda em cada declaração/reload/fechamento (correções #18/#19/#20).
+- **ONDE estava:** `app/monitor.py::_upsert_relatorio_com_snapshots` (SELECT-then-INSERT por dia).
+- **Solução aplicada:** novo lock dedicado `self._trava_upsert_relatorio` (separado de `self._trava` para não bloquear o loop principal). O corpo do worker é serializado com `acquire()` antes do `try` + `release()` no `finally` — assim o check-and-write nunca roda concorrente: o 2º chamador encontra a linha já criada e faz UPDATE em vez de INSERT. Sem alteração de banco. `py_compile` OK; 79/82 testes passando (3 falhas pré-existentes em `declaracoes_dia.py`, não tocado).
+
+#### 26. 🟡 Médio (6, sobe para Alto se houver trabalho não pago) — Concluir tarefa no dia de um pagamento ANTIGO (havendo um pagamento mais novo) travava-a como "já paga" → trabalhador nunca recebia por ela — CORRIGIDO 2026-06-02 (Claude 1)
+
+> _(catalogado originalmente como "#17 da 2ª passada"; renumerado para #26 por colisão — ver nota de reconciliação na seção Pendente.)_
+
+- **Era:** em `concluir_subtarefa`, ao decidir se a tarefa recém-concluída deveria ser marcada como `bloqueada_pagamento` (já paga), comparava a criação da tarefa contra o `criado_em` do pagamento **mais recente** do usuário (`obter_datetime_ultimo_pagamento`), e não contra o pagamento que **efetivamente trava** aquela data (o mais antigo que cobre a referência, retornado por `_obter_pagamento_que_trava_data`). Com 2+ pagamentos, tarefas criadas/declaradas **entre** um pagamento antigo e um novo eram marcadas como pagas pelo antigo (que não as cobriu) → excluídas dos pagamentos futuros → trabalho real nunca pago.
+- **ONDE estava:** `declaracoes_dia.py` (`concluir_subtarefa`, bloco de marcação `bloqueada_pagamento`) + helper `_obter_pagamento_que_trava_data` (não retornava `criado_em`).
+- **Solução aplicada:** (1) `_obter_pagamento_que_trava_data` passou a selecionar também `p.criado_em`. (2) `concluir_subtarefa` agora usa `dt_pagamento = pagamento.get("criado_em")` (o pagamento que trava), com parsing robusto str→`datetime` (fallback `None`), em vez de `obter_datetime_ultimo_pagamento`. Assim `marcar = criada_em <= dt_pagamento` compara contra o pagamento correto: tarefas criadas depois do pagamento que trava **não** são mais marcadas como pagas por ele. O outro uso do helper (linha ~481) só lê `id_pagamento` — coluna extra é aditiva, sem efeito colateral. `py_compile`/`ast.parse` OK.
+
+#### 27. 🟢 Baixo (2) — Endpoint `status/horas_mes.php` lia horas do mês de tabela legada vazia (retornava sempre 00:00) — CORRIGIDO 2026-06-02 (Claude 1)
+
+> _(catalogado originalmente como "#18 da 2ª passada"; renumerado para #27 por colisão — ver nota de reconciliação na seção Pendente.)_
+
+- **Era:** `horas_mes.php` somava `registros_tempo.segundos` por `situacao` — `registros_tempo` é tabela **legada e vazia** (o desktop grava em `cronometro_relatorios`), então retornaria 00:00 pra qualquer mês. Endpoint estava **órfão** (sem consumidor), mas o defeito ficaria latente para qualquer reuso. Mesmo problema-raiz do #17 (relatório).
+- **ONDE estava:** `painel/commands/status/horas_mes.php` (query lia de `registros_tempo`).
+- **Solução aplicada:** query trocada para `cronometro_relatorios` somando `segundos_trabalhando`/`segundos_ocioso`/`segundos_pausado`, com o mês derivado de `DATE_FORMAT(COALESCE(referencia_data, DATE(criado_em)), '%Y-%m')` (mesmo critério de `tempo_trabalhado.php`/`graficos.php`). Removida a detecção da coluna `id_pagamento` (inexistente em `cronometro_relatorios`); o filtro "excluir horas pagas" não se aplica — retorno é o cronometrado do mês. Formato da resposta (`segundos: {trabalhando, ocioso, pausado}`) preservado. `php -l` OK + validado contra o banco (maio/2026 ≈ 205h trabalhando, antes 0).
 
 ---
 

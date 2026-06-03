@@ -171,6 +171,16 @@ try {
     // Agregar horas trabalhadas e declaradas ACUMULADAS por membro (todas as datas)
     $userIds = array_unique(array_column($linhas, 'user_id'));
 
+    // Quando a chamada é filtrada por um usuário específico (Gestão do Usuário),
+    // garante que os agregados desse usuário sejam calculados MESMO que ele não
+    // tenha nenhuma subtarefa no período/filtro — senão o Resumo (Pago, A pagar,
+    // cronometrado) apareceria zerado indevidamente, pois esses números não
+    // dependem de existir subtarefa. Sem isso, o frontend lia tudo de `subs[0]`
+    // e, com a lista vazia, zerava inclusive o total pago.
+    if ($user_id !== '' && !in_array($user_id, $userIds, true)) {
+        $userIds[] = $user_id;
+    }
+
     $mapaCron = [];   // horas cronometradas (cronometro_relatorios)
     $mapaOcio = [];   // horas ociosas (cronometro_relatorios)
     $mapaDecl = [];   // total declarado (todas as subtarefas)
@@ -202,11 +212,13 @@ try {
         $stD->execute([':uid' => $uid]);
         $mapaDecl[$uid] = (int)$stD->fetchColumn();
 
-        // Total declarado (apenas NÃO pagas — para compatibilidade com modal de edição)
+        // Total declarado (apenas NÃO pagas — para compatibilidade com modal de edição).
+        // Respeita o mesmo recorte de período dos demais agregados ({$filtroResumoRef});
+        // em modo "tudo" o filtro é vazio e o comportamento histórico é preservado.
         $stDnp = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid AND bloqueada_pagamento = 0
+            WHERE user_id = :uid AND bloqueada_pagamento = 0 {$filtroResumoRef}
         ");
         $stDnp->execute([':uid' => $uid]);
         $mapaDeclNaoPago[$uid] = (int)$stDnp->fetchColumn();
@@ -236,6 +248,27 @@ try {
         $l['segundos_trabalhados_total']   = $decl + $naoDecl;
         $l['total_pago']                   = $mapaPago[$uid] ?? 0.0;
     }
+    unset($l);
+
+    // Resumo de topo do usuário filtrado: espelha os agregados por-linha, mas
+    // existe mesmo quando não há nenhuma subtarefa (lista vazia). O frontend da
+    // Gestão consome `resumo` com fallback para `dados[0]` (compatibilidade).
+    $resumo = null;
+    if ($user_id !== '') {
+        $declU = $mapaDecl[$user_id] ?? 0;
+        $cronU = $mapaCron[$user_id] ?? 0;
+        $naoDeclU = max(0, $cronU - $declU);
+        $resumo = [
+            'user_id'                          => $user_id,
+            'segundos_cronometrados_total'     => $cronU,
+            'segundos_ocioso_total'            => $mapaOcio[$user_id] ?? 0,
+            'segundos_declarados_total'        => $mapaDeclNaoPago[$user_id] ?? 0,
+            'segundos_declarados_total_geral'  => $declU,
+            'segundos_nao_declarado_total'     => $naoDeclU,
+            'segundos_trabalhados_total'       => $declU + $naoDeclU,
+            'total_pago'                       => $mapaPago[$user_id] ?? 0.0,
+        ];
+    }
 
     // Resposta JSON manual: preserva `dados` como array (compatibilidade com
     // consumidores antigos) e acrescenta `paginacao` no mesmo nível para
@@ -249,6 +282,7 @@ try {
         'ok'        => true,
         'mensagem'  => 'OK',
         'dados'     => $linhas,
+        'resumo'    => $resumo,
         'paginacao' => [
             'page'        => $page,
             'per_page'    => $per_page,

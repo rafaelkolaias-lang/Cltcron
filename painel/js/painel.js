@@ -181,7 +181,14 @@
   // Navegação
   // ==========================================================
   function trocarAba(idAba) {
-    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario", "abaAtividades", "abaGerenciarTarefas", "abaRelatorio", "abaCredenciais", "abaAuditoria", "abaMega", "abaLogAtividades"];
+    // Pós-refatoração multipágina (Parte 10): trocarAba só é invocada com
+    // "abaDashboard" (boot do index) e "abaUsuarios"/"abaGestaoUsuario"
+    // (usuarios.php, que alterna entre a lista e a sub-tela de Gestão). As
+    // demais abas viraram páginas próprias e não passam mais por aqui — os
+    // branches delas foram removidos. (Para recarregar a seção visível de uma
+    // página dedicada, ver obterAbaVisivel/rerenderizarAbaAtual, usadas pelo
+    // botão "Recarregar".)
+    const abas = ["abaDashboard", "abaUsuarios", "abaGestaoUsuario"];
 
     abas.forEach((id) => {
       const el = document.getElementById(id);
@@ -196,13 +203,6 @@
       abaDashboard: "Dashboard · visão geral e gráficos",
       abaUsuarios: "Usuários · gestão e pagamentos",
       abaGestaoUsuario: "Gestão do Usuário · dados e pagamentos",
-      abaAtividades: "Atividades · atribuições",
-      abaGerenciarTarefas: "Gerenciar Tarefas · declarações",
-      abaRelatorio: "Relatório · tempo trabalhado declarado",
-      abaCredenciais: "Credenciais e APIs · segredos por usuário",
-      abaAuditoria: "Auditoria · apps suspeitos e alertas por usuário",
-      abaMega: "MEGA · upload obrigatório por canal e usuário",
-      abaLogAtividades: "Log · registro de todas as ações do servidor",
     }[idAba] || "";
 
     const elSub = document.getElementById("textoSubtitulo");
@@ -219,42 +219,7 @@
       return;
     }
 
-    if (idAba === "abaAtividades") {
-      window.PainelAbaAtividades?.renderizarAbaAtividades?.();
-      return;
-    }
-
-    if (idAba === "abaGerenciarTarefas") {
-      window.recarregarAbaGerenciarTarefas?.();
-      return;
-    }
-
-    if (idAba === "abaRelatorio") {
-      window.PainelAbaRelatorio?.renderizarAbaRelatorio?.();
-      return;
-    }
-
-    if (idAba === "abaCredenciais") {
-      // aba-credenciais.js observa mudanças em #abaCredenciais e carrega sozinho
-      return;
-    }
-
-    if (idAba === "abaAuditoria") {
-      window.PainelAbaAuditoria?.renderizarAbaAuditoria?.();
-      return;
-    }
-
-    if (idAba === "abaMega") {
-      window.PainelAbaMega?.renderizarAbaMega?.();
-      return;
-    }
-
-    if (idAba === "abaLogAtividades") {
-      window.logAtividadesCarregar?.();
-      return;
-    }
-
-    // Dashboard — renderiza tabela + carrega gráficos
+    // Dashboard — renderiza cards + carrega gráficos
     renderizarDashboard();
     window.PainelAbaGraficos?.renderizarAbaGraficos?.();
     setTimeout(() => window.PainelAbaGraficos?.resizarGraficos?.(), 50);

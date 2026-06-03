@@ -95,7 +95,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
         </ul>
       </li>
       <li class="nav-item">
-        <a class="<?= $_classeNav('abaGerenciarTarefas') ?>" href="./index.php?aba=abaGerenciarTarefas" data-aba="abaGerenciarTarefas">Gerenciar Tarefas</a>
+        <a class="<?= $_classeNav('abaGerenciarTarefas') ?>" href="./gerenciar-tarefas.php">Gerenciar Tarefas</a>
       </li>
       <li class="nav-item nav-hover-submenu">
         <a class="<?= $_classeNav('abaCredenciais') ?>" href="./index.php?aba=abaCredenciais" data-aba="abaCredenciais">Credenciais e APIs</a>
@@ -104,7 +104,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
         </ul>
       </li>
       <li class="nav-item">
-        <a class="<?= $_classeNav('abaRelatorio') ?>" href="./index.php?aba=abaRelatorio" data-aba="abaRelatorio">Relatório</a>
+        <a class="<?= $_classeNav('abaRelatorio') ?>" href="./relatorio.php">Relatório</a>
       </li>
       <li class="nav-item">
         <a class="<?= $_classeNav('abaAuditoria') ?>" href="./index.php?aba=abaAuditoria" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>

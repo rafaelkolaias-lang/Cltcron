@@ -141,7 +141,7 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 
 ### Web — Frontend (`painel/`)
 
-> **Refatoração em andamento (branch `dev`): SPA → multipágina** (Opção C, 11 partes). **Parte 0:** cabeçalho/menu/rodapé comuns extraídos para `_layout/` (`topo.php`, `fim_conteudo.php`, `rodape.php`) — toda página inclui esses partials. **Parte 1:** "Log" virou `log.php`. **Navegação:** links do menu são URLs reais — seção já migrada → sua página (ex.: `./log.php`); seção ainda no monolito → `./index.php?aba=<id>`. `painel.js` só intercepta o clique (modo SPA) se a seção existir na página atual, senão deixa o href navegar; no boot lê `?aba=` p/ abrir a aba certa e pula o boot do Dashboard em páginas dedicadas.
+> **Refatoração em andamento (branch `dev`): SPA → multipágina** (Opção C, 11 partes). **Parte 0:** cabeçalho/menu/rodapé comuns extraídos para `_layout/` (`topo.php`, `fim_conteudo.php`, `rodape.php`) — toda página inclui esses partials. **Migradas p/ página própria:** Log (`log.php`, Parte 1), Relatório (`relatorio.php`, Parte 2), Gerenciar Tarefas (`gerenciar-tarefas.php`, Parte 3). **Navegação:** links do menu são URLs reais — seção já migrada → sua página (ex.: `./log.php`); seção ainda no monolito → `./index.php?aba=<id>`. `painel.js` só intercepta o clique (modo SPA) se a seção existir na página atual, senão deixa o href navegar; no boot lê `?aba=` p/ abrir a aba certa e pula o boot do Dashboard em páginas dedicadas.
 
 | Arquivo | Cobertura |
 |---|---|
@@ -150,6 +150,8 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 | `_layout/rodape.php` | **(Parte 0)** Scripts base (bootstrap+chart.js) + `$scriptsAba` da página + `painel.js` (núcleo) + toggle mobile + fecha `</body>`. |
 | `index.php` | Página **Dashboard** (home) + ainda hospeda as abas NÃO migradas via SPA (`#abaUsuarios`, `#abaAtividades`, `#abaGerenciarTarefas`, `#abaCredenciais`, `#abaRelatorio`, `#abaAuditoria`, `#abaMega`, sub-tela `#abaGestaoUsuario`, modais). Usa os partials de `_layout/`. |
 | `log.php` | **(Parte 1)** Página dedicada do Log de Atividades (usa `_layout/` + `js/aba-log-atividades.js`). |
+| `relatorio.php` | **(Parte 2)** Página dedicada do Relatório de Tempo Trabalhado (`js/aba-relatorio.js`). Relatório agregado por período — sem paginação de linhas. |
+| `gerenciar-tarefas.php` | **(Parte 3)** Página dedicada de Gerenciar Tarefas Declaradas + modal de edição (`js/aba-gerenciar-tarefas.js`). Lista paginada (`page`/`per_page`); o JS ganhou fallback local de paginação p/ não depender do `aba-usuarios.js`. |
 | `login.php`, `logout.php` | Autenticação standalone. |
 | `js/painel.js` | Núcleo: `requisitarJson`, utilidades (`mostrarAlerta` etc.), navegação (intercepta SPA só se a seção existe; deep-link via `?aba=`), status ao vivo, Dashboard. |
 | `js/aba-graficos.js` | ECharts: timelines, donuts, comparativos. **~2080 linhas — Grep primeiro.** Containers ECharts são **estáticos** dentro de `garantirEstruturaSimplificada()` em `#areaUsuarioSelecionadoGraficos`. **Recorte atual vem SEMPRE de `_diaAtualmenteExibido()`** — setas ← → disparam `atualizarGraficos()` (fetch novo), filtro manual ativa `_modoTotalPeriodo`. Estado de "Carregando…" via `_indicarCarregandoGraficos()` / `_pararCarregandoGraficos()`. |

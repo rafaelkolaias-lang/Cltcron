@@ -45,39 +45,10 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ---
 
-> **Bugs #1–#5 (varredura Claude 1 — horas + pagamentos) → CORRIGIDOS em 2026-06-02.** Movidos para a seção **Concluído** no fim deste arquivo (mantidos os números originais).
+> **Bugs #1–#5 → CORRIGIDOS em 2026-06-02** (seção Concluído, números originais).
+> **Bugs #6, #7, #8, #10, #11, #12 → CORRIGIDOS em 2026-06-02 (Claude 1)** — movidos para a seção **Concluído**.
 >
-> Os itens **#6–#16** abaixo (de outras varreduras) seguem **PENDENTES** de correção. Observação: #1 e #4 haviam sido corroborados de forma independente por outra varredura (mesmo arquivo/linha).
-
----
-
-#### 6. 🟠 Alto (7-8) — Total "A pagar" do Dashboard fica MENOR que a soma real quando um membro foi pago a mais
-
-- **QUANDO ACONTECE:** no Dashboard ("Tempo declarado"), quando pelo menos um membro recebeu pagamento MAIOR que o estimado dele (adiantamento, acerto, bônus). O "A pagar" total no topo aparece menor que a soma dos "A pagar" dos cards de cada membro.
-- **ONDE:** `painel/js/aba-graficos.js:1693` (total geral) vs `:1730` (card por membro).
-- **SEVERIDADE:** 🟠 Alto 7-8 (dinheiro exibido errado; pode levar a pagar a menos quem ainda tem horas devidas).
-- **IMPACTO:** o "excesso" pago a um membro abate indevidamente a dívida com os outros. O admin lê um total a pagar abaixo do real.
-- **DETALHE TÉCNICO:** o backend (`relatorio/tempo_trabalhado.php:291`) entrega `valor_pendente = max(0, valor_estimado − total_pago)` clampado **por usuário**, e os cards usam isso. Mas o total geral faz `Math.max(0, total_geral_valor − totalPago)` (l.1693), onde `total_geral_valor` é a soma BRUTA dos `valor_estimado` (sem clamp) e `totalPago` é a soma de TODOS os pagamentos — o clamp por usuário some na agregação. Correto seria somar os `valor_pendente` já clampados. **Confiança: alta (verificado).**
-
----
-
-#### 7. 🟡 Médio (5-6) — Resumo da Gestão zera "Pago" e "A pagar" quando o membro não tem subtarefa no período
-
-- **QUANDO ACONTECE:** ao abrir a Gestão de um membro e olhar o "Resumo para pagamento". Se naquele filtro (Tudo/30 dias) o membro não tiver nenhuma subtarefa, TODOS os campos (Trabalhado/Declarado/A pagar/Pago) aparecem zerados — mesmo que ele tenha pagamentos lançados e horas de cronômetro. Mais provável no "30 dias".
-- **ONDE:** `painel/js/aba-usuarios.js:675` (lê tudo de `subs[0]`) + `painel/commands/atividades_subtarefas/listar.php:225-238` (`total_pago` é anexado por-linha, não como campo de topo).
-- **SEVERIDADE:** 🟡 Médio 5-6 (decisão de pagamento com base em valores falsamente zerados).
-- **IMPACTO:** o admin pode achar que não há nada pago nem nada a pagar, quando só faltam registros de subtarefa naquele período.
-- **DETALHE TÉCNICO:** se `subs.length === 0`, `first = {}` e todo `Number(first.* || 0)` vira 0 — inclusive `total_pago`, que NÃO depende de existir subtarefa. **Confiança: alta (verificado nos dois lados).**
-
----
-
-#### 8. 🟡 Médio (5-6) — Operações de foco rodam FORA do lock e disputam contadores com pausar/retomar/finalizar
-
-- **QUANDO ACONTECE:** o usuário clica Pausar/Retomar/Finalizar exatamente enquanto o app troca o foco da janela ativa (ou faz flush periódico). É timing entre a thread de fundo e a da interface — acontece sozinho.
-- **ONDE:** `app/monitor.py:1549-1567` (loop chama `_fechar_foco`/`_abrir_foco`/`_flush_foco_periodico` sem `with self._trava:`) vs as mesmas chamadas DENTRO do lock em pausar/retomar/zerar/finalizar.
-- **SEVERIDADE:** 🟡 Médio 5-6 (corrompe métrica de foco por janela; NÃO afeta o cronômetro principal trab/ocioso/pausado).
-- **IMPACTO:** `segundos_em_foco` em `cronometro_foco_janela` pode sair dobrado/zerado/negativo e `_id_foco_aberto` virar stale, sujando os gráficos de foco/timeline individual.
-- **DETALHE TÉCNICO:** `_acumular_foco_locked` (nome sugere proteção) é chamado pelo loop SEM o lock, enquanto `pausar()` etc. o chamam COM o lock — como o loop não pega o lock, a exclusão mútua não existe. Viola a regra do projeto ("operações no MonitorDeUso respeitam `with self._trava:`"). **Confiança: alta no lado do loop (verificado); média no impacto exato.**
+> Seguem **PENDENTES**: **#9** (aguarda decisão do usuário — abatimento é snapshot imutável por design), **#14** (pendente), **#15** (won't-fix), **#16** (baixo). Observação: #1 e #4 haviam sido corroborados por outra varredura.
 
 ---
 
@@ -88,36 +59,7 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 - **SEVERIDADE:** 🟡 Médio 5 (cenário de borda; o usuário "perde" horas reais no saldo futuro).
 - **IMPACTO:** o `declarado` cai mas o `abatido` (snapshot imutável) permanece, então o saldo disponível para o próximo ciclo diminui indevidamente.
 - **DETALHE TÉCNICO:** `reabrir_subtarefa` só é barrado por `subtarefa_esta_travada` (bloqueada_pagamento=1); subtarefas concluídas mas ainda desbloqueadas passam, desbalanceando `monitorado − declarado − abatido`. **Confiança: média** (exige sequência específica).
-
----
-
-#### 10. 🟡 Médio (5) — "Declarado não-pago" do Resumo ignora filtro de período e de conclusão
-
-- **QUANDO ACONTECE:** no Resumo/edição da Gestão em modo "30 dias" — o total declarado calculado pela via "não-pago" mistura subtarefas de TODA a história (e até abertas), enquanto cronometrado/ocioso/pago respeitam os 30 dias.
-- **ONDE:** `painel/commands/atividades_subtarefas/listar.php:206-212` (`mapaDeclNaoPago` sem `{$filtroResumoRef}` e sem `concluida = 1`), vira `segundos_declarados_total` (l.233).
-- **SEVERIDADE:** 🟡 Médio 5 (números de períodos diferentes lado a lado; o Resumo principal usa o campo `_geral`, que está correto).
-- **IMPACTO:** onde esse campo é exibido (compatibilidade do modal de edição), "declarado" pode aparecer maior que o esperado para o período.
-- **DETALHE TÉCNICO:** `mapaCron` (l.186) e `mapaDecl` (l.200) concatenam `{$filtroResumoRef}`; `mapaDeclNaoPago` (l.206-210) não, e também não filtra `concluida = 1`. **Confiança: alta no código; média no impacto visível** (depende de qual UI consome o campo).
-
----
-
-#### 11. 🟡 Médio (5) — `finalizar()` lê os segundos do relatório final FORA do lock
-
-- **QUANDO ACONTECE:** ao clicar Finalizar e gravar o relatório da sessão — o snapshot de segundos trabalhados que vai pra `cronometro_relatorios` é lido sem proteção de lock.
-- **ONDE:** `app/monitor.py:1428-1433` (lê `_segundos_*_float` após o `with self._trava:` já ter fechado).
-- **SEVERIDADE:** 🟡 Médio 5 (mitigado por `_rodando=False`, mas tecnicamente sem barreira).
-- **IMPACTO:** se o loop acumular tempo entre o fim do lock e a leitura, o total persistido pode divergir do snapshot. `zerar_sessao()` faz o correto (captura dentro do lock); `finalizar()` não.
-- **DETALHE TÉCNICO:** `_parar.set()` só ocorre no bloco seguinte (l.1437-1440), depois da leitura na l.1431. **Confiança: média.**
-
----
-
-#### 12. 🟢 Baixo (4) — `listar_por_usuario.php` vaza mensagem de erro interna do banco
-
-- **QUANDO ACONTECE:** em qualquer falha de SQL/conexão ao listar pagamentos de um usuário.
-- **ONDE:** `painel/commands/pagamentos/listar_por_usuario.php:66`.
-- **SEVERIDADE:** 🟢 Baixo 4 (vazamento de info; não mexe em dados/dinheiro).
-- **IMPACTO:** expõe estrutura interna/SQL no JSON mesmo em produção, ao contrário dos outros endpoints de pagamento.
-- **DETALHE TÉCNICO:** devolve `$e->getMessage()` cru, sem o guard `debug_ativo()` que `criar.php`/`editar.php`/`excluir.php` usam. **Confiança: alta (verificado).**
+- **DECISÃO DO USUÁRIO (2026-06-02): won't-fix por ora — manter documentado.** O `pagamento_abatimentos` é um snapshot **imutável por design** (chave `(user_id, id_pagamento, id_atividade)`, NÃO por subtarefa — não dá pra "estornar" a parcela de uma sub específica). O gatilho é estreito (sub concluída+declarada, NÃO bloqueada, fora de período travado) e o impacto é **contra o próprio usuário** (encolhe o saldo declarável futuro, não gera pagamento a mais). Fica registrado; reabrir só se o usuário pedir. Opções avaliadas: bloquear reabertura no ciclo abatido / recomputar abatimento / aceitar (escolhida).
 
 ---
 
@@ -184,6 +126,36 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 ---
 
 ### Concluído:
+
+#### 6. 🟠 Alto (7-8) — Total "A pagar" do Dashboard ficava MENOR que a soma real quando um membro foi pago a mais — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** o total geral fazia `Math.max(0, total_geral_valor − totalPago)` somando o `valor_estimado` BRUTO e subtraindo o pago total; o excedente pago a um membro abatia a dívida com os outros, subestimando o total a pagar.
+- **Solução aplicada:** em `painel/js/aba-graficos.js` (`renderizarTempoDeclarado`), o "A pagar" total passou a ser a **soma dos `valor_pendente` já clampados por usuário** (`max(0, valor_estimado − total_pago)`, mesmo valor exibido nos cards), via `reduce` sobre `dados.totais_por_usuario`. Agora o total bate com a soma dos cards. Backend (`tempo_trabalhado.php:292`) já fornecia `valor_pendente` por usuário.
+
+#### 7. 🟡 Médio (5-6) — Resumo da Gestão zerava "Pago"/"A pagar" quando o membro não tinha subtarefa no período — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** o frontend lia todos os agregados de `subs[0]`; com a lista de subtarefas vazia (ex.: filtro "30 dias"), tudo zerava — inclusive "Pago", que não depende de existir subtarefa.
+- **Solução aplicada:** `painel/commands/atividades_subtarefas/listar.php` agora calcula os agregados do usuário filtrado mesmo sem subtarefas (adiciona o `user_id` a `$userIds`) e devolve um campo de topo `resumo`. `painel/js/aba-usuarios.js::carregarResumoHorasPagamento` lê `rSub.resumo` com fallback para `subs[0]`. `php -l` OK.
+
+#### 8. 🟡 Médio (5-6) — Operações de foco do loop rodavam FORA do lock (race com pausar/retomar/finalizar) — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** o loop chamava `_fechar_foco`/`_abrir_foco`/`_flush_foco_periodico` sem `self._trava`, enquanto pausar/retomar/finalizar/zerar mexem nos mesmos contadores (`_id_foco_aberto`, `_segundos_em_foco_atual`) segurando o lock → race que sujava `cronometro_foco_janela`.
+- **Solução aplicada:** em `app/monitor.py::_loop`, o bloco de foco foi envolvido em `with self._trava:` (mesmo padrão do `_salvar_estado_local_locked` logo acima). Os `_locked` helpers não readquirem o lock — sem risco de deadlock. `py_compile` OK; 79/82 testes (as 3 falhas são pré-existentes, de texto de mensagem, não relacionadas).
+
+#### 10. 🟡 Médio (5) — "Declarado não-pago" do Resumo ignorava o filtro de período — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `mapaDeclNaoPago` (vira `segundos_declarados_total`) não concatenava `{$filtroResumoRef}`, ao contrário de `mapaCron`/`mapaDecl`; no modo "30 dias" misturava todo o histórico. Consumidor real (`aba-gerenciar-tarefas.js`, modo "tudo") deixava o defeito dormente.
+- **Solução aplicada:** adicionado `{$filtroResumoRef}` à query de `mapaDeclNaoPago` em `painel/commands/atividades_subtarefas/listar.php`. Mantida a semântica "não pago" (`bloqueada_pagamento = 0`, sem `concluida = 1`) para não divergir do teto anti-fraude do `editar.php`. `php -l` OK; em modo "tudo" o filtro é vazio → sem mudança de comportamento.
+
+#### 11. 🟡 Médio (5) — `finalizar()` lia os segundos do relatório final FORA do lock — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** `finalizar()` lia `_segundos_*_float`/`_id_sessao`/`_user_id` depois do lock já liberado, ao contrário de `zerar_sessao()` que captura snapshots dentro do lock.
+- **Solução aplicada:** em `app/monitor.py::finalizar`, os valores passaram a ser capturados em variáveis snapshot **dentro do lock** (`_id_snap`, `_uid_snap`, `_seg_*_snap`, `_ref_data_snap`) e usados no evento/UPDATE/`_upsert_relatorio_com_snapshots`. `py_compile` OK.
+
+#### 12. 🟢 Baixo (4) — `listar_por_usuario.php` vazava mensagem de erro interna do banco — CORRIGIDO 2026-06-02 (Claude 1)
+
+- **Era:** devolvia `$e->getMessage()` cru no JSON mesmo em produção, sem o guard `debug_ativo()`.
+- **Solução aplicada:** `painel/commands/pagamentos/listar_por_usuario.php` passou a usar `debug_ativo() ? ['erro' => $e->getMessage()] : null`, alinhado a `criar.php`/`editar.php`/`excluir.php`. `php -l` OK.
 
 #### 1. 🔴 Crítico (9-10) — Painel deixava declarar/editar horas JÁ PAGAS (anti-fraude do painel não subtraía abatimentos) — CORRIGIDO 2026-06-02 (Claude 1)
 

@@ -522,58 +522,10 @@ require __DIR__ . '/_layout/topo.php';
           <!-- ════════════════════════════════════════════════════════════
                ABA: CREDENCIAIS E APIs
                ════════════════════════════════════════════════════════════ -->
-          <section id="abaCredenciais" class="d-none" aria-label="Credenciais e APIs">
-            <article class="cartao-grafite p-3">
-              <div class="linha-header-card">
-                <div class="d-flex align-items-center gap-2">
-                  <h2 class="h6 mb-0">Credenciais e APIs</h2>
-                  <span class="badge badge-suave">CRIPTOGRAFADO</span>
-                </div>
-                <div class="d-flex gap-2 align-items-center flex-wrap">
-                  <select id="credenciaisFiltroUsuario" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:260px;">
-                    <option value="">Selecione um usuário…</option>
-                  </select>
-                  <select id="credenciaisFiltroServico" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:180px;">
-                    <option value="">Todos os serviços</option>
-                  </select>
-                  <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Modelos</button>
-                </div>
-              </div>
-
-              <div class="texto-fraco small mb-2">
-                Os valores são guardados criptografados no servidor. O painel nunca exibe o valor completo.
-                Cada modelo existe globalmente; cada usuário preenche o seu.
-              </div>
-
-              <!-- APIs globais ativas (herdam para novos usuários) -->
-              <div id="boxApisGlobais" class="cartao-grafite p-2 mb-3 d-none" style="background:rgba(255,255,255,0.03);">
-                <div class="d-flex align-items-center gap-2 mb-2">
-                  <span class="badge bg-warning text-dark">GLOBAL</span>
-                  <strong class="small">APIs aplicadas a todos os usuários</strong>
-                  <span class="texto-fraco small">— novos cadastros herdam automaticamente.</span>
-                </div>
-                <div id="listaApisGlobais" class="d-flex flex-wrap gap-2"></div>
-              </div>
-
-              <div class="table-responsive" style="max-height:620px;">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width:160px;">Serviço</th>
-                      <th style="min-width:100px;">Categoria</th>
-                      <th class="text-center" style="min-width:110px;">Estado</th>
-                      <th style="min-width:180px;">Máscara</th>
-                      <th style="min-width:140px;">Atualizado em</th>
-                      <th class="text-end" style="min-width:220px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyCredenciais">
-                    <tr><td colspan="6" class="texto-fraco">Selecione um usuário acima.</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </section>
+          <!-- Aba "Credenciais e APIs" migrada para ./credenciais.php (Parte 4). Os modais
+               modalGerenciarModelos/modalSubstituirValor e o script aba-credenciais.js
+               PERMANECEM neste index.php porque a aba "Gestão do Usuário" ainda os usa
+               (serão tratados na Parte 8, junto com Usuários+Gestão). -->
 
           <!-- ════════════════════════════════════════════════════════════
                ABA: AUDITORIA (apps suspeitos + usuários com flag)

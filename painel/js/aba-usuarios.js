@@ -1436,4 +1436,22 @@
   } else {
     vincularEventosUsuarios();
   }
+
+  // Página dedicada (usuarios.php): sem o SPA do index (#abaDashboard), o boot do
+  // painel.js é pulado, então inicializamos a aba Usuários aqui. Também tratamos
+  // o deep-link ?user=<id> (vindo dos gráficos do Dashboard / Auditoria) abrindo
+  // direto a Gestão daquele usuário.
+  if (!document.getElementById("abaDashboard") && document.getElementById("abaUsuarios")) {
+    const _bootUsuariosStandalone = async () => {
+      try { await iniciarUsuarios(); } catch (_) {}
+      try { renderizarAbaUsuarios(); } catch (_) {}
+      const uid = new URLSearchParams(location.search).get("user");
+      if (uid) { try { await abrirModalGestaoUsuario(uid); } catch (_) {} }
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", _bootUsuariosStandalone);
+    } else {
+      _bootUsuariosStandalone();
+    }
+  }
 })();

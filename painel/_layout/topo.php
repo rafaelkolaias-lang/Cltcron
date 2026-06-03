@@ -83,7 +83,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
         <a class="<?= $_classeNav('abaDashboard') ?>" href="./index.php" data-aba="abaDashboard">Dashboard</a>
       </li>
       <li class="nav-item nav-hover-submenu">
-        <a class="<?= $_classeNav('abaUsuarios') ?>" href="./index.php?aba=abaUsuarios" data-aba="abaUsuarios">Usuários</a>
+        <a class="<?= $_classeNav('abaUsuarios') ?>" href="./usuarios.php">Usuários</a>
         <ul class="submenu-nav">
           <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</a></li>
         </ul>

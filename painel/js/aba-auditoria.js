@@ -401,11 +401,14 @@
       if (!btn) return;
       const user_id = btn.getAttribute('data-user-id') || '';
       if (!user_id) return;
+      // Se a Gestão existe nesta página (SPA do index), abre inline; senão
+      // (multipágina, ex.: auditoria.php) navega para a página Usuários com
+      // deep-link ?user=<id>.
       const fn = window.PainelAbaUsuarios?.abrirModalGestaoUsuario;
-      if (typeof fn === 'function') {
+      if (document.getElementById('abaGestaoUsuario') && typeof fn === 'function') {
         fn(user_id);
       } else {
-        alerta('aviso', 'Navegação', 'Função de gestão não encontrada.');
+        window.location.href = './usuarios.php?user=' + encodeURIComponent(user_id);
       }
     });
   }

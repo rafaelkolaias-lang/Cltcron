@@ -129,6 +129,28 @@ try {
             }
         }
 
+        // Horas já PAGAS (abatimentos) precisam sair do teto — senão o usuário
+        // pode declarar de novo horas que já foram quitadas em pagamentos
+        // anteriores. O desktop (fonte da verdade) já faz isso em
+        // `declaracoes_dia.py::_validar_tempo_contra_monitoramento`
+        // (disponivel = monitorado − abatimento). A tabela pode não existir em
+        // bases sem o módulo de pagamentos — nesse caso o abatimento é 0.
+        $abatido_total = 0;
+        try {
+            $stAbat = $pdo->prepare("
+                SELECT COALESCE(SUM(segundos_abatidos), 0)
+                FROM pagamento_abatimentos
+                WHERE user_id = :uid
+            ");
+            $stAbat->execute([':uid' => $atual['user_id']]);
+            $abatido_total = (int)$stAbat->fetchColumn();
+        } catch (Throwable $_) {
+            $abatido_total = 0;
+        }
+
+        // Teto líquido: total trabalhado menos o que já foi pago.
+        $disponivel_total = max(0, $trabalhado_total - $abatido_total);
+
         $stDecl = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
@@ -137,8 +159,8 @@ try {
         $stDecl->execute([':uid' => $atual['user_id'], ':id_excluir' => $id_subtarefa]);
         $declarado_outros = (int)$stDecl->fetchColumn();
 
-        if ($trabalhado_total > 0 && ($declarado_outros + $segundos) > $trabalhado_total) {
-            $disponivel = max(0, $trabalhado_total - $declarado_outros);
+        if ($trabalhado_total > 0 && ($declarado_outros + $segundos) > $disponivel_total) {
+            $disponivel = max(0, $disponivel_total - $declarado_outros);
             $disp_h = intdiv($disponivel, 3600);
             $disp_m = intdiv($disponivel % 3600, 60);
             $novo_h = intdiv($segundos, 3600);
@@ -147,6 +169,7 @@ try {
             $msg_novo = $novo_h > 0 ? "{$novo_h}h {$novo_m}min" : "{$novo_m}min";
             responder_json(false, "Só tem {$msg_disp} disponível para declarar, mas está tentando declarar {$msg_novo}.", [
                 'segundos_trabalhados_total' => $trabalhado_total,
+                'segundos_abatidos_total'    => $abatido_total,
                 'segundos_declarados_outros' => $declarado_outros,
                 'segundos_disponiveis' => $disponivel,
             ], 422);

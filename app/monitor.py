@@ -220,7 +220,14 @@ class MonitorDeUso:
             self._segundos_pausado_float += delta
         else:
             if self._situacao_calculada == "ocioso":
-                self._segundos_ocioso_float += delta
+                # Não acumula acima do limite máximo (mesmo teto do trabalhando) —
+                # sem isso, sessões esquecidas abertas por dias inflavam o ocioso
+                # sem limite e distorciam os totais de "Cronometradas".
+                if self._segundos_ocioso_float < LIMITE_HORAS_MAXIMO:
+                    self._segundos_ocioso_float = min(
+                        self._segundos_ocioso_float + delta,
+                        float(LIMITE_HORAS_MAXIMO),
+                    )
             else:
                 # Não acumula acima do limite máximo
                 if self._segundos_trabalhando_float < LIMITE_HORAS_MAXIMO:
@@ -324,8 +331,16 @@ class MonitorDeUso:
                 json.dumps(fila, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
-        except Exception:
-            pass
+        except Exception as erro:
+            # Falha de I/O (disco cheio, arquivo travado por antivírus, sem
+            # permissão) antes era engolida silenciosamente — os eventos do
+            # período offline somiam sem nenhum rastro e o tempo trabalhado
+            # nunca chegava ao servidor. Agora registra no log técnico para
+            # diagnóstico.
+            LOG_TEC.log("fila_offline", "falha ao salvar fila offline", {
+                "erro": str(erro),
+                "itens": len(fila),
+            })
 
     def _adicionar_a_fila_offline(
         self,
@@ -918,8 +933,14 @@ class MonitorDeUso:
                 json.dumps(dados, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except Exception:
-            pass
+        except Exception as erro:
+            # Falha ao persistir o estado da sessão em aberto antes era
+            # silenciosa — após crash/reboot a sessão não era restaurada e o
+            # tempo acumulado em memória se perdia sem aviso. Agora registra
+            # no log técnico para diagnóstico.
+            LOG_TEC.log("estado_local", "falha ao salvar estado da sessão", {
+                "erro": str(erro),
+            })
 
     def _limpar_estado_local(self) -> None:
         try:
@@ -1244,6 +1265,13 @@ class MonitorDeUso:
                     existente = None
 
                 if existente and existente.get("id_relatorio"):
+                    # NÃO sobrescrever `criado_em` no UPDATE: esse campo é a
+                    # âncora temporal do ciclo de pagamento (o reset usa
+                    # `criado_em >= MAX(data_pagamento)` e o abatimento usa
+                    # `criado_em <= corte`). Reescrevê-lo para "agora" a cada
+                    # salvamento parcial fazia as horas de uma sessão longa que
+                    # atravessa um pagamento "pularem" para o ciclo novo. O
+                    # `criado_em` é definido uma única vez no INSERT da linha.
                     self._banco.executar(
                         """
                         UPDATE cronometro_relatorios
@@ -1251,8 +1279,7 @@ class MonitorDeUso:
                                segundos_total = %s,
                                segundos_trabalhando = %s,
                                segundos_ocioso = %s,
-                               segundos_pausado = %s,
-                               criado_em = %s
+                               segundos_pausado = %s
                          WHERE id_relatorio = %s
                         """,
                         [
@@ -1261,7 +1288,6 @@ class MonitorDeUso:
                             int(seg_trab_dia),
                             int(seg_oci_dia),
                             int(seg_pau_dia),
-                            fim_em_agora,
                             int(existente["id_relatorio"]),
                         ],
                     )

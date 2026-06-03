@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
 from banco import BancoDados
+
+# Logger do módulo: usado para que falhas de banco nas leituras de tempo/
+# abatimento não fiquem invisíveis (antes eram engolidas com `except: return 0`,
+# o que transformava erro de sistema em "0 horas" e gerava mensagem enganosa).
+logger = logging.getLogger("cronometro.declaracoes")
 
 
 def formatar_hhmmss(segundos: int) -> str:
@@ -602,6 +608,10 @@ class RepositorioDeclaracoesDia:
             linha = self._banco.consultar_um(sql, parametros)
             return int((linha or {}).get("total") or 0)
         except Exception:
+            # Mantém 0 para resiliência da UI, mas registra o erro: um 0 vindo
+            # de falha de banco vira a mensagem enganosa "Não existe tempo
+            # monitorado disponível" na validação.
+            logger.warning("falha ao consultar segundos monitorados", exc_info=True)
             return 0
 
     def obter_segundos_cronometrados_atividade(self, user_id: str, id_atividade: int = 0) -> int:
@@ -637,6 +647,7 @@ class RepositorioDeclaracoesDia:
             linha = self._banco.consultar_um(sql, params)
             return int((linha or {}).get("total") or 0)
         except Exception:
+            logger.warning("falha ao consultar segundos cronometrados", exc_info=True)
             return 0
 
     def obter_abatimento_total_atividade(self, user_id: str, id_atividade: int = 0) -> int:
@@ -652,6 +663,7 @@ class RepositorioDeclaracoesDia:
             linha = self._banco.consultar_um(sql, [self._normalizar_user_id(user_id)])
             return int((linha or {}).get("total") or 0)
         except Exception:
+            logger.warning("falha ao consultar abatimento total", exc_info=True)
             return 0
 
     def obter_segundos_declarados_desbloqueados(self, user_id: str, id_atividade: int = 0) -> int:
@@ -669,6 +681,7 @@ class RepositorioDeclaracoesDia:
             linha = self._banco.consultar_um(sql, [self._normalizar_user_id(user_id)])
             return int((linha or {}).get("total") or 0)
         except Exception:
+            logger.warning("falha ao consultar declarados desbloqueados", exc_info=True)
             return 0
 
     def obter_segundos_declarados_do_dia(

@@ -337,8 +337,14 @@
   function configurarEventosGerais() {
     document.querySelectorAll("#menuAbas a[data-aba]").forEach((a) => {
       a.addEventListener("click", (e) => {
-        e.preventDefault();
-        trocarAba(a.getAttribute("data-aba"));
+        const id = a.getAttribute("data-aba");
+        // Só intercepta (modo SPA) se a seção existir NESTA página. Em páginas
+        // dedicadas (ex.: log.php) a seção alvo não existe aqui, então deixamos
+        // o href do link navegar normalmente (ex.: ./index.php?aba=abaUsuarios).
+        if (document.getElementById(id)) {
+          e.preventDefault();
+          trocarAba(id);
+        }
       });
     });
 
@@ -361,6 +367,11 @@
   async function iniciar() {
     configurarEventosGerais();
 
+    // Páginas dedicadas (ex.: log.php) não têm o Dashboard nem hospedam as abas
+    // via SPA — elas carregam o próprio conteúdo. Aqui só o index.php (que tem
+    // #abaDashboard) roda o boot do dashboard e a troca de abas.
+    if (!document.getElementById("abaDashboard")) return;
+
     try {
       await window.PainelAbaUsuarios?.iniciarUsuarios?.();
       await window.PainelAbaAtividades?.iniciarAtividades?.();
@@ -370,7 +381,11 @@
       mostrarAlerta("erro", "Falha ao iniciar", String(e && e.message ? e.message : e));
     }
 
-    trocarAba("abaDashboard");
+    // Abre a aba pedida via ?aba=... (deep-link vindo de outra página); se
+    // ausente/inválida, cai no Dashboard. A seção precisa existir nesta página.
+    const abaPedida = new URLSearchParams(location.search).get("aba");
+    const abaInicial = (abaPedida && document.getElementById(abaPedida)) ? abaPedida : "abaDashboard";
+    trocarAba(abaInicial);
     renderizarDashboard();
   }
 

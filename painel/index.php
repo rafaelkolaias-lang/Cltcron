@@ -1,107 +1,13 @@
 <?php
-require_once __DIR__ . '/commands/_comum/auth.php';
-if (!esta_logado()) {
-    header('Location: ./login.php');
-    exit;
-}
-header('Content-Type: text/html; charset=utf-8');
+// Página Dashboard (home do painel). Cabeçalho, menu e rodapé vêm dos partials
+// compartilhados em _layout/ (ver Parte 0 da refatoração do painel). As seções
+// das demais abas ainda vivem aqui e são alternadas via SPA (painel.js) até
+// cada uma virar sua própria página.
+$tituloPagina    = 'Painel ADM · RK Produções Digitais';
+$subtituloPagina = 'Dashboard · visão geral';
+$abaAtiva        = 'abaDashboard';
+require __DIR__ . '/_layout/topo.php';
 ?>
-<!doctype html>
-<html lang="pt-br">
-
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Painel ADM · RK Produções Digitais</title>
-
-  <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css?v=10" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-</head>
-
-<body>
-  <!-- Topbar visível só em telas pequenas (até md). Em desktop, navegação fica
-       inteira na sidebar à esquerda. -->
-  <nav class="painel-topbar d-lg-none" aria-label="Navegação (mobile)">
-    <button class="btn btn-sm btn-outline-light" id="botaoAbrirSidebar" type="button" aria-label="Abrir menu">☰</button>
-    <a class="navbar-brand d-flex align-items-center gap-2 text-decoration-none ms-2" href="#">
-      <span class="rk-logo-icon" aria-hidden="true"><span class="rk-play">&#9654;</span></span>
-      <span class="rk-logo-texto">
-        <span class="rk-sigla">RK</span><span class="rk-producoes">PRODUÇÕES</span>
-      </span>
-    </a>
-  </nav>
-
-  <!-- Overlay do mobile (clica fora pra fechar) -->
-  <div class="painel-sidebar-overlay" id="painelSidebarOverlay" aria-hidden="true"></div>
-
-  <aside class="painel-sidebar" id="painelSidebar" aria-label="Navegação principal">
-    <div class="painel-sidebar-topo">
-      <a class="painel-sidebar-marca d-flex align-items-center gap-2 text-decoration-none" href="#">
-        <span class="rk-logo-icon" aria-hidden="true"><span class="rk-play">&#9654;</span></span>
-        <span class="rk-logo-texto">
-          <span class="rk-sigla">RK</span><span class="rk-producoes">PRODUÇÕES</span>
-        </span>
-        <span class="badge badge-suave fw-normal small ms-1">ADM</span>
-      </a>
-      <span class="texto-fraco small mt-2 d-block" id="textoSubtitulo">Dashboard · visão geral</span>
-    </div>
-
-    <ul class="painel-sidebar-nav" id="menuAbas">
-      <li class="nav-item">
-        <a class="nav-link active" href="#" data-aba="abaDashboard">Dashboard</a>
-      </li>
-      <li class="nav-item nav-hover-submenu">
-        <a class="nav-link" href="#" data-aba="abaUsuarios">Usuários</a>
-        <ul class="submenu-nav">
-          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalAdicionarUsuario">+ Adicionar Usuário</a></li>
-        </ul>
-      </li>
-      <li class="nav-item nav-hover-submenu">
-        <a class="nav-link" href="#" data-aba="abaAtividades">Canal</a>
-        <ul class="submenu-nav">
-          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">+ Adicionar Canal</a></li>
-        </ul>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="#" data-aba="abaGerenciarTarefas">Gerenciar Tarefas</a>
-      </li>
-      <li class="nav-item nav-hover-submenu">
-        <a class="nav-link" href="#" data-aba="abaCredenciais">Credenciais e APIs</a>
-        <ul class="submenu-nav">
-          <li><a href="#" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Gerenciar modelos</a></li>
-        </ul>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="#" data-aba="abaRelatorio">Relatório</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="#" data-aba="abaAuditoria" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="#" data-aba="abaMega" title="Configuração de upload obrigatório no MEGA">MEGA</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="#" data-aba="abaLogAtividades" title="Log de todas as ações do servidor">Log</a>
-      </li>
-    </ul>
-
-    <!-- Bloco inferior: ações globais (Sair / Baixar App / Recarregar). -->
-    <div class="painel-sidebar-rodape">
-      <button class="btn btn-sm btn-outline-light w-100" type="button" id="botaoRecarregarAba" title="Recarregar aba atual">&#x21BB; Recarregar</button>
-      <a href="./baixar_app.php" class="btn btn-sm btn-light w-100">Baixar App</a>
-      <a href="./logout.php" class="btn btn-sm btn-outline-danger w-100" title="Sair do painel">Sair</a>
-    </div>
-  </aside>
-
-  <div class="container-fluid painel-conteudo">
-    <div class="p-3 p-md-4">
-
-        <section id="areaAlertas" aria-label="Mensagens do sistema"></section>
-
-        <main aria-label="Conteúdo principal">
 
           <section id="abaDashboard" aria-label="Dashboard">
             <!-- Ações rápidas -->
@@ -1102,87 +1008,10 @@ header('Content-Type: text/html; charset=utf-8');
           <!-- ════════════════════════════════════════════════════════════
                ABA: LOG DE ATIVIDADES
                ════════════════════════════════════════════════════════════ -->
-          <section id="abaLogAtividades" class="d-none" aria-label="Log de Atividades">
+          <!-- Aba "Log de Atividades" migrada para a página dedicada ./log.php (Parte 1 da refatoração do painel). -->
 
-            <article class="cartao-grafite p-3">
-              <div class="linha-header-card">
-                <div class="d-flex align-items-center gap-2">
-                  <h2 class="h6 mb-0">Log de Atividades</h2>
-                  <span class="badge badge-suave" id="logBadgeTotal">—</span>
-                </div>
-                <span class="texto-fraco small">Retidos por 60 dias</span>
-              </div>
 
-              <hr class="border-light opacity-10 my-3">
-
-              <!-- Filtros -->
-              <div class="row g-2 align-items-end mb-3">
-                <div class="col-6 col-md-2">
-                  <label class="form-label texto-fraco small mb-1">Data inicio</label>
-                  <input type="date" id="logDataInicio" class="form-control bg-transparent text-white border-secondary">
-                </div>
-                <div class="col-6 col-md-2">
-                  <label class="form-label texto-fraco small mb-1">Data fim</label>
-                  <input type="date" id="logDataFim" class="form-control bg-transparent text-white border-secondary">
-                </div>
-                <div class="col-6 col-md-2">
-                  <label class="form-label texto-fraco small mb-1">Entidade</label>
-                  <select id="logFiltroEntidade" class="form-select bg-transparent text-white border-secondary">
-                    <option value="">Todas</option>
-                  </select>
-                </div>
-                <div class="col-6 col-md-2">
-                  <label class="form-label texto-fraco small mb-1">Acao</label>
-                  <select id="logFiltroAcao" class="form-select bg-transparent text-white border-secondary">
-                    <option value="">Todas</option>
-                  </select>
-                </div>
-                <div class="col-6 col-md-2">
-                  <label class="form-label texto-fraco small mb-1">Executor</label>
-                  <select id="logFiltroExecutor" class="form-select bg-transparent text-white border-secondary">
-                    <option value="">Todos</option>
-                  </select>
-                </div>
-                <div class="col-6 col-md-2 d-flex gap-2 align-items-end">
-                  <div class="input-group campo-busca flex-grow-1">
-                    <input id="logFiltroBusca" class="form-control bg-transparent text-white border-secondary" placeholder="Buscar...">
-                  </div>
-                  <button type="button" class="btn btn-light" id="logBtnBuscar">Buscar</button>
-                </div>
-              </div>
-
-              <!-- Tabela -->
-              <div class="table-responsive tabela-limite" style="max-height: 640px;">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width:150px;">Data/Hora</th>
-                      <th style="min-width:100px;">Executor</th>
-                      <th style="min-width:110px;">Entidade</th>
-                      <th style="min-width:90px;">Acao</th>
-                      <th style="min-width:280px;">Descricao</th>
-                      <th style="min-width:110px;">IP</th>
-                      <th class="text-end" style="min-width:80px;">Detalhe</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyLogAtividades">
-                    <tr><td colspan="7" class="texto-fraco text-center py-3">Carregando...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-              <nav class="mt-2 d-flex justify-content-end" id="paginacaoLog" aria-label="Paginacao dos logs"></nav>
-            </article>
-
-          </section>
-
-        </main>
-
-        <footer class="texto-fraco small mt-4" aria-label="Rodapé">
-          © Painel ADM · versão banco
-        </footer>
-
-    </div>
-  </div>
+<?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
 
   <!-- Modal: Nova Atividade (fora do main para evitar conflito de z-index) -->
   <div class="modal fade" id="modalNovaAtividade" tabindex="-1" aria-hidden="true">
@@ -1392,35 +1221,17 @@ header('Content-Type: text/html; charset=utf-8');
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-
-  <script src="./js/aba-usuarios.js?v=10"></script>
-  <script src="./js/aba-atividades.js?v=8"></script>
-  <script src="./js/aba-gerenciar-tarefas.js?v=11"></script>
-  <script src="./js/aba-credenciais.js?v=2"></script>
-  <script src="./js/aba-auditoria.js?v=3"></script>
-  <script src="./js/aba-mega.js?v=6"></script>
-  <script src="./js/aba-log-atividades.js?v=1"></script>
-  <script src="./js/aba-graficos.js?v=7"></script>
-  <script src="./js/aba-relatorio.js?v=8"></script>
-  <script src="./js/painel.js?v=9"></script>
-  <script>
-    // Toggle da sidebar no mobile. Em desktop a sidebar fica fixa e o
-    // botão ☰ não é exibido — esse script só importa em ≤ md.
-    (function () {
-      const body = document.body;
-      const btn = document.getElementById("botaoAbrirSidebar");
-      const overlay = document.getElementById("painelSidebarOverlay");
-      function fechar() { body.classList.remove("painel-sidebar-aberta"); }
-      if (btn) btn.addEventListener("click", () => body.classList.toggle("painel-sidebar-aberta"));
-      if (overlay) overlay.addEventListener("click", fechar);
-      // Fecha ao clicar num link de aba (UX mobile: vai pra aba sem deixar overlay aberto)
-      document.querySelectorAll('#menuAbas a[data-aba]').forEach((a) => {
-        a.addEventListener("click", () => { if (window.innerWidth < 992) fechar(); });
-      });
-    })();
-  </script>
-</body>
-
-</html>
+<?php
+// Scripts específicos desta página (Dashboard, que ainda hospeda todas as abas
+// via SPA). O rodapé já carrega bootstrap + chart.js (base) e painel.js (núcleo).
+$scriptsAba = [
+    './js/aba-usuarios.js?v=10',
+    './js/aba-atividades.js?v=8',
+    './js/aba-gerenciar-tarefas.js?v=11',
+    './js/aba-credenciais.js?v=2',
+    './js/aba-auditoria.js?v=3',
+    './js/aba-mega.js?v=6',
+    './js/aba-graficos.js?v=7',
+    './js/aba-relatorio.js?v=8',
+];
+require __DIR__ . '/_layout/rodape.php';

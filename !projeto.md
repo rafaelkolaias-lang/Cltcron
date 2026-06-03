@@ -141,11 +141,17 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 
 ### Web — Frontend (`painel/`)
 
+> **Refatoração em andamento (branch `dev`): SPA → multipágina** (Opção C, 11 partes). **Parte 0:** cabeçalho/menu/rodapé comuns extraídos para `_layout/` (`topo.php`, `fim_conteudo.php`, `rodape.php`) — toda página inclui esses partials. **Parte 1:** "Log" virou `log.php`. **Navegação:** links do menu são URLs reais — seção já migrada → sua página (ex.: `./log.php`); seção ainda no monolito → `./index.php?aba=<id>`. `painel.js` só intercepta o clique (modo SPA) se a seção existir na página atual, senão deixa o href navegar; no boot lê `?aba=` p/ abrir a aba certa e pula o boot do Dashboard em páginas dedicadas.
+
 | Arquivo | Cobertura |
 |---|---|
-| `index.php` | HTML completo da SPA: navbar, todas as abas (`#abaDashboard`, `#abaUsuarios`, `#abaAtividades`, `#abaGerenciarTarefas`, `#abaCredenciais`, `#abaRelatorio`, `#abaAuditoria`, `#abaLogAtividades`), sub-tela `#abaGestaoUsuario`, modais. **Layout aqui.** |
+| `_layout/topo.php` | **(Parte 0)** Cabeçalho compartilhado: guard de sessão + `<head>` + topbar/sidebar (menu) + abre `<main>`. Params da página: `$tituloPagina`, `$subtituloPagina`, `$abaAtiva`, `$cssExtra`. |
+| `_layout/fim_conteudo.php` | **(Parte 0)** Fecha `<main>`/rodapé/container (vem ANTES dos modais — z-index). |
+| `_layout/rodape.php` | **(Parte 0)** Scripts base (bootstrap+chart.js) + `$scriptsAba` da página + `painel.js` (núcleo) + toggle mobile + fecha `</body>`. |
+| `index.php` | Página **Dashboard** (home) + ainda hospeda as abas NÃO migradas via SPA (`#abaUsuarios`, `#abaAtividades`, `#abaGerenciarTarefas`, `#abaCredenciais`, `#abaRelatorio`, `#abaAuditoria`, `#abaMega`, sub-tela `#abaGestaoUsuario`, modais). Usa os partials de `_layout/`. |
+| `log.php` | **(Parte 1)** Página dedicada do Log de Atividades (usa `_layout/` + `js/aba-log-atividades.js`). |
 | `login.php`, `logout.php` | Autenticação standalone. |
-| `js/painel.js` | Core SPA: `requisitarJson`, navegação de abas, status ao vivo, dashboard. |
+| `js/painel.js` | Núcleo: `requisitarJson`, utilidades (`mostrarAlerta` etc.), navegação (intercepta SPA só se a seção existe; deep-link via `?aba=`), status ao vivo, Dashboard. |
 | `js/aba-graficos.js` | ECharts: timelines, donuts, comparativos. **~2080 linhas — Grep primeiro.** Containers ECharts são **estáticos** dentro de `garantirEstruturaSimplificada()` em `#areaUsuarioSelecionadoGraficos`. **Recorte atual vem SEMPRE de `_diaAtualmenteExibido()`** — setas ← → disparam `atualizarGraficos()` (fetch novo), filtro manual ativa `_modoTotalPeriodo`. Estado de "Carregando…" via `_indicarCarregandoGraficos()` / `_pararCarregandoGraficos()`. |
 | `js/aba-usuarios.js` | Gestão de Membros: CRUD, página de Gestão (Resumo + pagamentos + tarefas declaradas). |
 | `js/aba-gerenciar-tarefas.js` | Lista global de subtarefas com filtros e modal de edição. |
@@ -154,7 +160,7 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 | `js/aba-credenciais.js` | Aba Credenciais e APIs: CRUD de modelos + gestão de credenciais por usuário (cifradas) + seção "APIs globais ativas" (`#boxApisGlobais`/`#listaApisGlobais`) listando modelos com `aplicar_novos_usuarios=1` e botão "Remover global". Integração automática com Gestão do Usuário via `data-user-id`. |
 | `js/aba-auditoria.js` | **Aba Auditoria (v2.6):** CRUD de apps suspeitos + lista global de usuários com flag 🚩. Expõe cache compartilhado de flags (`PainelAbaAuditoria.obterFlagUsuarioSync`) reusado pelo Dashboard e Gestão. Renderiza card "Input automatizado detectado" + gráfico ECharts na Gestão do Usuário. |
 | `js/aba-mega.js` | **Aba MEGA (Fase 1+2 — admin):** 3 blocos: (1) config de pasta raiz no MEGA + flag `upload_ativo` por canal; (2) CRUD inline de campos de upload por `user_id + id_atividade`; (3) pastas lógicas cadastradas com **link clicável pro MEGA** (abre nova aba), **status de publicação** (Publicado/Pendente com badge + linha verde), **botões "Publicado"/"Cancelar"**, **filtros** (busca texto, status, canal). Edição via linha inline (sem modal). Expõe `window.PainelAbaMega.renderizarAbaMega()`. |
-| `js/aba-log-atividades.js` | **Aba Log de Atividades:** exibe log geral de todas as ações do servidor com filtros (entidade, ação, executor, busca, período), paginação, e modal de detalhe (dados antes/depois em JSON). Expõe `window.logAtividadesCarregar()`. |
+| `js/aba-log-atividades.js` | **Log de Atividades (Parte 1 — usado em `log.php`):** log geral de todas as ações do servidor com filtros (entidade, ação, executor, busca, período), paginação, e modal de detalhe (dados antes/depois em JSON). Expõe `window.logAtividadesCarregar()`. **Auto-carrega** quando em página dedicada (sem `#abaDashboard`); no index é sob demanda. |
 | `js/aba-timeline.js` | **PLACEHOLDER (~25 linhas).** Apenas registra `window.PainelAbaTimeline` com funções vazias. Não há aba "Timeline" funcional ainda — só esqueleto reservado. |
 | `css/painel.css` | Tema RK Produções dark. |
 

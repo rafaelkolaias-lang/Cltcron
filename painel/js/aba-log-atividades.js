@@ -340,4 +340,15 @@
     preencherDatasPadrao();
     carregarLogs(1);
   };
+
+  // Em pagina dedicada (log.php) nao existe o SPA do index (#abaDashboard).
+  // Nesse caso carrega sozinho ao abrir. No index.php o carregamento e sob
+  // demanda: painel.js chama logAtividadesCarregar ao abrir a aba.
+  if (!document.getElementById('abaDashboard')) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', window.logAtividadesCarregar);
+    } else {
+      window.logAtividadesCarregar();
+    }
+  }
 })();

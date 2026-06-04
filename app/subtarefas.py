@@ -151,6 +151,8 @@ class JanelaSubtarefas(tk.Toplevel):
         self._btn_atualizar: ttk.Button | None = None
         self._btn_atualizar_mega: ttk.Button | None = None
         self._lbl_status_sync_mega: ttk.Label | None = None
+        self._btn_copiar_erro_mega: ttk.Button | None = None
+        self._msg_erro_completa_mega = ""
         self._carregando_dados = False
         self._listener_mega_sync = self._ao_mudar_estado_mega_sync
 
@@ -229,6 +231,9 @@ class JanelaSubtarefas(tk.Toplevel):
             return
         cor_status = "#f0c075"
 
+        # Por padrão o botão "Copiar erro" fica escondido; só reaparece no erro.
+        self._mostrar_btn_copiar_erro_mega(False)
+
         if status == "sincronizando":
             try: btn.configure(text="SINCRONIZANDO", state="disabled")
             except Exception: pass
@@ -237,8 +242,19 @@ class JanelaSubtarefas(tk.Toplevel):
             cor_status = "#e55555"
             try: btn.configure(text="Declarar Tarefa", state="disabled")
             except Exception: pass
-            resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
-            self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
+            # Guarda a mensagem completa pro botão "Copiar erro".
+            self._msg_erro_completa_mega = msg_erro
+            if self._eh_erro_de_hora_mega(msg_erro):
+                self._var_status_sync_mega.set(
+                    "Pastas MEGA não sincronizadas: a hora do seu computador parece estar "
+                    "desatualizada. Ajuste a data e a hora do Windows (clique no relógio → "
+                    "\"Ajustar data/hora\" → ative \"Definir horário automaticamente\") e "
+                    "reabra o programa."
+                )
+            else:
+                resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
+                self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
+            self._mostrar_btn_copiar_erro_mega(True)
         elif status == "sincronizado":
             cor_status = "#3ecf6e"
             try: btn.configure(text="Declarar Tarefa", state="normal")
@@ -260,6 +276,57 @@ class JanelaSubtarefas(tk.Toplevel):
         try:
             if self._lbl_status_sync_mega is not None:
                 self._lbl_status_sync_mega.configure(foreground=cor_status)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _eh_erro_de_hora_mega(msg: str) -> bool:
+        """True quando a falha de sync MEGA é típica de relógio do PC errado
+        (certificado HTTPS recusado por data/hora fora do prazo de validade)."""
+        m = (msg or "").lower()
+        return "certificate_verify_failed" in m or "certificate verify failed" in m
+
+    def _mostrar_btn_copiar_erro_mega(self, mostrar: bool) -> None:
+        """Mostra/esconde o botão 'Copiar erro' abaixo do status MEGA."""
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        try:
+            if mostrar:
+                if not btn.winfo_ismapped():
+                    btn.pack(anchor="w", pady=(4, 0))
+            elif btn.winfo_ismapped():
+                btn.pack_forget()
+        except Exception:
+            pass
+
+    def _copiar_erro_mega_sync(self) -> None:
+        """Copia a mensagem de erro COMPLETA da sync MEGA pra área de transferência."""
+        msg = self._msg_erro_completa_mega or ""
+        if not msg:
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(msg)
+        except Exception:
+            return
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        # Feedback rápido: "Copiado!" por 1.5s, depois volta pra "Copiar erro".
+        try:
+            btn.configure(text="Copiado!")
+            self.after(1500, lambda: self._restaurar_texto_btn_copiar_erro_mega())
+        except Exception:
+            pass
+
+    def _restaurar_texto_btn_copiar_erro_mega(self) -> None:
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        try:
+            if btn.winfo_exists():
+                btn.configure(text="Copiar erro")
         except Exception:
             pass
 
@@ -578,6 +645,11 @@ class JanelaSubtarefas(tk.Toplevel):
             wraplength=1160,
         )
         self._lbl_status_sync_mega.pack(anchor="w", pady=(6, 0))
+        # Botão "Copiar" — só aparece quando há erro de sincronização MEGA.
+        # Copia a mensagem de erro COMPLETA (a do rótulo é cortada em 80 chars).
+        self._btn_copiar_erro_mega = ttk.Button(
+            topo, text="Copiar erro", command=self._copiar_erro_mega_sync
+        )
 
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))

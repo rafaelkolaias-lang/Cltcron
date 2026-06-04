@@ -106,9 +106,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.1"
+VERSAO_APLICACAO = "v4.0.2"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.2",
+        "data": "04/06/2026",
+        "notas": [
+            "Quando a sincronização das pastas MEGA falha, agora aparece um botão 'Copiar erro' que copia a mensagem completa do erro (antes a tela mostrava só um trecho cortado).",
+            "Quando a falha de sincronização é causada pela data/hora do computador desatualizada, o app passa a mostrar um aviso claro pedindo para ajustar a data e a hora do Windows, em vez de um erro técnico difícil de entender.",
+        ],
+    },
     {
         "versao": "v4.0.1",
         "data": "21/05/2026",

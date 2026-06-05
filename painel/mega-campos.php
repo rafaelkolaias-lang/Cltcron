@@ -1,6 +1,6 @@
 <?php
-// Página: MEGA · Campos de upload — configuração de pasta raiz por canal +
-// campos exigidos por usuário+canal + gestão de modelos (templates) inline.
+// Página: MEGA · Campos de upload — campos exigidos por usuário+canal + gestão
+// de modelos (templates) inline + configuração de pasta raiz por canal (no fim).
 // Separada das Pastas lógicas (mega.php). Compartilha o aba-mega.js (cada bloco
 // se protege pelos próprios elementos; o que não existe na página não roda).
 $tituloPagina    = 'MEGA · Campos de upload';
@@ -11,43 +11,11 @@ require __DIR__ . '/_layout/topo.php';
 
           <section id="abaMega" aria-label="MEGA · Campos de upload">
 
-            <!-- Bloco 1: Configuração por canal -->
-            <article class="cartao-grafite p-3 mb-3">
-              <div class="linha-header-card">
-                <div class="d-flex align-items-center gap-2">
-                  <h2 class="h6 mb-0">Configuração por canal</h2>
-                  <span class="badge badge-suave" id="megaBadgeCanais">—</span>
-                </div>
-                <div class="d-flex gap-2 align-items-center">
-                  <a href="./mega.php" class="btn btn-sm btn-outline-info" title="Ver pastas lógicas (vídeos)">← Pastas lógicas</a>
-                  <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoRecarregarCanais" title="Recarregar">&#x21BB;</button>
-                </div>
-              </div>
+            <div class="mb-2">
+              <a href="./mega.php" class="btn btn-sm btn-outline-info" title="Ver pastas lógicas (vídeos)">← Pastas lógicas</a>
+            </div>
 
-              <div class="texto-fraco small mb-2">
-                Defina a <strong>pasta raiz no MEGA</strong> de cada canal e ative o upload obrigatório. Canais sem
-                configuração mantêm o fluxo antigo (checkbox "Declaro que subi os arquivos").
-              </div>
-
-              <div class="table-responsive">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width:220px;">Canal</th>
-                      <th style="min-width:260px;">Pasta raiz no MEGA</th>
-                      <th class="text-center" style="min-width:120px;">Upload ativo</th>
-                      <th style="min-width:140px;">Atualizado em</th>
-                      <th class="text-end" style="min-width:120px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyMegaCanais">
-                    <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </article>
-
-            <!-- Bloco 2: Campos exigidos por usuário + canal -->
+            <!-- Bloco 1: Campos exigidos por usuário + canal -->
             <article class="cartao-grafite p-3 mb-3">
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
@@ -71,15 +39,11 @@ require __DIR__ . '/_layout/topo.php';
                 Marque o <strong>Tipo</strong> certo (Thumb / Vídeo / …) — é o que liga o "verde compartilhado" e o download no app.
               </div>
 
-              <!-- Barra de aplicar modelo (a gestão dos modelos fica na tabela abaixo) -->
+              <!-- Usar modelos: abre um popup com checkboxes pra adicionar vários de uma vez -->
               <div class="d-flex flex-wrap align-items-center gap-2 mb-2 p-2 rounded" style="background:rgba(255,255,255,0.04);">
-                <span class="texto-fraco small">Aplicar modelo:</span>
-                <select id="megaSelectModelo" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:200px;" disabled>
-                  <option value="">Carregando…</option>
-                </select>
                 <button class="btn btn-sm btn-light" type="button" id="megaBotaoUsarModelo" disabled
-                        title="Insere uma nova linha editável já preenchida com este modelo (você ainda precisa clicar em Salvar)">Usar modelo</button>
-                <span class="texto-fraco small ms-1">cria um campo já preenchido para o usuário+canal selecionado.</span>
+                        title="Selecione vários modelos de uma vez e adicione todos ao usuário+canal">Usar modelo existente</button>
+                <span class="texto-fraco small ms-1">abre uma lista pra marcar vários modelos e adicionar todos de uma vez ao usuário+canal selecionado.</span>
               </div>
 
               <div class="table-responsive">
@@ -103,8 +67,8 @@ require __DIR__ . '/_layout/topo.php';
               </div>
             </article>
 
-            <!-- Bloco 3: Modelos de campo reutilizáveis (CRUD inline) -->
-            <article class="cartao-grafite p-3">
+            <!-- Bloco 2: Modelos de campo reutilizáveis (CRUD inline) -->
+            <article class="cartao-grafite p-3 mb-3">
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
                   <h2 class="h6 mb-0">Modelos de campo (reutilizáveis)</h2>
@@ -142,9 +106,65 @@ require __DIR__ . '/_layout/topo.php';
               </div>
             </article>
 
+            <!-- Bloco 3: Configuração por canal (no fim — define pasta raiz + ativa upload) -->
+            <article class="cartao-grafite p-3">
+              <div class="linha-header-card">
+                <div class="d-flex align-items-center gap-2">
+                  <h2 class="h6 mb-0">Configuração por canal</h2>
+                  <span class="badge badge-suave" id="megaBadgeCanais">—</span>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                  <button class="btn btn-sm btn-outline-light" type="button" id="megaBotaoRecarregarCanais" title="Recarregar">&#x21BB;</button>
+                </div>
+              </div>
+
+              <div class="texto-fraco small mb-2">
+                Defina a <strong>pasta raiz no MEGA</strong> de cada canal e ative o upload obrigatório. Canais sem
+                configuração mantêm o fluxo antigo (checkbox "Declaro que subi os arquivos").
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
+                  <thead>
+                    <tr class="texto-fraco small">
+                      <th style="min-width:220px;">Canal</th>
+                      <th style="min-width:260px;">Pasta raiz no MEGA</th>
+                      <th class="text-center" style="min-width:120px;">Upload ativo</th>
+                      <th style="min-width:140px;">Atualizado em</th>
+                      <th class="text-end" style="min-width:120px;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tbodyMegaCanais">
+                    <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+
           </section>
 
 <?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
+
+  <!-- Modal: Usar modelos existentes (multi-seleção → adiciona todos de uma vez) -->
+  <div class="modal fade" id="modalUsarModelos" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+      <div class="modal-content bg-dark text-white border-secondary">
+        <div class="modal-header border-secondary">
+          <h5 class="modal-title h6 mb-0">Usar modelos existentes</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="texto-fraco small mb-2" id="modalUsarModelosContexto">Marque os modelos pra adicionar como campos.</p>
+          <div id="modalUsarModelosLista"></div>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-light btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-light btn-sm" id="modalUsarModelosSalvar">Salvar selecionados</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=8'];
+$scriptsAba = ['./js/aba-mega.js?v=9'];
 require __DIR__ . '/_layout/rodape.php';

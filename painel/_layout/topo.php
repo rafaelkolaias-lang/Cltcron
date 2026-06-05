@@ -43,7 +43,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
   <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="./css/painel.css?v=10" rel="stylesheet">
+  <link href="./css/painel.css?v=11" rel="stylesheet">
 <?php foreach ($cssExtra as $_css): ?>
   <link href="<?= htmlspecialchars($_css, ENT_QUOTES, 'UTF-8') ?>" rel="stylesheet">
 <?php endforeach; ?>
@@ -109,10 +109,10 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
       <li class="nav-item">
         <a class="<?= $_classeNav('abaAuditoria') ?>" href="./auditoria.php" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
       </li>
-      <li class="nav-item nav-hover-submenu">
+      <li class="nav-item nav-static-submenu">
         <a class="<?= $_classeNav('abaMega') ?>" href="./mega.php" title="Pastas lógicas (vídeos) no MEGA">MEGA</a>
         <ul class="submenu-nav">
-          <li><a href="./mega-campos.php">Campos de upload</a></li>
+          <li><a href="./mega-campos.php" title="Configuração de campos de upload e modelos">Campos de upload</a></li>
         </ul>
       </li>
       <li class="nav-item">

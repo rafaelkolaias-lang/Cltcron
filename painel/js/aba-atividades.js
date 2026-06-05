@@ -577,4 +577,11 @@
   };
 
   inicializar();
+
+  // Página dedicada (canal.php): sem o SPA do index (#abaDashboard), carrega a
+  // tabela ao abrir. No index a carga é disparada ao clicar na aba "Canal"
+  // (tentarCarregarQuandoAbrirAba) ou via window.recarregarAbaAtividades.
+  if (!document.getElementById("abaDashboard") && document.querySelector(seletorTbody)) {
+    carregarAtividades().catch(console.error);
+  }
 })();

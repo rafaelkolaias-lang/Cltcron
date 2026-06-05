@@ -726,10 +726,18 @@
       </tr>`;
     }).join("");
 
-    // Event delegation para botão Gestão
+    // Event delegation para botão Gestão. Se a Gestão existe nesta página (SPA
+    // do index), abre inline; senão (multipágina) navega para a página Usuários
+    // com deep-link ?user=<id> que abre a Gestão daquele usuário.
     tbody.onclick = (e) => {
       const btn = e.target.closest("button[data-gestao-uid]");
-      if (btn) window.PainelAbaUsuarios?.abrirModalGestaoUsuario?.(btn.dataset.gestaoUid);
+      if (!btn) return;
+      const uid = btn.dataset.gestaoUid;
+      if (document.getElementById("abaGestaoUsuario")) {
+        window.PainelAbaUsuarios?.abrirModalGestaoUsuario?.(uid);
+      } else {
+        window.location.href = "./usuarios.php?user=" + encodeURIComponent(uid);
+      }
     };
   }
 

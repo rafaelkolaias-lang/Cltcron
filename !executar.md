@@ -6,6 +6,42 @@
 
 ## Tarefas Claude 1
 
+### ✅ 7. Verde compartilhado de thumb + botão "Baixar arquivo" da pasta (2026-06-05)
+
+**Pedido do usuário:** (1) quando um thumbmaker sobe a thumb, fica verde só pra ele — outro thumbmaker não vê que a thumb já foi feita e pode refazer; (2) o thumbmaker precisa entrar no MEGA pra ver o vídeo — queria baixar direto do cronômetro. Editor e thumbmakers dividem a mesma pasta do vídeo.
+
+**Solução aplicada (Claude 1):**
+
+1. **Banco — coluna `tipo`** (`painel/commands/mega/_estrutura.php`, bloco G idempotente): `tipo VARCHAR(20) NOT NULL DEFAULT 'outro'` em `mega_campos_upload` e `mega_campos_modelos`. Valores canônicos: `video`, `projeto`, `thumb`, `texto`, `outro`. Padrão idempotente igual ao bloco F (`link_mega`).
+
+2. **Helper** `mega_normalizar_tipo()` + const `MEGA_TIPOS_CAMPO` em `_comum.php`.
+
+3. **CRUD do painel grava/lê `tipo`:** `campos_listar.php`, `campos_salvar.php`, `campos_modelos_listar.php`, `campos_modelos_salvar.php`.
+
+4. **UI admin (aba MEGA):** `aba-mega.js` ganhou `<select>` de tipo (Vídeo/Projeto/Thumb/Texto/Outro) na linha editável + coluna na leitura + propagação no payload e nos modelos; `mega.php` ganhou `<th>Tipo</th>` (cache-buster `v=7`). **Admin precisa marcar manualmente, uma vez, o tipo de cada campo já existente** (todos ficam `outro` por padrão).
+
+5. **Novo endpoint** `painel/commands/mega/desktop_obter_status_pasta.php` (GET `?id_pasta_logica`): auth desktop + IDOR via `mega_user_pertence_pasta_logica`. Retorna `arquivos_pasta[]` (todos os uploads concluídos da pasta, de qualquer usuário, com `tipo` resolvido por subquery `mega_campos_upload` e `caminho_remoto` já montado `/raiz/pasta/user_id/arquivo`).
+
+6. **Desktop `app/mega_uploader.py`:** `PainelMegaApi.obter_status_pasta()`; `MegaUploader.baixar_arquivo()` + `_executar_mega_get_streaming()` (espelho do `mega-put`, agora com `mega-get`: progresso, cancelamento, retry em sessão expirada; baixa pra tmp dir dentro do destino → `os.replace` atômico).
+
+7. **Desktop `app/subtarefas.py`** (form MEGA): ao selecionar uma pasta lógica, `_carregar_status_pasta()` busca o status compartilhado e mostra: **(a)** linha verde "✓ Thumb já entregue por <nomes> — não precisa refazer" quando há upload `tipo='thumb'` de outro usuário; **(b)** lista "Arquivos disponíveis nesta pasta" (de outros usuários) com botão 📥 Baixar por arquivo (`asksaveasfilename` + progressbar + Cancelar, espelhando o upload). Pergunta se quer abrir o arquivo ao concluir.
+
+**Verificação:** `php -l` limpo; `py_compile`+import OK; ruff só com achados pré-existentes; pytest 79 passou (as 3 falhas em `test_declaracoes_validacao.py` são pré-existentes, do commit 1f121be, sem relação).
+
+**Correções pós-auditoria (2026-06-05):**
+- **#1 download obsoleto:** `desktop_obter_status_pasta.php` agora retorna só o upload mais recente por (user_id, nome_campo) via JOIN com `MAX(id_upload)` — descarta linhas `concluido` de re-uploads ("Trocar arquivo") cujo arquivo já foi apagado do MEGA.
+- **#3 regressão colspan:** revertidos pra `colspan="7"` os placeholders da tabela de Pastas no `aba-mega.js` (um `replace_all` largo os tinha mudado pra 8 junto com a tabela de Campos).
+- **#4 colspan defasado:** `mega.php` placeholder inicial da tabela de Campos corrigido pra `colspan="8"`.
+- **#5 status preso:** `subtarefas.py` `_rebuild_lbx_pasta` agora chama `_limpar_status_pasta_ui()` — ao trocar de canal, a linha verde/lista de download da pasta anterior não fica mais presa.
+- **#2 (corrigido — Opção B):** campos enviados como PASTA (nome_arquivo termina em "/") agora baixam de verdade. `MegaUploader.baixar_pasta()` (mega-get recursivo, sem tmp/os.replace) + no form a linha detecta pasta (`eh_pasta`), abre `askdirectory` (escolher pasta de destino) em vez de "Salvar como", e o rótulo mostra 📁. Ao concluir, oferece abrir a pasta baixada.
+
+**Pontos de atenção:**
+- **Alteração de banco já no código** (idempotente): a coluna `tipo` é criada na próxima vez que qualquer endpoint MEGA rodar `mega_garantir_estrutura()`. **Ainda não foi aplicada/deployada** — depende de deploy autorizado pelo usuário.
+- O `tipo` do upload é resolvido cruzando `mega_uploads.nome_campo = mega_campos_upload.label_campo` (+ user_id + id_atividade). Se o admin renomear o label depois, uploads antigos não casam e caem em `outro` (mesma limitação de toda a tabela).
+- O download lista arquivos de **outros** usuários (o material que o thumbmaker precisa) — não os do próprio user.
+
+---
+
 ### ✅ 6. Sistema de Log de Atividades no painel ADM (2026-05-20)
 
 **Solução aplicada (Claude 1):**

@@ -8,8 +8,14 @@ declare(strict_types=1);
  * Suporta "permanecer logado" via token persistente em arquivo.
  */
 
-define('PAINEL_USUARIO', 'admin');
-define('PAINEL_SENHA_HASH', '$2y$10$m8da/8bKiagSpuNAgi.Xyu4ca0uQWrUTr0iFyaUA2IcnP.4HhNMSW');
+// Override LOCAL de desenvolvimento (NÃO versionado — ver .gitignore): se o
+// arquivo auth.local.php existir, ele pode (re)definir PAINEL_USUARIO/
+// PAINEL_SENHA_HASH ANTES dos defaults abaixo. Em produção o arquivo não
+// existe → usa os valores reais. Serve só pra login local de teste.
+@include __DIR__ . '/auth.local.php';
+
+if (!defined('PAINEL_USUARIO'))    define('PAINEL_USUARIO', 'admin');
+if (!defined('PAINEL_SENHA_HASH')) define('PAINEL_SENHA_HASH', '$2y$10$m8da/8bKiagSpuNAgi.Xyu4ca0uQWrUTr0iFyaUA2IcnP.4HhNMSW');
 define('PAINEL_LEMBRAR_DIAS', 30);
 define('PAINEL_TOKENS_FILE', __DIR__ . '/.tokens.json');
 define('PAINEL_COOKIE_LEMBRAR', 'painel_lembrar');

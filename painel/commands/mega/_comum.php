@@ -91,6 +91,26 @@ function mega_user_pertence_pasta_logica(PDO $pdo, string $user_id, int $id_past
 }
 
 /**
+ * Tipos canônicos de campo de upload. Usados para classificar o conteúdo:
+ * - 'video'   : o vídeo final (subido pelo editor);
+ * - 'projeto' : arquivo de projeto (EDL, .aep, .prproj, .zip do projeto);
+ * - 'thumb'   : a thumbnail (subida pelo thumbmaker) — base do "verde compartilhado";
+ * - 'texto'   : roteiro/narração/arquivo de texto;
+ * - 'outro'   : default — campo sem classificação (compat. com campos antigos).
+ */
+const MEGA_TIPOS_CAMPO = ['video', 'projeto', 'thumb', 'texto', 'outro'];
+
+/**
+ * Normaliza o tipo do campo: lowercase + trim, restrito ao conjunto canônico.
+ * Qualquer valor fora da lista (ou vazio) cai em 'outro'.
+ */
+function mega_normalizar_tipo(?string $tipo): string
+{
+    $tipo = strtolower(trim((string)$tipo));
+    return in_array($tipo, MEGA_TIPOS_CAMPO, true) ? $tipo : 'outro';
+}
+
+/**
  * Valida lista de extensões (formato "mp4,zip,png") e retorna versão
  * normalizada (lowercase, sem pontos, sem espaços). Vazio = qualquer.
  */

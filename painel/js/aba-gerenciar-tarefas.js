@@ -160,6 +160,27 @@
     _carregando = false;
   }
 
+  // Fallback local do HTML de paginação. No index.php quem expõe
+  // window.__paginacaoTarefasHtml é o aba-usuarios.js; em página dedicada
+  // (gerenciar-tarefas.php) ele não é carregado, então geramos aqui os mesmos
+  // botões data-pag que o handler de clique espera.
+  function _paginacaoHtmlLocal(pageAtual, totalPages) {
+    if (!totalPages || totalPages <= 1) return "";
+    const segura = (n) => Math.min(Math.max(1, n), totalPages);
+    const partes = ['<ul class="pagination pagination-sm mb-0" role="navigation">'];
+    partes.push(`<li class="page-item ${pageAtual <= 1 ? "disabled" : ""}"><button class="page-link bg-transparent text-light border-secondary" data-pag="${segura(pageAtual - 1)}" ${pageAtual <= 1 ? "disabled" : ""} aria-label="Anterior">«</button></li>`);
+    const ini = Math.max(1, pageAtual - 3), fim = Math.min(totalPages, pageAtual + 3);
+    if (ini > 1) partes.push('<li class="page-item disabled"><span class="page-link bg-transparent text-light border-secondary">…</span></li>');
+    for (let n = ini; n <= fim; n++) {
+      const ativa = n === pageAtual;
+      partes.push(`<li class="page-item ${ativa ? "active" : ""}"><button class="page-link ${ativa ? "" : "bg-transparent text-light"} border-secondary" data-pag="${n}" ${ativa ? 'aria-current="page"' : ""}>${n}</button></li>`);
+    }
+    if (fim < totalPages) partes.push('<li class="page-item disabled"><span class="page-link bg-transparent text-light border-secondary">…</span></li>');
+    partes.push(`<li class="page-item ${pageAtual >= totalPages ? "disabled" : ""}"><button class="page-link bg-transparent text-light border-secondary" data-pag="${segura(pageAtual + 1)}" ${pageAtual >= totalPages ? "disabled" : ""} aria-label="Próxima">»</button></li>`);
+    partes.push("</ul>");
+    return partes.join("");
+  }
+
   function _renderPaginacao() {
     const nav = el("paginacaoGerenciarTarefas");
     if (!nav) return;
@@ -169,7 +190,7 @@
     }
     const html = typeof window.__paginacaoTarefasHtml === "function"
       ? window.__paginacaoTarefasHtml(_paginaAtual, _totalPaginas, "gt")
-      : "";
+      : _paginacaoHtmlLocal(_paginaAtual, _totalPaginas);
     nav.innerHTML = html;
     nav.querySelectorAll("button[data-pag]").forEach((b) => {
       b.addEventListener("click", () => {
@@ -394,4 +415,14 @@
   window.recarregarAbaGerenciarTarefas = carregarTarefas;
 
   document.addEventListener("DOMContentLoaded", _inicializar);
+
+  // Página dedicada (gerenciar-tarefas.php): sem o SPA do index (#abaDashboard),
+  // carrega a lista ao abrir. No index é sob demanda (painel.js chama
+  // recarregarAbaGerenciarTarefas ao trocar de aba). Registrado após o listener
+  // de _inicializar para rodar depois dele.
+  if (!document.getElementById("abaDashboard")) {
+    document.addEventListener("DOMContentLoaded", function () {
+      if (document.getElementById("tbodyGerenciarTarefas")) carregarTarefas();
+    });
+  }
 })();

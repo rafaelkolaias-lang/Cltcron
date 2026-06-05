@@ -354,8 +354,11 @@
     if (!link || link.dataset.ligado === '1') return;
     link.dataset.ligado = '1';
     link.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      if (typeof window.PainelNucleo_trocarAba === 'function') {
+      // Só faz a troca de aba SPA se a seção Auditoria existir nesta página
+      // (index). Em multipágina ela vive em auditoria.php, então deixamos o
+      // href do link (./auditoria.php) navegar normalmente.
+      if (document.getElementById('abaAuditoria') && typeof window.PainelNucleo_trocarAba === 'function') {
+        ev.preventDefault();
         window.PainelNucleo_trocarAba('abaAuditoria');
       }
     });
@@ -398,11 +401,14 @@
       if (!btn) return;
       const user_id = btn.getAttribute('data-user-id') || '';
       if (!user_id) return;
+      // Se a Gestão existe nesta página (SPA do index), abre inline; senão
+      // (multipágina, ex.: auditoria.php) navega para a página Usuários com
+      // deep-link ?user=<id>.
       const fn = window.PainelAbaUsuarios?.abrirModalGestaoUsuario;
-      if (typeof fn === 'function') {
+      if (document.getElementById('abaGestaoUsuario') && typeof fn === 'function') {
         fn(user_id);
       } else {
-        alerta('aviso', 'Navegação', 'Função de gestão não encontrada.');
+        window.location.href = './usuarios.php?user=' + encodeURIComponent(user_id);
       }
     });
   }
@@ -619,13 +625,19 @@
   // Ao carregar o DOM, pré-carrega o cache (em background) para que as
   // bandeiras apareçam já na primeira renderização do Dashboard e da aba
   // Usuários, sem esperar o admin abrir a aba de Auditoria.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      ligarLinkGestaoParaAuditoria();
-      garantirFlagsMap().catch(() => { /* silencioso */ });
-    });
-  } else {
+  function _bootAuditoria() {
     ligarLinkGestaoParaAuditoria();
     garantirFlagsMap().catch(() => { /* silencioso */ });
+    // Página dedicada (auditoria.php): sem o SPA do index (#abaDashboard),
+    // renderiza a aba ao abrir. No index é sob demanda (painel.js chama
+    // renderizarAbaAuditoria ao trocar para a aba).
+    if (!document.getElementById('abaDashboard') && document.getElementById('abaAuditoria')) {
+      renderizarAbaAuditoria().catch(() => { /* silencioso */ });
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bootAuditoria);
+  } else {
+    _bootAuditoria();
   }
 })();

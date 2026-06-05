@@ -17,13 +17,35 @@ function obter_variavel_de_ambiente(string $chave, string $padrao = ''): string
 
 function obter_conexao_pdo(): PDO
 {
-    // Credenciais (com fallback para ENV)
-    $host = obter_variavel_de_ambiente('DB_HOST', '76.13.112.108');
-    // Porta produção 3306 homologação 3307
-    $porta = obter_variavel_de_ambiente('DB_PORT', '3306');
-    $nome_banco = obter_variavel_de_ambiente('DB_NAME', 'dados');
-    $usuario = obter_variavel_de_ambiente('DB_USER', 'kolaias');
-    $senha = obter_variavel_de_ambiente('DB_PASS', 'kolaias');
+    // Credenciais (com fallback para ENV). Default = PRODUÇÃO (porta 3306).
+    // Homologação remota = porta 3307. NÃO existe banco MySQL local por padrão.
+    $cfg = [
+        'host'  => obter_variavel_de_ambiente('DB_HOST', '76.13.112.108'),
+        'porta' => obter_variavel_de_ambiente('DB_PORT', '3306'),
+        'nome'  => obter_variavel_de_ambiente('DB_NAME', 'dados'),
+        'user'  => obter_variavel_de_ambiente('DB_USER', 'kolaias'),
+        'senha' => obter_variavel_de_ambiente('DB_PASS', 'kolaias'),
+    ];
+
+    // Override LOCAL de desenvolvimento — arquivo NÃO versionado (ver .gitignore).
+    // Se existir, seus valores substituem os de cima. Permite apontar o painel
+    // para um MySQL local (ex.: XAMPP root sem senha, banco clonado) sem editar
+    // este arquivo versionado — então a produção continua sendo o default no git
+    // e não há "restaurar antes de commitar". O array pode conter qualquer
+    // subconjunto de: host, porta, nome, user, senha.
+    $arquivo_local = __DIR__ . '/conexao.local.php';
+    if (is_file($arquivo_local)) {
+        $override = require $arquivo_local;
+        if (is_array($override)) {
+            $cfg = array_merge($cfg, $override);
+        }
+    }
+
+    $host = $cfg['host'];
+    $porta = $cfg['porta'];
+    $nome_banco = $cfg['nome'];
+    $usuario = $cfg['user'];
+    $senha = $cfg['senha'];
 
     $dsn = sprintf(
         'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',

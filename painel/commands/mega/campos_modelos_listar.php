@@ -18,7 +18,7 @@ try {
     mega_garantir_estrutura($pdo);
 
     $sql = "
-        SELECT id_modelo, nome_modelo, label_campo, extensoes_permitidas,
+        SELECT id_modelo, nome_modelo, label_campo, tipo, extensoes_permitidas,
                quantidade_maxima, obrigatorio, ativo, ordem,
                criado_em, atualizado_em
           FROM mega_campos_modelos
@@ -30,6 +30,7 @@ try {
 
     foreach ($linhas as &$l) {
         $l['id_modelo']         = (int)$l['id_modelo'];
+        $l['tipo']              = (string)($l['tipo'] ?? 'outro');
         $l['quantidade_maxima'] = (int)$l['quantidade_maxima'];
         $l['obrigatorio']       = (int)$l['obrigatorio'] === 1;
         $l['ativo']             = (int)$l['ativo'] === 1;

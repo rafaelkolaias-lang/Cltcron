@@ -126,6 +126,25 @@ function mega_garantir_estrutura(?PDO $pdo = null): void
         }
     }
 
+    // G. Coluna `tipo` do campo de upload (classifica o conteúdo do campo).
+    //    Valores canônicos ASCII: 'video','projeto','thumb','texto','outro' (default).
+    //    Usada para: (a) "verde compartilhado" — saber que a thumb daquele vídeo já
+    //    foi entregue por algum thumbmaker (tipo='thumb'); (b) listar arquivos da
+    //    pasta para download direto no desktop. Campos antigos ficam 'outro' e o
+    //    admin marca o tipo certo uma vez. Mesmo padrão idempotente do bloco F.
+    $colunas_tipo = [
+        'mega_campos_upload'  => "VARCHAR(20) NOT NULL DEFAULT 'outro' AFTER label_campo",
+        'mega_campos_modelos' => "VARCHAR(20) NOT NULL DEFAULT 'outro' AFTER label_campo",
+    ];
+    foreach ($colunas_tipo as $tabela => $def) {
+        try {
+            $pdo->exec("ALTER TABLE {$tabela} ADD COLUMN tipo {$def}");
+        } catch (PDOException $e) {
+            // 1060 = Duplicate column name — já existe, ignora.
+            if ((int)$e->errorInfo[1] !== 1060) throw $e;
+        }
+    }
+
     // Modelos de credenciais para login automático no MEGA. Aproveitam a infra
     // existente (cifragem MASTER no banco, recifragem CLIENT na entrega ao
     // desktop). O admin preenche os valores em modo global (aplicar_todos=true)

@@ -18,6 +18,34 @@ from pathlib import Path
 MODO_SCRIPT = not getattr(sys, "frozen", False)
 
 
+# =========================
+# CERTIFICADOS HTTPS (certifi embutido)
+# =========================
+# Força TODAS as conexões HTTPS (urllib) a validarem contra o bundle de
+# certificados-raiz do `certifi`, em vez do repositório do Windows de cada
+# usuário. Motivo: PCs antigos/desatualizados não têm os roots novos da
+# Let's Encrypt (ISRG Root X1/X2) e o OpenSSL acabava seguindo o "DST Root
+# CA X3" (vencido em 30/09/2021), quebrando a sync MEGA com
+# "certificate has expired" mesmo com a hora certa. O navegador funcionava
+# porque baixa esses roots sozinho; o app não. Com certifi embutido, o app
+# carrega os roots corretos consigo e funciona em qualquer PC.
+# Importante: definir no import de `config` garante que roda antes de
+# qualquer chamada de rede (config é importado por todos os módulos).
+try:
+    import ssl as _ssl
+    import certifi as _certifi
+
+    def _contexto_https_certifi(*_args, **_kwargs):
+        return _ssl.create_default_context(cafile=_certifi.where())
+
+    # urllib.request.urlopen sem `context` usa este hook global.
+    _ssl._create_default_https_context = _contexto_https_certifi
+except Exception:
+    # Sem certifi (ambiente de dev incompleto): mantém o comportamento
+    # padrão (repositório do SO). Não pode quebrar o import de config.
+    pass
+
+
 class LogTecnico:
     """Log técnico em memória + arquivo. Thread-safe. Usado para depurar o cronômetro em modo script."""
 
@@ -106,9 +134,24 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.1"
+VERSAO_APLICACAO = "v4.0.3"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.3",
+        "data": "04/06/2026",
+        "notas": [
+            "Fix: em alguns computadores (geralmente Windows desatualizado) a sincronização das pastas MEGA falhava com erro de 'certificado expirado', mesmo com a data e a hora corretas, porque o computador não tinha os certificados de segurança mais novos. Agora o app já vem com esses certificados embutidos e funciona em qualquer computador, sem depender das atualizações do Windows.",
+        ],
+    },
+    {
+        "versao": "v4.0.2",
+        "data": "04/06/2026",
+        "notas": [
+            "Quando a sincronização das pastas MEGA falha, agora aparece um botão 'Copiar erro' que copia a mensagem completa do erro (antes a tela mostrava só um trecho cortado).",
+            "Quando a falha de sincronização é causada pela data/hora do computador desatualizada, o app passa a mostrar um aviso claro pedindo para ajustar a data e a hora do Windows, em vez de um erro técnico difícil de entender.",
+        ],
+    },
     {
         "versao": "v4.0.1",
         "data": "21/05/2026",

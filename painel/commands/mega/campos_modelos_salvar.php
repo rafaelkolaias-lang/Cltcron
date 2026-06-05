@@ -22,6 +22,7 @@ try {
     $id_modelo   = (int)($in['id_modelo'] ?? 0);
     $nome        = trim((string)($in['nome_modelo'] ?? ''));
     $label       = trim((string)($in['label_campo'] ?? ''));
+    $tipo        = mega_normalizar_tipo(isset($in['tipo']) ? (string)$in['tipo'] : null);
     $extensoes   = mega_normalizar_extensoes(isset($in['extensoes_permitidas']) ? (string)$in['extensoes_permitidas'] : null);
     $quantidade  = max(0, (int)($in['quantidade_maxima'] ?? 1));
     $obrigatorio = !empty($in['obrigatorio']) ? 1 : 0;
@@ -49,11 +50,11 @@ try {
 
         $st = $pdo->prepare("
             UPDATE mega_campos_modelos
-               SET nome_modelo=?, label_campo=?, extensoes_permitidas=?,
+               SET nome_modelo=?, label_campo=?, tipo=?, extensoes_permitidas=?,
                    quantidade_maxima=?, obrigatorio=?, ordem=?, ativo=?
              WHERE id_modelo=?
         ");
-        $st->execute([$nome, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_modelo]);
+        $st->execute([$nome, $label, $tipo, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_modelo]);
         log_registrar($pdo, 'mega_modelo', 'editou',
             "Editou modelo de campo MEGA '{$nome}' (id={$id_modelo})",
             ['id_modelo' => $id_modelo, 'nome' => $nome, 'label' => $label],
@@ -64,12 +65,12 @@ try {
     } else {
         $st = $pdo->prepare("
             INSERT INTO mega_campos_modelos
-                (nome_modelo, label_campo, extensoes_permitidas,
+                (nome_modelo, label_campo, tipo, extensoes_permitidas,
                  quantidade_maxima, obrigatorio, ordem, ativo)
-            VALUES (?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?)
         ");
         try {
-            $st->execute([$nome, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo]);
+            $st->execute([$nome, $label, $tipo, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo]);
         } catch (PDOException $e) {
             // 23000 = integrity violation (UNIQUE nome_modelo).
             if ((string)$e->getCode() === '23000') {

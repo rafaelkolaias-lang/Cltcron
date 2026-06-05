@@ -373,4 +373,15 @@
   }
 
   window.PainelAbaRelatorio = { renderizarAbaRelatorio };
+
+  // Em página dedicada (relatorio.php) não existe o SPA do index (#abaDashboard);
+  // inicializa sozinho ao abrir. No index.php é sob demanda (painel.js chama ao
+  // abrir a aba).
+  if (!document.getElementById("abaDashboard") && document.getElementById("relatorioAreaConteudo")) {
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", renderizarAbaRelatorio);
+    } else {
+      renderizarAbaRelatorio();
+    }
+  }
 })();

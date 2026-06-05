@@ -151,6 +151,8 @@ class JanelaSubtarefas(tk.Toplevel):
         self._btn_atualizar: ttk.Button | None = None
         self._btn_atualizar_mega: ttk.Button | None = None
         self._lbl_status_sync_mega: ttk.Label | None = None
+        self._btn_copiar_erro_mega: ttk.Button | None = None
+        self._msg_erro_completa_mega = ""
         self._carregando_dados = False
         self._listener_mega_sync = self._ao_mudar_estado_mega_sync
 
@@ -229,6 +231,9 @@ class JanelaSubtarefas(tk.Toplevel):
             return
         cor_status = "#f0c075"
 
+        # Por padrão o botão "Copiar erro" fica escondido; só reaparece no erro.
+        self._mostrar_btn_copiar_erro_mega(False)
+
         if status == "sincronizando":
             try: btn.configure(text="SINCRONIZANDO", state="disabled")
             except Exception: pass
@@ -237,8 +242,19 @@ class JanelaSubtarefas(tk.Toplevel):
             cor_status = "#e55555"
             try: btn.configure(text="Declarar Tarefa", state="disabled")
             except Exception: pass
-            resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
-            self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
+            # Guarda a mensagem completa pro botão "Copiar erro".
+            self._msg_erro_completa_mega = msg_erro
+            if self._eh_erro_de_hora_mega(msg_erro):
+                self._var_status_sync_mega.set(
+                    "Pastas MEGA não sincronizadas: a hora do seu computador parece estar "
+                    "desatualizada. Ajuste a data e a hora do Windows (clique no relógio → "
+                    "\"Ajustar data/hora\" → ative \"Definir horário automaticamente\") e "
+                    "reabra o programa."
+                )
+            else:
+                resumo_erro = msg_erro[:80] + ("…" if len(msg_erro) > 80 else "")
+                self._var_status_sync_mega.set(f"Pastas MEGA não sincronizadas: {resumo_erro}")
+            self._mostrar_btn_copiar_erro_mega(True)
         elif status == "sincronizado":
             cor_status = "#3ecf6e"
             try: btn.configure(text="Declarar Tarefa", state="normal")
@@ -260,6 +276,57 @@ class JanelaSubtarefas(tk.Toplevel):
         try:
             if self._lbl_status_sync_mega is not None:
                 self._lbl_status_sync_mega.configure(foreground=cor_status)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _eh_erro_de_hora_mega(msg: str) -> bool:
+        """True quando a falha de sync MEGA é típica de relógio do PC errado
+        (certificado HTTPS recusado por data/hora fora do prazo de validade)."""
+        m = (msg or "").lower()
+        return "certificate_verify_failed" in m or "certificate verify failed" in m
+
+    def _mostrar_btn_copiar_erro_mega(self, mostrar: bool) -> None:
+        """Mostra/esconde o botão 'Copiar erro' abaixo do status MEGA."""
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        try:
+            if mostrar:
+                if not btn.winfo_ismapped():
+                    btn.pack(anchor="w", pady=(4, 0))
+            elif btn.winfo_ismapped():
+                btn.pack_forget()
+        except Exception:
+            pass
+
+    def _copiar_erro_mega_sync(self) -> None:
+        """Copia a mensagem de erro COMPLETA da sync MEGA pra área de transferência."""
+        msg = self._msg_erro_completa_mega or ""
+        if not msg:
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(msg)
+        except Exception:
+            return
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        # Feedback rápido: "Copiado!" por 1.5s, depois volta pra "Copiar erro".
+        try:
+            btn.configure(text="Copiado!")
+            self.after(1500, lambda: self._restaurar_texto_btn_copiar_erro_mega())
+        except Exception:
+            pass
+
+    def _restaurar_texto_btn_copiar_erro_mega(self) -> None:
+        btn = self._btn_copiar_erro_mega
+        if btn is None:
+            return
+        try:
+            if btn.winfo_exists():
+                btn.configure(text="Copiar erro")
         except Exception:
             pass
 
@@ -578,6 +645,11 @@ class JanelaSubtarefas(tk.Toplevel):
             wraplength=1160,
         )
         self._lbl_status_sync_mega.pack(anchor="w", pady=(6, 0))
+        # Botão "Copiar" — só aparece quando há erro de sincronização MEGA.
+        # Copia a mensagem de erro COMPLETA (a do rótulo é cortada em 80 chars).
+        self._btn_copiar_erro_mega = ttk.Button(
+            topo, text="Copiar erro", command=self._copiar_erro_mega_sync
+        )
 
         barra_acoes = ttk.Frame(quadro)
         barra_acoes.pack(fill="x", pady=(14, 10))
@@ -2234,6 +2306,218 @@ class JanelaSubtarefas(tk.Toplevel):
                 except Exception:
                     pass
 
+        # ====================================================
+        # Status COMPARTILHADO da pasta selecionada (verde + download)
+        # ====================================================
+        # Diferente dos campos (que mostram só o progresso DO PRÓPRIO user),
+        # aqui consultamos o que QUALQUER usuário já enviou naquela pasta:
+        #  - se algum thumbmaker já entregou a thumb → linha verde de aviso
+        #    (o outro thumbmaker não precisa refazer);
+        #  - lista os arquivos de OUTROS usuários (vídeo, narração/texto,
+        #    projeto…) com botão "Baixar" pra puxar direto do MEGA pra máquina,
+        #    sem abrir o site do MEGA.
+        frame_status_pasta = tk.Frame(bloco_selecionar, bg=_C)
+        frame_status_pasta.pack(fill="x", pady=(0, 0))
+
+        _ROTULO_TIPO_DL = {
+            "video": "Vídeo", "projeto": "Projeto", "thumb": "Thumb",
+            "texto": "Texto", "outro": "Arquivo",
+        }
+
+        def _limpar_status_pasta_ui() -> None:
+            for child in list(frame_status_pasta.winfo_children()):
+                try:
+                    child.destroy()
+                except Exception:
+                    pass
+
+        def _baixar_arquivo_da_pasta(
+            arq: dict, var_st: tk.StringVar, lbl_st: tk.Label,
+            pbar: ttk.Progressbar, btn: ttk.Button, btn_cancel: ttk.Button,
+        ) -> None:
+            from app.mega_uploader import ErroUploadCancelado
+
+            caminho_remoto = str(arq.get("caminho_remoto") or "")
+            nome_arq = str(arq.get("nome_arquivo") or "arquivo")
+            if not caminho_remoto:
+                return
+            # Campo enviado como PASTA tem nome terminando em "/" → baixa recursivo
+            # pra uma pasta de destino escolhida (o mega-get recria a subpasta lá).
+            eh_pasta = nome_arq.endswith("/") or caminho_remoto.endswith("/")
+            nome_limpo = nome_arq.rstrip("/") or "pasta"
+            if eh_pasta:
+                destino_dir = _filedialog.askdirectory(
+                    parent=janela, title=f"Baixar a pasta '{nome_limpo}' em…",
+                )
+                if not destino_dir:
+                    return
+                destino = destino_dir
+                alvo_abrir = os.path.join(destino_dir, nome_limpo)
+            else:
+                destino = _filedialog.asksaveasfilename(
+                    parent=janela, title=f"Salvar — {nome_arq}", initialfile=nome_arq,
+                )
+                if not destino:
+                    return
+                alvo_abrir = destino
+
+            cancel_event = threading.Event()
+            var_st.set("baixando 0%…")
+            lbl_st.configure(fg=_PEND)
+            pbar.configure(value=0)
+            pbar.pack(side="right", padx=(0, 6))
+            btn.configure(state="disabled")
+
+            def _cancelar() -> None:
+                if not cancel_event.is_set():
+                    cancel_event.set()
+                    var_st.set("cancelando…")
+                    btn_cancel.configure(state="disabled")
+            btn_cancel.configure(command=_cancelar, state="normal")
+            btn_cancel.pack(side="right", padx=(6, 0))
+
+            def _on_progress(pct: float) -> None:
+                def _aplicar(p: float = pct) -> None:
+                    try:
+                        if not janela.winfo_exists():
+                            return
+                    except Exception:
+                        return
+                    pbar.configure(value=p)
+                    if not cancel_event.is_set():
+                        var_st.set(f"baixando {p:.0f}%…")
+                try:
+                    self.after(0, _aplicar)
+                except Exception:
+                    pass
+
+            def _op() -> bool:
+                uploader = _obter_uploader()
+                if eh_pasta:
+                    return uploader.baixar_pasta(
+                        caminho_remoto, destino, on_progress=_on_progress, cancel_event=cancel_event,
+                    )
+                return uploader.baixar_arquivo(
+                    caminho_remoto, destino, on_progress=_on_progress, cancel_event=cancel_event,
+                )
+
+            def _fim_visual() -> None:
+                try:
+                    pbar.pack_forget()
+                    btn_cancel.pack_forget()
+                except Exception:
+                    pass
+
+            def _ok(_r: object) -> None:
+                _fim_visual()
+                var_st.set("✓ baixado")
+                lbl_st.configure(fg=_OK)
+                btn.configure(state="normal", text="Baixar de novo")
+                try:
+                    rotulo_item = f"Pasta '{nome_limpo}'" if eh_pasta else f"'{nome_arq}'"
+                    abrir = messagebox.askyesno(
+                        "Download concluído",
+                        f"{rotulo_item} baixado.\n\nAbrir agora?",
+                        parent=janela,
+                    )
+                    if abrir:
+                        os.startfile(alvo_abrir)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+
+            def _falha(e: Exception) -> None:
+                _fim_visual()
+                btn.configure(state="normal")
+                if isinstance(e, ErroUploadCancelado):
+                    var_st.set("cancelado")
+                    lbl_st.configure(fg=_PEND)
+                    return
+                var_st.set("erro")
+                lbl_st.configure(fg=_ERRO)
+                messagebox.showerror(
+                    "Erro no download",
+                    f"Não foi possível baixar '{nome_arq}'.\n\n{e}",
+                    parent=janela,
+                )
+
+            self._executar_em_background(_op, _ok, _falha)
+
+        def _montar_linha_download(arq: dict) -> None:
+            tipo = str(arq.get("tipo") or "outro")
+            nome_arq = str(arq.get("nome_arquivo") or "")
+            quem = str(arq.get("nome_exibicao") or arq.get("user_id") or "")
+            row = tk.Frame(frame_status_pasta, bg=_C)
+            row.pack(fill="x", pady=(2, 0))
+            nome_exibir = ("📁 " + nome_arq.rstrip("/")) if nome_arq.endswith("/") else nome_arq
+            rotulo = f"{_ROTULO_TIPO_DL.get(tipo, 'Arquivo')} · {nome_exibir} · por {quem}"
+            tk.Label(row, text=rotulo, bg=_C, fg="#cfcfcf", font=("Segoe UI", 8),
+                     anchor="w", width=46).pack(side="left")
+            var_st = tk.StringVar(value="")
+            lbl_st = tk.Label(row, textvariable=var_st, bg=_C, fg=_PEND,
+                              font=("Segoe UI", 8), width=14, anchor="w")
+            lbl_st.pack(side="left", padx=(6, 6))
+            pbar = ttk.Progressbar(row, mode="determinate", length=110, maximum=100)
+            btn = ttk.Button(row, text="📥 Baixar", width=10)
+            btn.pack(side="right")
+            btn_cancel = ttk.Button(row, text="Cancelar", style="Perigo.TButton")
+            btn.configure(command=lambda a=arq, v=var_st, lb=lbl_st, p=pbar, b=btn, bc=btn_cancel:
+                          _baixar_arquivo_da_pasta(a, v, lb, p, b, bc))
+
+        def _render_status_pasta(arquivos: list) -> None:
+            _limpar_status_pasta_ui()
+            if not arquivos:
+                return
+            uid_atual = self._usuario_id()
+
+            # (1) Verde compartilhado: thumb já entregue por OUTRO usuário.
+            thumbs_outros = [
+                a for a in arquivos
+                if str(a.get("tipo") or "") == "thumb"
+                and str(a.get("user_id") or "") != uid_atual
+            ]
+            if thumbs_outros:
+                nomes = ", ".join(sorted({
+                    str(a.get("nome_exibicao") or a.get("user_id") or "?")
+                    for a in thumbs_outros
+                }))
+                tk.Label(
+                    frame_status_pasta,
+                    text=f"✓ Thumb já entregue por {nomes} — não precisa refazer",
+                    bg=_C, fg=_COR_EM_USO, font=("Segoe UI", 9, "bold"),
+                    anchor="w", justify="left", wraplength=520,
+                ).pack(anchor="w", pady=(6, 0))
+
+            # (2) Download: arquivos de OUTROS usuários (o material que ele precisa).
+            baixaveis = [
+                a for a in arquivos
+                if str(a.get("user_id") or "") != uid_atual
+                and str(a.get("caminho_remoto") or "")
+            ]
+            if not baixaveis:
+                return
+            tk.Label(frame_status_pasta, text="Arquivos disponíveis nesta pasta (clique pra baixar):",
+                     bg=_C, fg=_D, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(6, 2))
+            for arq in baixaveis:
+                _montar_linha_download(arq)
+
+        def _carregar_status_pasta(id_pasta: int) -> None:
+            _limpar_status_pasta_ui()
+            if id_pasta <= 0:
+                return
+
+            def _fetch() -> dict:
+                return api.obter_status_pasta(id_pasta)  # type: ignore[attr-defined]
+
+            def _ok(d: object) -> None:
+                dd = d if isinstance(d, dict) else {}
+                _render_status_pasta(list(dd.get("arquivos_pasta") or []))
+
+            def _falha(_e: Exception) -> None:
+                # Silencioso: status compartilhado é um extra; não quebra o form.
+                pass
+
+            self._executar_em_background(_fetch, _ok, _falha)
+
         def _ao_selecionar_pasta(*_a: object) -> None:
             sel = lbx_pasta.curselection()
             if not sel:
@@ -2279,6 +2563,10 @@ class JanelaSubtarefas(tk.Toplevel):
                 _resetar_estado_campos_visual()
                 self._id_subtarefa_criada_nesta_janela = None
 
+            # Carrega o status compartilhado da pasta (thumb já entregue +
+            # arquivos disponíveis pra download) de QUALQUER usuário.
+            _carregar_status_pasta(int(pasta_logica.get("id_pasta_logica") or 0))
+
             _atualizar_botao_salvar()
 
         lbx_pasta.bind("<<ListboxSelect>>", _ao_selecionar_pasta)
@@ -2294,6 +2582,12 @@ class JanelaSubtarefas(tk.Toplevel):
             (Combobox), preservando coloração por `status_visual` e
             seleção pelo nome.
             """
+            # Limpa o status compartilhado da pasta anterior — sem isso, ao
+            # trocar de canal a linha verde / lista de download da pasta antiga
+            # ficariam presas na tela até selecionar uma nova pasta. A re-seleção
+            # por nome aqui é programática e NÃO dispara <<ListboxSelect>>, então
+            # o status só recarrega quando o usuário clicar numa pasta.
+            _limpar_status_pasta_ui()
             try:
                 lbx_pasta.delete(0, "end")
             except Exception:

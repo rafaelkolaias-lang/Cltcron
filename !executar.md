@@ -6,6 +6,22 @@
 
 ## Tarefas Claude 1
 
+### ✅ 8. Split da página MEGA (Pastas | Campos) + modelos CRUD inline (2026-06-05)
+
+**Pedido do usuário:** separar a página MEGA (Pastas lógicas numa página, Campos de upload em outra) e trocar os popups do servidor (`window.prompt` de "Gerenciar modelos") por uma gestão inline de verdade (editar/excluir/adicionar modelo). Excluir modelo deve tirar só da lista de modelos, sem mexer nos usuários que já têm o campo.
+
+**Solução aplicada (Claude 1):**
+1. **`mega.php`** virou só **Pastas lógicas** (1 bloco). **Nova `mega-campos.php`** = Config por canal + Campos por usuário (com `<select>` Tipo + barra "Aplicar modelo") + **tabela CRUD de Modelos**.
+2. **JS não foi dividido** — `aba-mega.js` é carregado nas duas páginas e cada bloco se protege pelo próprio elemento (o boot dispara em qualquer `<section id="abaMega">`; os 4 loaders têm try/catch ou guarda, então `Promise.all` não quebra o `carregarPastas`).
+3. **Modelos inline:** novas `renderizarTabelaModelos`/`linhaModeloEditavel`/`linhaModeloLeitura`/`bindModelosActions`/`novoModelo` em `#tbodyMegaModelos`. Removidos os popups `gerenciarModelos` e `salvarLinhaComoModelo`. Reusa os endpoints existentes (`campos_modelos_listar/salvar/excluir.php` — já com `tipo`). Excluir = soft-delete (`ativo=0`), **não cascateia** pros campos dos usuários.
+4. **Menu (`_layout/topo.php`):** "MEGA" virou item com submenu "Campos de upload" (→ `mega-campos.php`). Ambas as páginas usam `abaAtiva='abaMega'`.
+
+**Verificação:** `php -l` (mega.php, mega-campos.php, topo.php) + `node --check` (aba-mega.js) OK; sem refs remanescentes aos botões/popups removidos.
+
+**Pendente de deploy:** as mudanças são só web (painel) — precisam de commit/push + deploy autorizado pra ir pra produção.
+
+---
+
 ### ✅ 7. Verde compartilhado de thumb + botão "Baixar arquivo" da pasta (2026-06-05)
 
 **Pedido do usuário:** (1) quando um thumbmaker sobe a thumb, fica verde só pra ele — outro thumbmaker não vê que a thumb já foi feita e pode refazer; (2) o thumbmaker precisa entrar no MEGA pra ver o vídeo — queria baixar direto do cronômetro. Editor e thumbmakers dividem a mesma pasta do vídeo.

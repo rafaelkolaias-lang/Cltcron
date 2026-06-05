@@ -72,3 +72,6 @@ painel/.env
 
 # Override LOCAL de conexão com o banco (dev) — nunca versionar credenciais locais
 painel/commands/conexao/conexao.local.php
+
+# Override LOCAL de senha do painel (dev) — login de teste, nunca versionar
+painel/commands/_comum/auth.local.php

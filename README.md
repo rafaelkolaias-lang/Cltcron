@@ -202,9 +202,43 @@ Instalar o **Cloudflare WARP** ([1.1.1.1](https://1.1.1.1)), abrir o app, escolh
 
 **Se mesmo com WARP nao funcionar:** investigar antivirus (Kaspersky/ESET/Avast com protecao web ativa bloqueando o dominio), firewall do roteador ou VPN/proxy ativos no PC do usuario.
 
+### "certificate has expired" na sincronizacao do MEGA (RESOLVIDO em v4.0.3)
+
+**Sintoma:** a sync das pastas MEGA falha com `Pastas MEGA nao sincronizadas: Falha ao consultar painel: ... [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired`, **mesmo com a data e a hora do PC corretas**, e mesmo abrindo `https://banco-painel.cpgdmb.easypanel.host` normalmente no navegador.
+
+**Causa:** o PC nao tem os certificados-raiz novos da Let's Encrypt (ISRG Root X1/X2) — comum em Windows desatualizado. O navegador funciona porque baixa esses roots sozinho; o app (OpenSSL) nao, e acabava seguindo o `DST Root CA X3`, vencido em 30/09/2021.
+
+**Solucao definitiva (v4.0.3+):** o app passou a embutir os certificados (`certifi`) e validar HTTPS contra eles, em vez do repositorio do Windows — ver `app/config.py` (override de `ssl._create_default_https_context`). Funciona em qualquer PC, sem mexer no Windows. Usuarios em versoes antigas recebem o fix pelo auto-update (o download vem do GitHub, que nao e afetado).
+
+**Solucao manual (so para versoes < v4.0.3):** instalar os roots `ISRG Root X1` e `ISRG Root X2` (https://letsencrypt.org/certs/) em "Autoridades de Certificacao Raiz Confiaveis", ou rodar o Windows Update.
+
+### "Login no MEGA falhou: Failed to access server" na sincronizacao
+
+**Sintoma:** a sync das pastas MEGA falha com `Login no MEGA falhou: mega-login falhou (rc=...): Failed to access server: ...`. **A chamada ao painel funcionou** (passou da etapa de certificado) — quem falha e o **MEGAcmd** ao conectar nos servidores do MEGA. **Nao tem relacao com o app, com o certificado nem com o auto-update** (o MEGAcmd e um programa separado, com conexao propria).
+
+**Como confirmar a causa:** abrir `%LOCALAPPDATA%\MEGAcmd\megacmdserver.log` no PC e olhar as ultimas linhas. `Failed reqstat request. Retrying` repetido = MEGAcmd nao consegue falar com os servidores do MEGA (conexao instavel/parcial ou sessao travada).
+
+**Solucao (em ordem):**
+
+1. **Reiniciar o PC** (ou finalizar `MEGAcmdServer.exe` no Gerenciador de Tarefas) e clicar "Atualizar MEGA". Limpa uma **sessao travada** do MEGAcmd — **resolveu o caso real de 2026-06-05**.
+2. Se voltar a falhar: **Cloudflare WARP** no modo "Trafego e DNS" (mesma solucao do problema de rota ate o painel — ver secao acima), pois pode ser roteamento ruim do provedor ate os servidores do MEGA.
+3. Liberar `MEGAcmd` e os dominios do MEGA (`*.mega.nz`, `*.mega.co.nz`, `g.api.mega.co.nz`, `*.userstorage.mega.co.nz`) no antivirus/firewall.
+4. Testar no 4G/5G do celular (hotspot): se funcionar, confirma que e a rede/provedor do PC.
+
 ---
 
 ## Changelog
+
+> A lista completa e por-versao do app desktop fica em `app/config.py` (`HISTORICO_VERSOES`), que e a fonte da verdade e e exibida dentro do proprio app. Abaixo, so os destaques recentes.
+
+### v4.0.3 (2026-06-04)
+
+- **Fix HTTPS:** correcao do erro "certificado expirado" na sincronizacao do MEGA em PCs com Windows desatualizado — o app agora embute os certificados-raiz (`certifi`) e nao depende mais do repositorio de certificados do Windows.
+
+### v4.0.2 (2026-06-04)
+
+- Botao **"Copiar erro"** na sincronizacao do MEGA (copia a mensagem completa do erro, antes cortada na tela).
+- Aviso amigavel pedindo para ajustar a data/hora quando a falha de sync e causada por relogio do PC desatualizado.
 
 ### v2.2 (2026-04-05)
 

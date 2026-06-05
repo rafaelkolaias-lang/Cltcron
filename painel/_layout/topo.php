@@ -109,8 +109,11 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
       <li class="nav-item">
         <a class="<?= $_classeNav('abaAuditoria') ?>" href="./auditoria.php" id="linkAbaAuditoria" title="Auditoria de apps suspeitos"><span id="linkAbaAuditoriaIcone" class="d-none">🚨 </span>Auditoria</a>
       </li>
-      <li class="nav-item">
-        <a class="<?= $_classeNav('abaMega') ?>" href="./mega.php" title="Configuração de upload obrigatório no MEGA">MEGA</a>
+      <li class="nav-item nav-hover-submenu">
+        <a class="<?= $_classeNav('abaMega') ?>" href="./mega.php" title="Pastas lógicas (vídeos) no MEGA">MEGA</a>
+        <ul class="submenu-nav">
+          <li><a href="./mega-campos.php">Campos de upload</a></li>
+        </ul>
       </li>
       <li class="nav-item">
         <a class="<?= $_classeNav('abaLogAtividades') ?>" href="./log.php" title="Log de todas as ações do servidor">Log</a>

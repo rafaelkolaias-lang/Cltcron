@@ -446,6 +446,7 @@
       console.warn('[mega] falha ao carregar modelos de campo:', e?.message || e);
     }
     atualizarSelectModelosCampos();
+    renderizarTabelaModelos();
   }
 
   function atualizarSelectModelosCampos() {
@@ -463,15 +464,8 @@
 
   function atualizarBotoesModelos() {
     const btnUsar = document.getElementById('megaBotaoUsarModelo');
-    const btnSalvar = document.getElementById('megaBotaoSalvarComoModelo');
     if (btnUsar) {
       btnUsar.disabled = !(estado.filtroUserId && estado.filtroIdAtividade && estado.modelosCampos.length);
-    }
-    if (btnSalvar) {
-      // Habilita só quando há linha em edição visível.
-      const tbody = document.getElementById('tbodyMegaCampos');
-      const temLinhaEdicao = !!tbody?.querySelector('tr[data-modo="edicao"]');
-      btnSalvar.disabled = !temLinhaEdicao;
     }
   }
 
@@ -510,71 +504,139 @@
     atualizarBotoesModelos();
   }
 
-  async function salvarLinhaComoModelo() {
-    const tbody = document.getElementById('tbodyMegaCampos');
-    const tr = tbody?.querySelector('tr[data-modo="edicao"]');
-    if (!tr) {
-      alerta('erro', 'MEGA', 'Nenhuma linha em edição.');
-      return;
-    }
-    const label = tr.querySelector('.mega-campo-label')?.value?.trim() || '';
-    if (!label) {
-      alerta('erro', 'MEGA', 'Preencha o label do campo antes de salvar como modelo.');
-      return;
-    }
-    const sugestao = label;
-    const nome = (window.prompt('Nome do modelo:', sugestao) || '').trim();
-    if (!nome) return;
-
-    const payload = {
-      nome_modelo: nome,
-      label_campo: label,
-      tipo: tr.querySelector('.mega-campo-tipo')?.value || 'outro',
-      extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
-      quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 0),
-      obrigatorio: !!tr.querySelector('.mega-campo-obrig')?.checked,
-      ordem: parseInt(tr.querySelector('.mega-campo-ordem')?.value, 10) || 0,
-      ativo: true,
-    };
-    try {
-      await requisitar(API + 'campos_modelos_salvar.php', 'POST', payload);
-      alerta('sucesso', 'MEGA', 'Modelo salvo.');
-      carregarModelosCampos();
-    } catch (e) {
-      alerta('erro', 'MEGA', e.message);
-    }
+  // ----- Tabela CRUD de modelos (inline) — substitui os popups antigos -----
+  // Editar/Excluir/Novo direto na tabela. Excluir é soft-delete do template
+  // (campos_modelos_excluir.php → ativo=0): NÃO remove o campo dos usuários que
+  // já o têm — só tira o modelo da lista de modelos.
+  function linhaModeloLeitura(m) {
+    const ext = m.extensoes_permitidas ? esc(m.extensoes_permitidas) : '<span class="texto-fraco">qualquer</span>';
+    const qtd = (parseInt(m.quantidade_maxima, 10) || 0) === 0 ? '<span class="texto-fraco">ilim.</span>' : m.quantidade_maxima;
+    const obrig = m.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
+    const tipoBadge = (m.tipo && m.tipo !== 'outro')
+      ? `<span class="badge bg-info text-dark">${esc(rotuloTipoCampo(m.tipo))}</span>`
+      : '<span class="texto-fraco">—</span>';
+    return `
+      <tr data-id-modelo="${m.id_modelo}" data-modo="leitura">
+        <td>${m.ordem || 0}</td>
+        <td><strong>${esc(m.nome_modelo)}</strong></td>
+        <td>${esc(m.label_campo)}</td>
+        <td>${tipoBadge}</td>
+        <td>${ext}</td>
+        <td class="text-center">${qtd}</td>
+        <td class="text-center">${obrig}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-light mega-modelo-editar" type="button">Editar</button>
+          <button class="btn btn-sm btn-outline-danger mega-modelo-excluir" type="button" title="Excluir modelo">×</button>
+        </td>
+      </tr>`;
   }
 
-  async function gerenciarModelos() {
-    // Lista textual + prompt pra desativar — UX simples sem modal pesado.
-    try {
-      const dados = await requisitar(API + 'campos_modelos_listar.php?incluir_inativos=1');
-      const lista = Array.isArray(dados) ? dados : [];
-      if (!lista.length) {
-        alerta('info', 'MEGA', 'Nenhum modelo cadastrado.');
-        return;
-      }
-      const linhas = lista.map((m) => {
-        const status = m.ativo ? '✓' : '✗';
-        const ext = m.extensoes_permitidas || 'qualquer';
-        const qtd = m.quantidade_maxima === 0 ? 'ilim.' : m.quantidade_maxima;
-        const obr = m.obrigatorio ? 'obrig' : 'opc';
-        return `[${m.id_modelo}] ${status} ${m.nome_modelo} → label="${m.label_campo}" ext=${ext} qtd=${qtd} ${obr}`;
-      }).join('\n');
-      const idStr = window.prompt(
-        'Modelos cadastrados (✓ ativo / ✗ inativo):\n\n' + linhas +
-        '\n\nDigite o ID do modelo para desativar (cancela em branco):',
-        ''
-      );
-      const idModelo = parseInt(idStr, 10);
-      if (!idModelo) return;
-      if (!window.confirm(`Desativar modelo #${idModelo}?`)) return;
-      await requisitar(API + 'campos_modelos_excluir.php', 'POST', { id_modelo: idModelo });
-      alerta('sucesso', 'MEGA', 'Modelo desativado.');
-      carregarModelosCampos();
-    } catch (e) {
-      alerta('erro', 'MEGA', e.message);
+  function linhaModeloEditavel(modelo) {
+    const m = modelo || { id_modelo: 0, nome_modelo: '', label_campo: '', tipo: 'outro', extensoes_permitidas: '', quantidade_maxima: 1, obrigatorio: true, ordem: 0 };
+    const qtdAtual = (m.quantidade_maxima === undefined || m.quantidade_maxima === null) ? 1 : m.quantidade_maxima;
+    return `
+      <tr data-id-modelo="${m.id_modelo || 0}" data-modo="edicao">
+        <td><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-modelo-ordem" value="${m.ordem || 0}" min="0" style="width:70px;"></td>
+        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-modelo-nome" value="${esc(m.nome_modelo)}" placeholder="ex: Thumb padrão" maxlength="120"></td>
+        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-modelo-label" value="${esc(m.label_campo)}" placeholder="ex: Thumbnail" maxlength="120"></td>
+        <td><select class="form-select form-select-sm bg-transparent text-white border-secondary mega-modelo-tipo" style="min-width:110px;">${opcoesTipoCampo(m.tipo || 'outro')}</select></td>
+        <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-modelo-ext" value="${esc(m.extensoes_permitidas || '')}" placeholder="vazio = qualquer" maxlength="255"></td>
+        <td class="text-center"><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-modelo-qtd" value="${qtdAtual}" min="0" max="100" title="0 = ilimitado" style="width:70px;display:inline-block;"></td>
+        <td class="text-center"><input type="checkbox" class="form-check-input mega-modelo-obrig" ${m.obrigatorio ? 'checked' : ''}></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-light mega-modelo-confirmar" type="button">Salvar</button>
+          <button class="btn btn-sm btn-outline-light mega-modelo-cancelar" type="button">Cancelar</button>
+        </td>
+      </tr>`;
+  }
+
+  function renderizarTabelaModelos() {
+    const tbody = document.getElementById('tbodyMegaModelos');
+    if (!tbody) return;
+    const badge = document.getElementById('megaBadgeModelos');
+    if (badge) badge.textContent = String(estado.modelosCampos.length);
+    if (!estado.modelosCampos.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Nenhum modelo cadastrado. Clique em <strong>+ Novo modelo</strong>.</td></tr>';
+      bindModelosActions();
+      return;
     }
+    tbody.innerHTML = estado.modelosCampos.map(linhaModeloLeitura).join('');
+    bindModelosActions();
+  }
+
+  function novoModelo() {
+    const tbody = document.getElementById('tbodyMegaModelos');
+    if (!tbody) return;
+    if (tbody.querySelector('tr[data-id-modelo="0"]')) return; // já há uma linha nova
+    tbody.insertAdjacentHTML('afterbegin', linhaModeloEditavel(null));
+    bindModelosActions();
+  }
+
+  function bindModelosActions() {
+    const tbody = document.getElementById('tbodyMegaModelos');
+    if (!tbody) return;
+
+    tbody.querySelectorAll('.mega-modelo-editar').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-modelo'), 10);
+        const m = estado.modelosCampos.find((x) => x.id_modelo === id);
+        if (!m) return;
+        tr.outerHTML = linhaModeloEditavel(m);
+        bindModelosActions();
+      });
+    });
+
+    tbody.querySelectorAll('.mega-modelo-excluir').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-modelo'), 10);
+        if (!id) return;
+        const m = estado.modelosCampos.find((x) => x.id_modelo === id);
+        const nome = m ? m.nome_modelo : ('#' + id);
+        if (!confirm(`Excluir o modelo "${nome}"?\n\nIsso remove só o modelo da lista. Os usuários que já têm esse campo continuam com ele.`)) return;
+        try {
+          await requisitar(API + 'campos_modelos_excluir.php', 'POST', { id_modelo: id });
+          alerta('sucesso', 'MEGA', 'Modelo excluído.');
+          carregarModelosCampos();
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message);
+        }
+      });
+    });
+
+    tbody.querySelectorAll('.mega-modelo-cancelar').forEach((btn) => {
+      btn.addEventListener('click', () => renderizarTabelaModelos());
+    });
+
+    tbody.querySelectorAll('.mega-modelo-confirmar').forEach((btn) => {
+      btn.addEventListener('click', async (ev) => {
+        const tr = ev.currentTarget.closest('tr');
+        const id = parseInt(tr.getAttribute('data-id-modelo'), 10) || 0;
+        const payload = {
+          id_modelo: id,
+          nome_modelo: tr.querySelector('.mega-modelo-nome')?.value?.trim() || '',
+          label_campo: tr.querySelector('.mega-modelo-label')?.value?.trim() || '',
+          tipo: tr.querySelector('.mega-modelo-tipo')?.value || 'outro',
+          extensoes_permitidas: tr.querySelector('.mega-modelo-ext')?.value?.trim() || '',
+          quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-modelo-qtd')?.value, 10) || 0),
+          obrigatorio: !!tr.querySelector('.mega-modelo-obrig')?.checked,
+          ordem: parseInt(tr.querySelector('.mega-modelo-ordem')?.value, 10) || 0,
+          ativo: true,
+        };
+        if (!payload.nome_modelo || !payload.label_campo) {
+          alerta('erro', 'MEGA', 'Preencha o nome do modelo e o label do campo.');
+          return;
+        }
+        try {
+          await requisitar(API + 'campos_modelos_salvar.php', 'POST', payload);
+          alerta('sucesso', 'MEGA', 'Modelo salvo.');
+          carregarModelosCampos();
+        } catch (e) {
+          alerta('erro', 'MEGA', e.message); // 409 = nome de modelo duplicado
+        }
+      });
+    });
   }
 
   // ===========================================================
@@ -796,8 +858,8 @@
     });
 
     document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', aplicarModeloCampoSelecionado);
-    document.getElementById('megaBotaoSalvarComoModelo')?.addEventListener('click', salvarLinhaComoModelo);
-    document.getElementById('megaBotaoGerenciarModelos')?.addEventListener('click', gerenciarModelos);
+    document.getElementById('megaBotaoNovoModelo')?.addEventListener('click', novoModelo);
+    document.getElementById('megaBotaoRecarregarModelos')?.addEventListener('click', carregarModelosCampos);
 
     // Ordenação clicável nos cabeçalhos da tabela de pastas lógicas
     document.querySelectorAll('[data-mega-sort]').forEach((th) => {

@@ -20,6 +20,7 @@ try {
     $user_id      = normalizar_user_id((string)($in['user_id'] ?? ''));
     $id_atividade = (int)($in['id_atividade'] ?? 0);
     $label        = trim((string)($in['label_campo'] ?? ''));
+    $tipo         = mega_normalizar_tipo(isset($in['tipo']) ? (string)$in['tipo'] : null);
     $extensoes    = mega_normalizar_extensoes(isset($in['extensoes_permitidas']) ? (string)$in['extensoes_permitidas'] : null);
     // 0 = ilimitado. >=0 permitido. Sem upper bound — admin que se vire.
     $quantidade   = max(0, (int)($in['quantidade_maxima'] ?? 1));
@@ -68,11 +69,11 @@ try {
     if ($id_campo > 0) {
         $st = $pdo->prepare("
             UPDATE mega_campos_upload
-               SET user_id=?, id_atividade=?, label_campo=?, extensoes_permitidas=?,
+               SET user_id=?, id_atividade=?, label_campo=?, tipo=?, extensoes_permitidas=?,
                    quantidade_maxima=?, obrigatorio=?, ordem=?, ativo=?
              WHERE id_campo=?
         ");
-        $st->execute([$user_id, $id_atividade, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_campo]);
+        $st->execute([$user_id, $id_atividade, $label, $tipo, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo, $id_campo]);
         log_registrar($pdo, 'mega_campo', 'editou',
             "Editou campo de upload '{$label}' (id={$id_campo}) do usuário {$user_id}",
             ['id_campo' => $id_campo, 'user_id' => $user_id, 'id_atividade' => $id_atividade, 'label' => $label, 'obrigatorio' => $obrigatorio, 'ativo' => $ativo],
@@ -83,11 +84,11 @@ try {
     } else {
         $st = $pdo->prepare("
             INSERT INTO mega_campos_upload
-                (user_id, id_atividade, label_campo, extensoes_permitidas,
+                (user_id, id_atividade, label_campo, tipo, extensoes_permitidas,
                  quantidade_maxima, obrigatorio, ordem, ativo)
-            VALUES (?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?)
         ");
-        $st->execute([$user_id, $id_atividade, $label, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo]);
+        $st->execute([$user_id, $id_atividade, $label, $tipo, $extensoes, $quantidade, $obrigatorio, $ordem, $ativo]);
         $novo_id = (int)$pdo->lastInsertId();
         log_registrar($pdo, 'mega_campo', 'criou',
             "Criou campo de upload '{$label}' (id={$novo_id}) para o usuário {$user_id}",

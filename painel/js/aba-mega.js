@@ -251,7 +251,7 @@
     if (!tbody) return;
 
     if (!estado.filtroUserId || !estado.filtroIdAtividade) {
-      tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Selecione usuário e canal acima.</td></tr>';
       const b = document.getElementById('megaBadgeCampos');
       if (b) b.textContent = '—';
       const btn = document.getElementById('megaBotaoNovoCampo');
@@ -260,7 +260,7 @@
       return;
     }
 
-    tbody.innerHTML = '<tr><td colspan="7" class="texto-fraco">Carregando…</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="texto-fraco">Carregando…</td></tr>';
 
     try {
       const url = `${API}campos_listar.php?user_id=${encodeURIComponent(estado.filtroUserId)}&id_atividade=${estado.filtroIdAtividade}&incluir_inativos=1`;
@@ -273,19 +273,41 @@
       renderizarCampos();
       atualizarBotoesModelos();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
+  }
+
+  // Tipos de campo de upload (espelha MEGA_TIPOS_CAMPO no backend _comum.php).
+  // Usado pro "verde compartilhado" (tipo='thumb') e pra listar arquivos da pasta
+  // pro download direto no desktop.
+  const MEGA_TIPOS = [
+    { v: 'video',   t: 'Vídeo' },
+    { v: 'projeto', t: 'Projeto' },
+    { v: 'thumb',   t: 'Thumb' },
+    { v: 'texto',   t: 'Texto' },
+    { v: 'outro',   t: 'Outro' },
+  ];
+  function rotuloTipoCampo(v) {
+    const m = MEGA_TIPOS.find((x) => x.v === v);
+    return m ? m.t : 'Outro';
+  }
+  function opcoesTipoCampo(sel) {
+    const atual = MEGA_TIPOS.some((x) => x.v === sel) ? sel : 'outro';
+    return MEGA_TIPOS.map((x) => `<option value="${x.v}"${x.v === atual ? ' selected' : ''}>${x.t}</option>`).join('');
   }
 
   function linhaCampoEditavel(campo) {
     // Defaults p/ "novo campo": extensões vazias = qualquer; quantidade 1.
-    const c = campo || { id_campo: 0, label_campo: '', extensoes_permitidas: '', quantidade_maxima: 1, obrigatorio: true, ordem: 0, ativo: true };
+    const c = campo || { id_campo: 0, label_campo: '', tipo: 'outro', extensoes_permitidas: '', quantidade_maxima: 1, obrigatorio: true, ordem: 0, ativo: true };
     // qty=0 é válido (= ilimitado). Não usar `|| 1` (truthy coercion zeraria 0).
     const qtdAtual = (c.quantidade_maxima === undefined || c.quantidade_maxima === null) ? 1 : c.quantidade_maxima;
     return `
       <tr data-id-campo="${c.id_campo || 0}" data-modo="edicao">
         <td><input type="number" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ordem" value="${c.ordem || 0}" min="0" style="width:70px;"></td>
         <td><input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-label" value="${esc(c.label_campo)}" placeholder="ex: Vídeo final" maxlength="120"></td>
+        <td>
+          <select class="form-select form-select-sm bg-transparent text-white border-secondary mega-campo-tipo" style="min-width:110px;">${opcoesTipoCampo(c.tipo || 'outro')}</select>
+        </td>
         <td>
           <input type="text" class="form-control form-control-sm bg-transparent text-white border-secondary mega-campo-ext" value="${esc(c.extensoes_permitidas || '')}" placeholder="vazio = qualquer arquivo" maxlength="255">
         </td>
@@ -308,10 +330,14 @@
       : c.quantidade_maxima;
     const obrig = c.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
     const ativo = c.ativo ? '<span class="badge bg-success">ativo</span>' : '<span class="badge bg-secondary">inativo</span>';
+    const tipoBadge = (c.tipo && c.tipo !== 'outro')
+      ? `<span class="badge bg-info text-dark">${esc(rotuloTipoCampo(c.tipo))}</span>`
+      : '<span class="texto-fraco">—</span>';
     return `
       <tr data-id-campo="${c.id_campo}" data-modo="leitura" ${c.ativo ? '' : 'style="opacity:0.55;"'}>
         <td>${c.ordem}</td>
         <td><strong>${esc(c.label_campo)}</strong></td>
+        <td>${tipoBadge}</td>
         <td>${ext}</td>
         <td class="text-center">${qtd}</td>
         <td class="text-center">${obrig}</td>
@@ -329,7 +355,7 @@
 
     if (!estado.campos.length) {
       tbody.innerHTML = `
-        <tr><td colspan="7" class="texto-fraco">
+        <tr><td colspan="8" class="texto-fraco">
           Nenhum campo cadastrado para esse usuário neste canal. Clique em <strong>+ Novo campo</strong>.
         </td></tr>`;
       bindCamposActions();
@@ -382,6 +408,7 @@
           user_id: estado.filtroUserId,
           id_atividade: estado.filtroIdAtividade,
           label_campo: tr.querySelector('.mega-campo-label')?.value?.trim() || '',
+          tipo: tr.querySelector('.mega-campo-tipo')?.value || 'outro',
           extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
           // 0 = ilimitado (válido). Math.max evita negativos; sem `|| 1` pra não zerar 0.
           quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 0),
@@ -471,6 +498,7 @@
     const novo = {
       id_campo: 0,
       label_campo: modelo.label_campo,
+      tipo: modelo.tipo || 'outro',
       extensoes_permitidas: modelo.extensoes_permitidas || '',
       quantidade_maxima: modelo.quantidade_maxima,
       obrigatorio: !!modelo.obrigatorio,
@@ -501,6 +529,7 @@
     const payload = {
       nome_modelo: nome,
       label_campo: label,
+      tipo: tr.querySelector('.mega-campo-tipo')?.value || 'outro',
       extensoes_permitidas: tr.querySelector('.mega-campo-ext')?.value?.trim() || '',
       quantidade_maxima: Math.max(0, parseInt(tr.querySelector('.mega-campo-qtd')?.value, 10) || 0),
       obrigatorio: !!tr.querySelector('.mega-campo-obrig')?.checked,

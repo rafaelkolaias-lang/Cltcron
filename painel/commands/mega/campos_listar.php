@@ -31,7 +31,7 @@ try {
 
     $sql = "
         SELECT c.id_campo, c.user_id, c.id_atividade,
-               c.label_campo, c.extensoes_permitidas, c.quantidade_maxima,
+               c.label_campo, c.tipo, c.extensoes_permitidas, c.quantidade_maxima,
                c.obrigatorio, c.ordem, c.ativo,
                c.criado_em, c.atualizado_em,
                u.nome_exibicao,
@@ -50,6 +50,7 @@ try {
     foreach ($linhas as &$l) {
         $l['id_campo']          = (int)$l['id_campo'];
         $l['id_atividade']      = (int)$l['id_atividade'];
+        $l['tipo']              = (string)($l['tipo'] ?? 'outro');
         $l['quantidade_maxima'] = (int)$l['quantidade_maxima'];
         $l['obrigatorio']       = (int)$l['obrigatorio'] === 1;
         $l['ordem']             = (int)$l['ordem'];

@@ -137,6 +137,7 @@ require __DIR__ . '/_layout/topo.php';
                     <tr class="texto-fraco small">
                       <th style="min-width:60px;">Ordem</th>
                       <th style="min-width:200px;">Label do campo</th>
+                      <th style="min-width:110px;" title="Classifica o conteúdo: Vídeo, Projeto, Thumb, Texto ou Outro">Tipo</th>
                       <th style="min-width:160px;" title="Vazio = aceita qualquer extensão">Extensões aceitas</th>
                       <th class="text-center" style="min-width:80px;" title="0 = ilimitado">Qtd. máx</th>
                       <th class="text-center" style="min-width:100px;">Obrigatório</th>
@@ -145,7 +146,7 @@ require __DIR__ . '/_layout/topo.php';
                     </tr>
                   </thead>
                   <tbody id="tbodyMegaCampos">
-                    <tr><td colspan="7" class="texto-fraco">Selecione usuário e canal acima.</td></tr>
+                    <tr><td colspan="8" class="texto-fraco">Selecione usuário e canal acima.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -155,5 +156,5 @@ require __DIR__ . '/_layout/topo.php';
 
 <?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=6'];
+$scriptsAba = ['./js/aba-mega.js?v=7'];
 require __DIR__ . '/_layout/rodape.php';

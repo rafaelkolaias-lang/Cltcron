@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -442,6 +443,24 @@ class PainelMegaApi:
         payload = _request_painel(url, self._headers(), timeout=timeout)
         return payload.get("dados") or {}
 
+    def obter_status_pasta(self, id_pasta_logica: int, timeout: float = 8.0) -> dict:
+        """GET desktop_obter_status_pasta.php → status COMPARTILHADO da pasta
+        lógica (vídeo), por pasta e não por usuário. Retorna dict com:
+          - id_atividade, nome_pasta, pasta_raiz_mega
+          - arquivos_pasta[]: todos os arquivos concluídos da pasta (de qualquer
+            usuário), cada um com {user_id, nome_exibicao, nome_campo, tipo,
+            nome_arquivo, tamanho_bytes, enviado_em, caminho_remoto}.
+
+        O desktop deriva daqui o "verde compartilhado" (itens tipo='thumb' de
+        outro usuário) e a lista de download (qualquer arquivo da pasta).
+        """
+        url = (
+            f"{self.url_painel}/commands/mega/desktop_obter_status_pasta.php"
+            f"?id_pasta_logica={int(id_pasta_logica)}"
+        )
+        payload = _request_painel(url, self._headers(), timeout=timeout)
+        return payload.get("dados") or {}
+
     def marcar_pasta_logica_inativa(self, id_pasta_logica: int, timeout: float = 8.0) -> dict:
         """POST desktop_marcar_pasta_logica_inativa.php → soft-delete da pasta
         lógica. Idempotente.
@@ -760,6 +779,119 @@ class MegaUploader:
                 pass
         return True
 
+    def baixar_arquivo(
+        self,
+        arquivo_remoto: str,
+        destino_local: Path | str,
+        on_progress: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        timeout: float | None = TIMEOUT_UPLOAD_PADRAO_SEG,
+    ) -> bool:
+        """`mega-get <arquivo_remoto> <pasta>` → baixa um arquivo do MEGA pra
+        `destino_local` (caminho de arquivo completo escolhido pelo usuário).
+
+        Espelha `upload_arquivo`: progresso via `on_progress`, cancelamento via
+        `cancel_event` (mata a árvore), retry 1x em sessão expirada. Levanta
+        `ErroUploadMega`/`ErroUploadCancelado`.
+
+        Implementação: baixa pra um diretório temporário criado DENTRO da pasta
+        de destino (mesmo volume → `os.replace` atômico, sem cross-device nem
+        colisão com arquivo homônimo já existente), depois move pro nome final.
+        """
+        arquivo_remoto = _sanitizar_caminho_mega(arquivo_remoto)
+        if not arquivo_remoto.startswith("/"):
+            arquivo_remoto = "/" + arquivo_remoto
+
+        destino = Path(destino_local)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+
+        self.garantir_logado()
+        if on_progress:
+            try:
+                on_progress(0.0)
+            except Exception:
+                pass
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix=".mega_get_", dir=str(destino.parent)))
+        try:
+            rc, saida = self._executar_mega_get_streaming(
+                arquivo_remoto, str(tmp_dir), on_progress, cancel_event, timeout
+            )
+            if rc != 0:
+                if self._eh_sessao_expirada(saida):
+                    self._logado = False
+                    self.garantir_logado()
+                    return self.baixar_arquivo(arquivo_remoto, destino_local, on_progress, cancel_event, timeout)
+                raise ErroUploadMega(f"download falhou (rc={rc}): {saida[:200]}")
+
+            # MEGAcmd salvou o arquivo dentro do tmp_dir com o basename remoto.
+            baixado = tmp_dir / Path(arquivo_remoto).name
+            if not baixado.exists():
+                # Fallback: pega o primeiro arquivo que apareceu no tmp.
+                candidatos = [p for p in tmp_dir.iterdir() if p.is_file()]
+                if not candidatos:
+                    raise ErroUploadMega("download concluiu mas o arquivo não foi encontrado")
+                baixado = candidatos[0]
+            os.replace(str(baixado), str(destino))
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        if on_progress:
+            try:
+                on_progress(100.0)
+            except Exception:
+                pass
+        return True
+
+    def baixar_pasta(
+        self,
+        pasta_remota: str,
+        destino_dir: Path | str,
+        on_progress: Callable[[float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        timeout: float | None = TIMEOUT_UPLOAD_PADRAO_SEG,
+    ) -> bool:
+        """`mega-get <pasta_remota> <destino_dir>` → baixa uma PASTA inteira
+        (recursivo) pra dentro de `destino_dir`. O MEGAcmd recria a subpasta com
+        o nome remoto lá dentro (ex.: destino_dir/NomeDaPasta/...).
+
+        Espelha `baixar_arquivo` (progresso, cancel, retry em sessão expirada),
+        mas sem tmp dir/`os.replace` — pasta vai direto pro destino escolhido.
+        Usado quando um campo foi enviado como pasta (nome termina em "/").
+        """
+        pasta_remota = _sanitizar_caminho_mega(pasta_remota)
+        if not pasta_remota.startswith("/"):
+            pasta_remota = "/" + pasta_remota
+        # mega-get não aceita '/' final em alguns builds — tira.
+        pasta_remota = pasta_remota.rstrip("/") or "/"
+
+        destino = Path(destino_dir)
+        destino.mkdir(parents=True, exist_ok=True)
+
+        self.garantir_logado()
+        if on_progress:
+            try:
+                on_progress(0.0)
+            except Exception:
+                pass
+
+        rc, saida = self._executar_mega_get_streaming(
+            pasta_remota, str(destino), on_progress, cancel_event, timeout
+        )
+        if rc != 0:
+            if self._eh_sessao_expirada(saida):
+                self._logado = False
+                self.garantir_logado()
+                return self.baixar_pasta(pasta_remota, destino_dir, on_progress, cancel_event, timeout)
+            raise ErroUploadMega(f"download da pasta falhou (rc={rc}): {saida[:200]}")
+
+        if on_progress:
+            try:
+                on_progress(100.0)
+            except Exception:
+                pass
+        return True
+
     # Regex que pega o "XX.XX %" no progresso do MEGAcmd. Match em stderr:
     #   TRANSFERRING ||########.................||(2/10 MB:  20.00 %)
     _REGEX_PROGRESSO = re.compile(r"\(\s*\d+(?:\.\d+)?/\d+(?:\.\d+)?\s*[KMGT]?B:\s*(\d+(?:\.\d+)?)\s*%\s*\)")
@@ -852,6 +984,103 @@ class MegaUploader:
 
             if cancelado:
                 raise ErroUploadCancelado("upload cancelado pelo usuário")
+
+            return (proc.returncode or 0), stderr
+        finally:
+            try:
+                os.unlink(err_path)
+            except OSError:
+                pass
+
+    def _executar_mega_get_streaming(
+        self,
+        arquivo_remoto: str,
+        destino_dir: str,
+        on_progress: Callable[[float], None] | None,
+        cancel_event: threading.Event | None,
+        timeout: float | None,
+    ) -> tuple[int, str]:
+        """Roda `mega-get <remoto> <destino_dir>` com Popen, lendo stderr em
+        paralelo pra extrair progresso. Retorna `(returncode, stderr_completa)`.
+        Em cancelamento via `cancel_event`, mata a árvore com `taskkill /F /T` e
+        levanta `ErroUploadCancelado`.
+
+        Espelho de `_executar_mega_put_streaming` — mesmo formato de progresso
+        (`_REGEX_PROGRESSO`), mesmas defesas (arquivo temp pra stderr, tail em
+        thread daemon, polling de cancel a cada 200ms). `mega-get` não tem `-c`.
+        """
+        bat = self._bat("mega-get")
+        if not bat.exists():
+            raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
+        # Aspas externas envolvendo a linha inteira — vide _run_mega para o motivo.
+        linha = subprocess.list2cmdline([str(bat), arquivo_remoto, destino_dir])
+        comando = f'cmd.exe /c "{linha}"'
+
+        flags, si = _flags_sem_console()
+        f_err = tempfile.NamedTemporaryFile(prefix="mega_get_err_", suffix=".log", delete=False)
+        err_path = f_err.name
+        f_err.close()
+
+        proc: subprocess.Popen | None = None
+        cancelado = False
+        try:
+            with open(err_path, "wb") as fe:
+                proc = subprocess.Popen(
+                    comando,
+                    stdout=subprocess.DEVNULL,
+                    stderr=fe,
+                    creationflags=flags,
+                    startupinfo=si,
+                    shell=False,
+                )
+
+            def _tail() -> None:
+                """Tail do err_path, parseia progresso e dispara on_progress."""
+                ultimo_pct = -1.0
+                with open(err_path, "rb") as f:
+                    while True:
+                        if proc is not None and proc.poll() is not None:
+                            resto = f.read().decode("utf-8", errors="replace")
+                            self._extrair_e_emitir_progresso(resto, on_progress, ultimo_pct)
+                            return
+                        bloco = f.read(4096)
+                        if not bloco:
+                            time.sleep(0.15)
+                            continue
+                        texto = bloco.decode("utf-8", errors="replace")
+                        ultimo_pct = self._extrair_e_emitir_progresso(texto, on_progress, ultimo_pct)
+
+            t_tail = threading.Thread(target=_tail, daemon=True, name="mega-get-tail")
+            t_tail.start()
+
+            # Aguarda o processo, polling cancel_event a cada 200ms.
+            inicio = time.monotonic()
+            while True:
+                rc = proc.poll()
+                if rc is not None:
+                    break
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelado = True
+                    self._matar_arvore(proc.pid)
+                    break
+                if timeout is not None and (time.monotonic() - inicio) > timeout:
+                    self._matar_arvore(proc.pid)
+                    raise subprocess.TimeoutExpired(comando, timeout)
+                time.sleep(0.2)
+
+            try:
+                proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                self._matar_arvore(proc.pid)
+                proc.wait(timeout=2.0)
+
+            t_tail.join(timeout=2.0)
+
+            with open(err_path, encoding="utf-8", errors="replace") as f:
+                stderr = f.read()
+
+            if cancelado:
+                raise ErroUploadCancelado("download cancelado pelo usuário")
 
             return (proc.returncode or 0), stderr
         finally:

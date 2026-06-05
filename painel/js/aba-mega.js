@@ -445,20 +445,7 @@
       estado.modelosCampos = [];
       console.warn('[mega] falha ao carregar modelos de campo:', e?.message || e);
     }
-    atualizarSelectModelosCampos();
     renderizarTabelaModelos();
-  }
-
-  function atualizarSelectModelosCampos() {
-    const sel = document.getElementById('megaSelectModelo');
-    if (!sel) return;
-    sel.disabled = false;
-    if (!estado.modelosCampos.length) {
-      sel.innerHTML = '<option value="">Nenhum modelo cadastrado</option>';
-    } else {
-      sel.innerHTML = '<option value="">Selecione um modelo…</option>' +
-        estado.modelosCampos.map((m) => `<option value="${m.id_modelo}">${esc(m.nome_modelo)}</option>`).join('');
-    }
     atualizarBotoesModelos();
   }
 
@@ -469,39 +456,94 @@
     }
   }
 
-  function aplicarModeloCampoSelecionado() {
+  // Popup "Usar modelo existente": lista os modelos com checkbox; ao salvar,
+  // adiciona TODOS os marcados de uma vez como campos do usuário+canal atual.
+  function abrirModalUsarModelos() {
     if (!estado.filtroUserId || !estado.filtroIdAtividade) {
-      alerta('erro', 'MEGA', 'Selecione usuário e canal antes de aplicar um modelo.');
+      alerta('erro', 'MEGA', 'Selecione um usuário e um canal antes de usar modelos.');
       return;
     }
-    const sel = document.getElementById('megaSelectModelo');
-    const idModelo = parseInt(sel?.value, 10) || 0;
-    const modelo = estado.modelosCampos.find((m) => m.id_modelo === idModelo);
-    if (!modelo) {
-      alerta('erro', 'MEGA', 'Selecione um modelo válido.');
+    const lista = document.getElementById('modalUsarModelosLista');
+    const modalEl = document.getElementById('modalUsarModelos');
+    if (!lista || !modalEl) return;
+
+    if (!estado.modelosCampos.length) {
+      lista.innerHTML = '<div class="texto-fraco small">Nenhum modelo cadastrado. Crie modelos na tabela "Modelos de campo" abaixo.</div>';
+    } else {
+      // Marca os labels que o usuário JÁ tem nesse canal (pra não duplicar).
+      const jaTemLabels = new Set(
+        estado.campos.filter((c) => c.ativo)
+          .map((c) => String(c.label_campo || '').trim().toLowerCase())
+      );
+      lista.innerHTML = estado.modelosCampos.map((m) => {
+        const jaTem = jaTemLabels.has(String(m.label_campo || '').trim().toLowerCase());
+        const tipoTxt = (m.tipo && m.tipo !== 'outro') ? rotuloTipoCampo(m.tipo) : '—';
+        const ext = m.extensoes_permitidas || 'qualquer';
+        return `
+          <div class="form-check d-flex align-items-start gap-2 py-1">
+            <input class="form-check-input mega-modelo-check" type="checkbox" value="${m.id_modelo}" id="mum_${m.id_modelo}" ${jaTem ? '' : 'checked'}>
+            <label class="form-check-label small" for="mum_${m.id_modelo}">
+              <strong>${esc(m.nome_modelo)}</strong>
+              <span class="texto-fraco">— "${esc(m.label_campo)}" · ${esc(tipoTxt)} · ${esc(ext)}</span>
+              ${jaTem ? '<span class="badge bg-secondary ms-1">já existe</span>' : ''}
+            </label>
+          </div>`;
+      }).join('');
+    }
+    const ctx = document.getElementById('modalUsarModelosContexto');
+    if (ctx) {
+      const u = estado.usuarios.find((x) => String(x.user_id) === String(estado.filtroUserId));
+      const c = estado.atividadesComUsuarios.find((x) => Number(x.id_atividade) === Number(estado.filtroIdAtividade));
+      ctx.textContent = `Marque os modelos pra adicionar como campos de ${u?.nome_exibicao || estado.filtroUserId} no canal ${c?.titulo || ('#' + estado.filtroIdAtividade)}:`;
+    }
+    if (window.bootstrap?.Modal) {
+      window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+  }
+
+  async function salvarModelosSelecionados() {
+    if (!estado.filtroUserId || !estado.filtroIdAtividade) {
+      alerta('erro', 'MEGA', 'Selecione um usuário e um canal.');
       return;
     }
-    const tbody = document.getElementById('tbodyMegaCampos');
-    if (!tbody) return;
-    // Não duplica se já existir uma linha "novo campo".
-    if (tbody.querySelector('tr[data-id-campo="0"]')) {
-      alerta('erro', 'MEGA', 'Já existe uma linha em edição. Salve ou cancele antes de aplicar outro modelo.');
+    const lista = document.getElementById('modalUsarModelosLista');
+    if (!lista) return;
+    const ids = Array.from(lista.querySelectorAll('.mega-modelo-check:checked')).map((c) => parseInt(c.value, 10));
+    if (!ids.length) {
+      alerta('erro', 'MEGA', 'Selecione ao menos um modelo.');
       return;
     }
-    // id_campo=0 força INSERT no usuário/canal atuais quando o admin clicar Salvar.
-    const novo = {
-      id_campo: 0,
-      label_campo: modelo.label_campo,
-      tipo: modelo.tipo || 'outro',
-      extensoes_permitidas: modelo.extensoes_permitidas || '',
-      quantidade_maxima: modelo.quantidade_maxima,
-      obrigatorio: !!modelo.obrigatorio,
-      ordem: modelo.ordem || 0,
-      ativo: true, // ao aplicar, sempre cria como ativo (mesmo se modelo inativo)
-    };
-    tbody.insertAdjacentHTML('afterbegin', linhaCampoEditavel(novo));
-    bindCamposActions();
-    atualizarBotoesModelos();
+    const btn = document.getElementById('modalUsarModelosSalvar');
+    if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+    let ok = 0;
+    let falhou = 0;
+    for (const id of ids) {
+      const m = estado.modelosCampos.find((x) => x.id_modelo === id);
+      if (!m) continue;
+      try {
+        await requisitar(API + 'campos_salvar.php', 'POST', {
+          id_campo: 0,
+          user_id: estado.filtroUserId,
+          id_atividade: estado.filtroIdAtividade,
+          label_campo: m.label_campo,
+          tipo: m.tipo || 'outro',
+          extensoes_permitidas: m.extensoes_permitidas || '',
+          quantidade_maxima: m.quantidade_maxima,
+          obrigatorio: !!m.obrigatorio,
+          ordem: m.ordem || 0,
+          ativo: true,
+        });
+        ok++;
+      } catch (e) {
+        falhou++;
+        console.warn('[mega] falha ao aplicar modelo', id, e?.message || e);
+      }
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar selecionados'; }
+    const modalEl = document.getElementById('modalUsarModelos');
+    if (window.bootstrap?.Modal && modalEl) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    alerta(falhou ? 'erro' : 'sucesso', 'MEGA', `${ok} campo(s) adicionado(s)${falhou ? `, ${falhou} falhou(aram)` : ''}.`);
+    carregarCampos();
   }
 
   // ----- Tabela CRUD de modelos (inline) — substitui os popups antigos -----
@@ -857,7 +899,8 @@
       atualizarBotoesModelos();
     });
 
-    document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', aplicarModeloCampoSelecionado);
+    document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', abrirModalUsarModelos);
+    document.getElementById('modalUsarModelosSalvar')?.addEventListener('click', salvarModelosSelecionados);
     document.getElementById('megaBotaoNovoModelo')?.addEventListener('click', novoModelo);
     document.getElementById('megaBotaoRecarregarModelos')?.addEventListener('click', carregarModelosCampos);
 

@@ -2170,7 +2170,7 @@ class JanelaSubtarefas(tk.Toplevel):
 
         lbx_pasta = tk.Listbox(
             bloco_selecionar,
-            height=min(8, max(3, len(pastas_existentes))),
+            height=min(10, max(5, len(pastas_existentes))),
             activestyle="dotbox",
             exportselection=False,
             bg="#0f0f0f",
@@ -2184,27 +2184,37 @@ class JanelaSubtarefas(tk.Toplevel):
         )
         # Índice inicialmente selecionado, se a pasta_logica já tiver uma
         # selecionada (modo edição ou re-render por troca de canal).
+        def _inserir_item_pasta(i: int, nome: str, p: dict) -> None:
+            """Insere uma pasta no Listbox com sufixo/cor corretos. Fica VERDE
+            quando a pasta JÁ TEM thumb entregue (por qualquer usuário) OU é
+            tarefa do próprio user; CINZA quando paga (travada). Usado tanto na
+            1ª montagem quanto no rebuild — mantém a regra num lugar só."""
+            status = str(p.get("status_visual") or "livre")
+            thumb_ok = bool(p.get("thumb_entregue"))
+            extra = ""
+            if status == "concluida":
+                extra = "  ✓"
+            elif status == "em_andamento":
+                extra = "  ⏳"
+            elif status == "paga":
+                extra = "  🔒 paga"
+            if thumb_ok and status != "paga":
+                extra += "  ✓ thumb feita"
+            lbx_pasta.insert("end", f"{nome}{extra}")
+            if status == "paga":
+                lbx_pasta.itemconfig(i, fg=_COR_PAGA, bg=_BG_PAGA,
+                                     selectbackground=_BG_PAGA,
+                                     selectforeground=_COR_PAGA)
+            elif status in ("em_andamento", "concluida") or thumb_ok:
+                lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
+            # status livre sem thumb = padrão (branco)
+
         nome_inicial = str(pasta_logica.get("nome_pasta") or "")
         idx_inicial = -1
 
         for i, p in enumerate(pastas_existentes):
             nome = str(p.get("nome_pasta") or "")
-            status = str(p.get("status_visual") or "livre")
-            label_extra = ""
-            if status == "concluida":
-                label_extra = "  ✓"
-            elif status == "em_andamento":
-                label_extra = "  ⏳"
-            elif status == "paga":
-                label_extra = "  🔒 paga"
-            lbx_pasta.insert("end", f"{nome}{label_extra}")
-            if status == "paga":
-                lbx_pasta.itemconfig(i, fg=_COR_PAGA, bg=_BG_PAGA,
-                                     selectbackground=_BG_PAGA,
-                                     selectforeground=_COR_PAGA)
-            elif status in ("em_andamento", "concluida"):
-                lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
-            # status livre = padrão (branco)
+            _inserir_item_pasta(i, nome, p)
             if nome == nome_inicial:
                 idx_inicial = i
 
@@ -2226,7 +2236,7 @@ class JanelaSubtarefas(tk.Toplevel):
             legenda.pack(anchor="w", pady=(2, 0))
             tk.Label(legenda, text="branca: livre", bg=_C, fg=_COR_LIVRE,
                      font=("Segoe UI", 8, "italic")).pack(side="left", padx=(0, 8))
-            tk.Label(legenda, text="verde: sua tarefa", bg=_C, fg=_COR_EM_USO,
+            tk.Label(legenda, text="verde: thumb feita / sua tarefa", bg=_C, fg=_COR_EM_USO,
                      font=("Segoe UI", 8, "italic")).pack(side="left", padx=(0, 8))
             tk.Label(legenda, text="cinza: paga (travada)", bg=_C, fg=_COR_PAGA,
                      font=("Segoe UI", 8, "italic")).pack(side="left")
@@ -2646,22 +2656,7 @@ class JanelaSubtarefas(tk.Toplevel):
             idx_match = -1
             for i, p in enumerate(pastas_existentes):
                 nome = str(p.get("nome_pasta") or "")
-                status = str(p.get("status_visual") or "livre")
-                label_extra = ""
-                if status == "concluida":
-                    label_extra = "  ✓"
-                elif status == "em_andamento":
-                    label_extra = "  ⏳"
-                elif status == "paga":
-                    label_extra = "  🔒 paga"
-                lbx_pasta.insert("end", f"{nome}{label_extra}")
-                if status == "paga":
-                    lbx_pasta.itemconfig(
-                        i, fg=_COR_PAGA, bg=_BG_PAGA,
-                        selectbackground=_BG_PAGA, selectforeground=_COR_PAGA,
-                    )
-                elif status in ("em_andamento", "concluida"):
-                    lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
+                _inserir_item_pasta(i, nome, p)
                 if nome and nome == nome_selecionado:
                     idx_match = i
             try:

@@ -15,7 +15,7 @@ require __DIR__ . '/_layout/topo.php';
               <a href="./mega.php" class="btn btn-sm btn-outline-info" title="Ver pastas lógicas (vídeos)">← Pastas lógicas</a>
             </div>
 
-            <!-- Bloco 1: Campos exigidos por usuário + canal -->
+            <!-- Bloco 1: Campos por usuário — todos os canais do usuário, agrupados -->
             <article class="cartao-grafite p-3 mb-3">
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
@@ -23,47 +23,21 @@ require __DIR__ . '/_layout/topo.php';
                   <span class="badge badge-suave" id="megaBadgeCampos">—</span>
                 </div>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
-                  <select id="megaFiltroUser" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:200px;">
+                  <select id="megaFiltroUser" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
                     <option value="">Selecione um usuário…</option>
                   </select>
-                  <select id="megaFiltroCanal" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;" disabled>
-                    <option value="">Selecione um usuário primeiro…</option>
-                  </select>
-                  <button class="btn btn-sm btn-light" type="button" id="megaBotaoNovoCampo" disabled>+ Novo campo</button>
+                  <button class="btn btn-sm btn-light" type="button" id="megaBotaoUsarModelo" disabled
+                          title="Marque modelos e canais e adicione tudo de uma vez">Usar modelo existente</button>
                 </div>
               </div>
 
               <div class="texto-fraco small mb-2">
-                Cada usuário pode ter campos distintos por canal (ex.: editor sobe vídeo + projeto, thumbmaker sobe só thumb).
-                Sem campos configurados → nenhum upload é exigido daquele usuário no canal.
+                Selecione o usuário → aparecem <strong>todos os canais dele</strong>, cada um com seus campos. Use <strong>+ Novo campo</strong> no canal, ou <strong>Usar modelo existente</strong> pra adicionar modelos a vários canais de uma vez.
                 Marque o <strong>Tipo</strong> certo (Thumb / Vídeo / …) — é o que liga o "verde compartilhado" e o download no app.
               </div>
 
-              <!-- Usar modelos: abre um popup com checkboxes pra adicionar vários de uma vez -->
-              <div class="d-flex flex-wrap align-items-center gap-2 mb-2 p-2 rounded" style="background:rgba(255,255,255,0.04);">
-                <button class="btn btn-sm btn-light" type="button" id="megaBotaoUsarModelo" disabled
-                        title="Selecione vários modelos de uma vez e adicione todos ao usuário+canal">Usar modelo existente</button>
-                <span class="texto-fraco small ms-1">abre uma lista pra marcar vários modelos e adicionar todos de uma vez ao usuário+canal selecionado.</span>
-              </div>
-
-              <div class="table-responsive">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width:60px;">Ordem</th>
-                      <th style="min-width:200px;">Label do campo</th>
-                      <th style="min-width:110px;" title="Classifica o conteúdo: Vídeo, Projeto, Thumb, Texto ou Outro">Tipo</th>
-                      <th style="min-width:160px;" title="Vazio = aceita qualquer extensão">Extensões aceitas</th>
-                      <th class="text-center" style="min-width:80px;" title="0 = ilimitado">Qtd. máx</th>
-                      <th class="text-center" style="min-width:100px;">Obrigatório</th>
-                      <th class="text-center" style="min-width:80px;">Ativo</th>
-                      <th class="text-end" style="min-width:140px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyMegaCampos">
-                    <tr><td colspan="8" class="texto-fraco">Selecione usuário e canal acima.</td></tr>
-                  </tbody>
-                </table>
+              <div id="megaCamposPorCanal">
+                <div class="texto-fraco">Selecione um usuário acima para ver os canais dele.</div>
               </div>
             </article>
 
@@ -81,7 +55,7 @@ require __DIR__ . '/_layout/topo.php';
               </div>
 
               <div class="texto-fraco small mb-2">
-                Modelos são atalhos globais pra preencher campos rápido (use em "Aplicar modelo" acima).
+                Modelos são atalhos globais pra preencher campos rápido (use em "Usar modelo existente" acima).
                 Editar ou excluir um modelo <strong>não mexe</strong> nos campos que os usuários já têm — só altera esta lista de modelos.
               </div>
 
@@ -154,8 +128,12 @@ require __DIR__ . '/_layout/topo.php';
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
         </div>
         <div class="modal-body">
-          <p class="texto-fraco small mb-2" id="modalUsarModelosContexto">Marque os modelos pra adicionar como campos.</p>
+          <p class="texto-fraco small mb-2" id="modalUsarModelosContexto">Marque os modelos e os canais.</p>
+          <div class="small mb-1"><strong>Modelos</strong> <span class="texto-fraco">(viram campos):</span></div>
           <div id="modalUsarModelosLista"></div>
+          <hr class="border-secondary my-2">
+          <div class="small mb-1"><strong>Canais do usuário</strong> <span class="texto-fraco">(onde criar):</span></div>
+          <div id="modalUsarModelosCanais"></div>
         </div>
         <div class="modal-footer border-secondary">
           <button type="button" class="btn btn-outline-light btn-sm" data-bs-dismiss="modal">Cancelar</button>
@@ -166,5 +144,5 @@ require __DIR__ . '/_layout/topo.php';
   </div>
 
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=9'];
+$scriptsAba = ['./js/aba-mega.js?v=11'];
 require __DIR__ . '/_layout/rodape.php';

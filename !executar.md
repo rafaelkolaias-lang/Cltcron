@@ -6,6 +6,20 @@
 
 ## Tarefas Claude 1
 
+### ✅ 9. Link público automático da pasta lógica (sem depender do script) (2026-06-05)
+
+**Problema:** o link público da pasta no painel (MEGA → Pastas lógicas) só era gerado pelo script manual `tools/sync_mega_links.py`. Pastas novas ficavam sem link até alguém rodar o script.
+
+**Solução (Claude 1):**
+- **Backfill (A):** rodado `sync_mega_links.py` em produção → 24 links gerados/salvos, 0 erros (pastas que estavam atrasadas).
+- **Automação (B):** `app/mega_uploader.py` ganhou `MegaUploader.exportar_link()` (mega-export -a, fallback sem -a) e `PainelMegaApi.salvar_link_pasta()` (POST `pasta_logica_salvar_link.php`). `app/subtarefas.py::_iniciar_upload_mega` chama isso **logo após o upload** (best-effort, 1× por pasta lógica por janela via `self._links_pasta_exportados`) — toda pasta nova já nasce com link, sem o script manual.
+
+**Verificação:** `py_compile` + import OK; ruff só com achados pré-existentes.
+
+**Pendente:** é mudança no **desktop** → precisa de **rebuild do .exe** pra chegar nos usuários (o código vai pro git, mas o efeito só vale na versão nova do app).
+
+---
+
 ### ✅ 8. Split da página MEGA (Pastas | Campos) + modelos CRUD inline (2026-06-05)
 
 **Pedido do usuário:** separar a página MEGA (Pastas lógicas numa página, Campos de upload em outra) e trocar os popups do servidor (`window.prompt` de "Gerenciar modelos") por uma gestão inline de verdade (editar/excluir/adicionar modelo). Excluir modelo deve tirar só da lista de modelos, sem mexer nos usuários que já têm o campo.

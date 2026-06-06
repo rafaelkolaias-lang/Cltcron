@@ -134,9 +134,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.4"
+VERSAO_APLICACAO = "v4.0.5"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.5",
+        "data": "06/06/2026",
+        "notas": [
+            "Melhoria: na hora de declarar tarefa, a lista 'Selecionar existente' agora mostra em VERDE as pastas que já têm thumb entregue (por você ou por um colega) — dá pra ver de relance quais não precisam de thumb, sem clicar em cada uma. Cada uma também ganha a marca '✓ thumb feita'.",
+            "Melhoria: a lista de pastas ficou mais alta (mostra mais itens de uma vez), evitando ter que rolar quando há poucas pastas.",
+        ],
+    },
     {
         "versao": "v4.0.4",
         "data": "06/06/2026",

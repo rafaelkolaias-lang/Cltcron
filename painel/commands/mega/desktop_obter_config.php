@@ -85,7 +85,20 @@ try {
                sm.id_subtarefa AS id_subtarefa_usuario,
                sm.concluida    AS sub_concluida,
                sm.bloqueada    AS sub_bloqueada,
-               sm.segundos     AS sub_segundos
+               sm.segundos     AS sub_segundos,
+               -- Thumb já entregue por QUALQUER usuário nesta pasta (recurso
+               -- compartilhado): existe upload concluído cujo campo é tipo
+               -- 'thumb'. Permite pintar a lista de verde sem o desktop ter
+               -- que consultar pasta a pasta no clique.
+               (SELECT COUNT(*)
+                  FROM mega_uploads mu2
+                  JOIN mega_campos_upload mcu2
+                    ON mcu2.user_id    = mu2.user_id
+                   AND mcu2.id_atividade = pl.id_atividade
+                   AND mcu2.label_campo  = mu2.nome_campo
+                   AND mcu2.tipo         = 'thumb'
+                 WHERE mu2.id_pasta_logica = pl.id_pasta_logica
+                   AND mu2.status_upload   = 'concluido') AS thumb_count
           FROM mega_pasta_logica pl
           LEFT JOIN (
               SELECT s.id_atividade,
@@ -115,14 +128,17 @@ try {
         $bloqueada   = (int)($p['sub_bloqueada'] ?? 0) === 1;
         $segundos    = (int)($p['sub_segundos'] ?? 0);
 
+        $thumb_entregue = (int)($p['thumb_count'] ?? 0) > 0;
+
         // Limpa campos crus do payload (mantém só os semânticos)
-        unset($p['sub_concluida'], $p['sub_bloqueada'], $p['sub_segundos']);
+        unset($p['sub_concluida'], $p['sub_bloqueada'], $p['sub_segundos'], $p['thumb_count']);
 
         $p['id_subtarefa_usuario'] = $id_sub;
         $p['tem_subtarefa_usuario'] = $id_sub > 0;
         $p['concluida']             = $concluida;
         $p['bloqueada_pagamento']   = $bloqueada;
         $p['segundos_gastos']       = $segundos;
+        $p['thumb_entregue']        = $thumb_entregue;
 
         if ($id_sub <= 0) {
             $p['status_visual'] = 'livre';

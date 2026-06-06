@@ -47,7 +47,7 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 - Restaura sessao automaticamente apos queda/reinicio
 - Janela flutuante mini-timer (always-on-top)
 - Gestao de subtarefas diarias com declaracao de tempo
-- Upload de arquivos pro MEGA na declaracao (vídeo/thumb/projeto), com aviso de "thumb ja entregue" e download direto dos arquivos da pasta
+- Upload de arquivos pro MEGA na declaracao (vídeo/thumb/projeto), com aviso de "thumb ja entregue" e download direto dos arquivos da pasta (pastas que já têm thumb pronta aparecem em **verde** na lista de seleção)
 
 ### Painel Web (admin)
 
@@ -252,6 +252,16 @@ Instalar o **Cloudflare WARP** ([1.1.1.1](https://1.1.1.1)), abrir o app, escolh
 ## Changelog
 
 > A lista completa e por-versao do app desktop fica em `app/config.py` (`HISTORICO_VERSOES`), que e a fonte da verdade e e exibida dentro do proprio app. Abaixo, so os destaques recentes.
+
+### v4.0.5 (2026-06-06)
+
+- Na declaracao de tarefa, a lista "Selecionar existente" mostra em **verde** as pastas que ja tem thumb entregue (por voce ou por um colega), com a marca "✓ thumb feita" — da pra ver de relance quais nao precisam de thumb. Lista tambem ficou mais alta.
+
+### v4.0.4 (2026-06-06)
+
+- **Fix:** pastas com `?`, aspas ou ponto final no titulo sumiam da lista "Selecionar existente" (a sincronizacao as inativava por engano). Corrigido — voltam a aparecer.
+- **Fix:** download de arquivo de pasta antiga (ou com caractere especial no nome) falhava com "nao encontrado". Agora o app tenta caminhos alternativos e baixa certo.
+- **Melhoria:** geracao do link publico da pasta no MEGA passou a funcionar tambem em pastas com `?`/aspas no nome.
 
 ### v4.0.3 (2026-06-04)
 

@@ -29,7 +29,7 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 |--------|-----------|
 | Desktop | Python 3.12, Tkinter, PyMySQL, psutil, Windows API |
 | Web | PHP 8.1, Bootstrap 5, JavaScript vanilla, ECharts 5 |
-| Banco | MySQL 5.7+ / MariaDB 9.6+, InnoDB, utf8mb4 |
+| Banco | MySQL 5.7+ / MariaDB 10.4+, InnoDB, utf8mb4 |
 | Build | PyInstaller (.exe standalone) |
 | Deploy | Docker (php:8.1-apache) ou XAMPP |
 
@@ -47,6 +47,7 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 - Restaura sessao automaticamente apos queda/reinicio
 - Janela flutuante mini-timer (always-on-top)
 - Gestao de subtarefas diarias com declaracao de tempo
+- Upload de arquivos pro MEGA na declaracao (vídeo/thumb/projeto), com aviso de "thumb ja entregue" e download direto dos arquivos da pasta
 
 ### Painel Web (admin)
 
@@ -56,6 +57,8 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 - **Relatorios** de horas com calculo de valor (R$/hora)
 - **Pagamentos** com trava de periodo (bloqueia edicao retroativa)
 - **Gestao** de usuarios e atividades
+- **MEGA**: upload obrigatorio de arquivos por canal/usuario (tipos: video, thumb, projeto, texto), com links publicos das pastas gerados automaticamente
+- **Credenciais de API** cifradas em repouso (libsodium) + **Auditoria** anti-clicker (apps suspeitos + deteccao de input sintetico)
 
 ### Seguranca Anti-Fraude
 
@@ -71,38 +74,39 @@ Monitora em tempo real quais aplicativos o editor esta usando, quanto tempo fico
 ```
 Cronometro/
 ├── main.py                   # Entrypoint do app desktop
-├── app/                      # Pacote modular do desktop (config, monitor, app_shell, etc.)
+├── app/                      # Pacote modular do desktop (config, monitor, app_shell,
+│                             #   subtarefas, mega_uploader, mega_sync, hooks_input, ...)
 ├── banco.py                  # Conexao MySQL thread-safe
 ├── atividades.py             # Logica de atividades e pagamentos
 ├── declaracoes_dia.py        # Subtarefas e declaracoes diarias
-├── dados.sql                 # Schema completo (16 tabelas)
+├── dados.sql                 # Schema completo (NAO versionado — so referencia local)
+├── tools/sync_mega_links.py  # Backfill de links publicos do MEGA (mega-export)
 ├── Dockerfile                # Container do painel web
 ├── CronometroLeve.spec       # Config do PyInstaller
-├── atualizar_build.bat       # Script de build
+├── release.bat               # Build + commit/tag/push + GitHub release
 │
 └── painel/
-    ├── index.php             # Interface SPA
+    ├── index.php             # Pagina Dashboard (refator SPA -> multipagina: cada aba virou pagina)
+    ├── usuarios.php  canal.php  relatorio.php  gerenciar-tarefas.php
+    ├── credenciais.php  auditoria.php  log.php
+    ├── mega.php (Pastas logicas)   mega-campos.php (Campos + Modelos)
+    ├── _layout/             # topo.php, fim_conteudo.php, rodape.php (compartilhados)
     ├── css/painel.css        # Tema dark
-    ├── js/
-    │   ├── painel.js         # Nucleo + dashboard
-    │   ├── aba-usuarios.js   # CRUD usuarios + pagamentos
-    │   ├── aba-atividades.js # CRUD atividades
-    │   ├── aba-graficos.js   # Graficos ECharts + timeline
-    │   ├── aba-relatorio.js  # Relatorios de horas
-    │   └── aba-timeline.js   # Timeline de eventos
-    └── commands/
-        ├── conexao/          # Conexao PDO
-        ├── usuarios/         # 6 endpoints
-        ├── atividades/       # 5 endpoints
-        ├── pagamentos/       # 2 endpoints
-        ├── status/           # 3 endpoints
-        ├── relatorio/        # 1 endpoint
-        └── graficos/         # 1 endpoint
+    ├── js/                   # aba-*.js por funcionalidade: painel, usuarios, atividades,
+    │                         #   graficos, relatorio, gerenciar-tarefas, credenciais,
+    │                         #   auditoria, log-atividades, mega
+    └── commands/             # Endpoints PHP por modulo:
+        ├── conexao/  usuarios/ (+ api/)  atividades/  atividades_subtarefas/
+        ├── pagamentos/  status/  relatorio/  graficos/  log_atividades/
+        ├── credenciais/ (+ api/)   auditoria/
+        └── mega/             # config canal, campos, modelos, pastas logicas, desktop_*
 ```
 
 ---
 
-## Banco de Dados (16 tabelas)
+## Banco de Dados (~27 tabelas)
+
+> Visão geral por categoria. O dump completo `dados.sql` é referência local (não versionado); mudanças de schema são feitas por ALTER manual no servidor. Detalhes por tabela no `!projeto.md`.
 
 ### Monitoramento
 | Tabela | Descricao |
@@ -124,6 +128,24 @@ Cronometro/
 | `atividades_subtarefas_historico` | Auditoria (JSON antes/depois) |
 | `declaracoes_dia_itens` | Itens de declaracao por dia |
 | `Pagamentos` | Pagamentos com trava de periodo |
+| `pagamento_abatimentos` | Snapshot do saldo pendente por atividade em cada pagamento |
+
+### MEGA (upload obrigatorio por canal/usuario)
+| Tabela | Descricao |
+|--------|-----------|
+| `mega_canal_config` | Pasta raiz no MEGA + flag `upload_ativo` por canal |
+| `mega_campos_upload` | Campos exigidos por `user_id + id_atividade` (com `tipo`: video/projeto/thumb/texto/outro) |
+| `mega_campos_modelos` | Templates globais reutilizaveis de campos |
+| `mega_pasta_logica` | Indice das pastas do video (`NN - Titulo`) + `link_mega` publico |
+| `mega_uploads` | Metadados de cada upload (status, quem subiu, qual campo) |
+
+### Credenciais / Auditoria / Log
+| Tabela | Descricao |
+|--------|-----------|
+| `credenciais_modelos` / `credenciais_usuario` | Credenciais de API cifradas em repouso (libsodium) |
+| `auditoria_apps_suspeitos` | Apps que disparam flag de anti-clicker (match por substring) |
+| `cronometro_input_stats` | Input humano vs sintetico por bucket de 60s (flag INJECTED) |
+| `log_atividades` | Log de todas as acoes do servidor (retencao 60 dias) |
 
 ---
 
@@ -148,8 +170,8 @@ Ou use o .exe compilado: `dist/CronometroLeve.exe`
 
 **XAMPP:**
 ```
-Copie painel/ para htdocs/dashboard/Cronometro/painel/
-Acesse: http://localhost/dashboard/Cronometro/painel/
+Projeto vive em htdocs/cronometro-web/painel/
+Acesse: http://localhost/cronometro-web/painel/
 ```
 
 **Docker:**

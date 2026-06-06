@@ -134,6 +134,17 @@ def extrair_link(saida_export: str) -> str | None:
     return match.group(0) if match else None
 
 
+# Mesmos caracteres removidos por app/mega_uploader._sanitizar_caminho_mega
+# (manter sincronizado). Usado pra tentar o caminho "limpo" quando o cru falha.
+_CHARS_PROIBIDOS = str.maketrans({
+    '"': "'", '<': '', '>': '', '|': '', '?': '', '*': '', '%': '', '&': '', '^': '',
+})
+
+
+def sanitizar_caminho(caminho: str) -> str:
+    return caminho.translate(_CHARS_PROIBIDOS)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sincroniza links MEGA das pastas logicas.")
     parser.add_argument("--url", required=True, help="URL base do painel (ex: http://76.13.112.108/painel)")
@@ -189,25 +200,40 @@ def main():
         # Pausa entre requests para não estourar rate limit do servidor (120 req/min)
         time.sleep(1.2)
 
+        # Candidatos: caminho CRU e, se diferir, o SANITIZADO. O nome no MEGA
+        # pode estar com o caractere especial (?, " …) físico OU já limpo,
+        # dependendo de como a pasta foi criada — tenta os dois. (auditoria #29)
+        caminho_san = sanitizar_caminho(caminho)
+        candidatos = [caminho]
+        if caminho_san != caminho:
+            candidatos.append(caminho_san)
+
         print(f"  [EXPORT] #{id_pasta} {caminho}...", end=" ")
 
         try:
-            rc, stdout, stderr = run_mega(dir_mega, "mega-export", "-a", caminho, timeout=15.0)
-            link = extrair_link(stdout)
-
-            # Se "already exported", pegar o link existente (sem -a)
-            if not link and "already exported" in stderr:
-                rc2, stdout2, _ = run_mega(dir_mega, "mega-export", caminho, timeout=15.0)
-                link = extrair_link(stdout2)
+            link = None
+            existe = False
+            ultimo_motivo = ""
+            for cam in candidatos:
+                rc, stdout, stderr = run_mega(dir_mega, "mega-export", "-a", cam, timeout=15.0)
+                link = extrair_link(stdout)
+                # Se "already exported", pegar o link existente (sem -a)
+                if not link and "already exported" in stderr:
+                    _, stdout2, _ = run_mega(dir_mega, "mega-export", cam, timeout=15.0)
+                    link = extrair_link(stdout2)
+                if link:
+                    break
+                # Verificar se a pasta existe nesse caminho
+                rc3, _, _ = run_mega(dir_mega, "mega-ls", cam, timeout=10.0)
+                if rc3 == 0:
+                    existe = True
+                ultimo_motivo = stderr or stdout or f"rc={rc}"
 
             if not link:
-                # Verificar se a pasta existe no MEGA
-                rc3, _, _ = run_mega(dir_mega, "mega-ls", caminho, timeout=10.0)
-                if rc3 != 0:
-                    print(f"NAO EXISTE no MEGA")
+                if existe:
+                    print(f"FALHA ({ultimo_motivo[:120]})")
                 else:
-                    motivo = stderr or stdout or f"rc={rc}"
-                    print(f"FALHA ({motivo[:120]})")
+                    print("NAO EXISTE no MEGA")
                 erro_count += 1
                 continue
 

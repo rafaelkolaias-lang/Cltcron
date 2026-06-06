@@ -123,6 +123,15 @@ _MEGA_CHARS_PROIBIDOS = str.maketrans({
     '|': '',
     '?': '',
     '*': '',
+    # Metacaracteres do cmd.exe: o comando roda como `cmd.exe /c "..."`, então
+    # % (expansão de variável), & (separador de comando) e ^ (escape) podem
+    # quebrar/corromper a linha mesmo entre aspas. Removidos por consistência
+    # (mkdir/put/get/ls usam a mesma sanitização → nome casa nos dois lados).
+    # Ver auditoria #30. ':' e '\' NÃO entram aqui: já existem em pastas no
+    # MEGA e removê-los quebraria o casamento de nome dessas pastas.
+    '%': '',
+    '&': '',
+    '^': '',
 })
 
 
@@ -130,8 +139,8 @@ def _sanitizar_caminho_mega(caminho: str) -> str:
     """Remove/substitui caracteres que quebram cmd.exe ou o MEGAcmd.
 
     Aspas duplas viram apóstrofo (legibilidade); os demais proibidos em
-    Windows/MEGA são removidos. Aplicado como defesa extra no Python
-    independente da sanitização no PHP.
+    Windows/MEGA (e metacaracteres do cmd) são removidos. Aplicado como defesa
+    extra no Python independente da sanitização no PHP.
     """
     return caminho.translate(_MEGA_CHARS_PROIBIDOS)
 
@@ -637,15 +646,21 @@ class MegaUploader:
         nome_comando: str,
         *args: str,
         timeout: float = TIMEOUT_COMANDO_PADRAO_SEG,
+        sanitizar: bool = True,
     ) -> subprocess.CompletedProcess:
-        """Executa `mega-<comando>.bat <args>` silenciosamente."""
+        """Executa `mega-<comando>.bat <args>` silenciosamente.
+
+        `sanitizar=False` passa os args sem remover < > | ? * " % & ^ — usado
+        como fallback p/ nomes cujo caractere especial é FÍSICO no MEGA (ex.:
+        `mega-export` numa pasta "...Terra?"). Ver auditoria #29.
+        """
         bat = self._bat(nome_comando)
         if not bat.exists():
             raise ErroInstalacaoMega(f"comando não encontrado: {bat}")
 
         # Sanitiza args que podem conter caracteres proibidos (aspas no título
         # de vídeo, etc.) antes de montar a linha de comando.
-        args_safe = tuple(_sanitizar_caminho_mega(a) for a in args)
+        args_safe = tuple(_sanitizar_caminho_mega(a) for a in args) if sanitizar else args
         # cmd /c com aspas externas envolvendo a linha inteira: quando o caminho
         # do .bat tem espaço (ex.: "C:\Users\Marcus Vinicius\..."), cmd.exe
         # descarta as aspas internas se houver mais de um par e quebra no espaço.
@@ -758,20 +773,30 @@ class MegaUploader:
 
         Espelha o tools/sync_mega_links.py, mas roda no próprio desktop pra toda
         pasta nova já nascer com link no painel (sem depender do script manual).
+
+        Tenta o caminho SANITIZADO e, se falhar, o CRU (sem sanitizar) — cobre
+        pastas cujo nome físico no MEGA tem ?, " etc. (auditoria #29).
         """
-        caminho = _sanitizar_caminho_mega(caminho_remoto)
-        if not caminho.startswith("/"):
-            caminho = "/" + caminho
-        caminho = caminho.rstrip("/") or "/"
+        bruto = caminho_remoto if caminho_remoto.startswith("/") else "/" + caminho_remoto
+        bruto = bruto.rstrip("/") or "/"
 
         self.garantir_logado()
-        r = self._run_mega("mega-export", "-a", caminho, timeout=30.0)
-        link = self._extrair_link_export((r.stdout or "") + " " + (r.stderr or ""))
-        if not link:
-            # Já exportada antes? `mega-export` sem -a devolve o link existente.
-            r2 = self._run_mega("mega-export", caminho, timeout=30.0)
-            link = self._extrair_link_export((r2.stdout or "") + " " + (r2.stderr or ""))
-        return link
+        # Candidatos: sanitizado (default) e, se diferir, cru. Dedup implícito
+        # pela checagem `_sanitizar_caminho_mega(bruto) != bruto`.
+        sani_flags = [True]
+        if _sanitizar_caminho_mega(bruto) != bruto:
+            sani_flags.append(False)
+
+        for sani in sani_flags:
+            r = self._run_mega("mega-export", "-a", bruto, timeout=30.0, sanitizar=sani)
+            link = self._extrair_link_export((r.stdout or "") + " " + (r.stderr or ""))
+            if not link:
+                # Já exportada antes? `mega-export` sem -a devolve o link existente.
+                r2 = self._run_mega("mega-export", bruto, timeout=30.0, sanitizar=sani)
+                link = self._extrair_link_export((r2.stdout or "") + " " + (r2.stderr or ""))
+            if link:
+                return link
+        return None
 
     def upload_arquivo(
         self,
@@ -829,6 +854,7 @@ class MegaUploader:
         on_progress: Callable[[float], None] | None = None,
         cancel_event: threading.Event | None = None,
         timeout: float | None = TIMEOUT_UPLOAD_PADRAO_SEG,
+        sanitizar: bool = True,
     ) -> bool:
         """`mega-get <arquivo_remoto> <pasta>` → baixa um arquivo do MEGA pra
         `destino_local` (caminho de arquivo completo escolhido pelo usuário).
@@ -837,11 +863,16 @@ class MegaUploader:
         `cancel_event` (mata a árvore), retry 1x em sessão expirada. Levanta
         `ErroUploadMega`/`ErroUploadCancelado`.
 
+        `sanitizar=False` pula a remoção de < > | ? * " do caminho — usado como
+        fallback para itens cujo nome FÍSICO no MEGA contém esses caracteres
+        (ex.: pasta "...Terra?" criada fora do app). Ver auditoria #29.
+
         Implementação: baixa pra um diretório temporário criado DENTRO da pasta
         de destino (mesmo volume → `os.replace` atômico, sem cross-device nem
         colisão com arquivo homônimo já existente), depois move pro nome final.
         """
-        arquivo_remoto = _sanitizar_caminho_mega(arquivo_remoto)
+        if sanitizar:
+            arquivo_remoto = _sanitizar_caminho_mega(arquivo_remoto)
         if not arquivo_remoto.startswith("/"):
             arquivo_remoto = "/" + arquivo_remoto
 
@@ -864,7 +895,8 @@ class MegaUploader:
                 if self._eh_sessao_expirada(saida):
                     self._logado = False
                     self.garantir_logado()
-                    return self.baixar_arquivo(arquivo_remoto, destino_local, on_progress, cancel_event, timeout)
+                    # arquivo_remoto já está no formato final → não re-sanitiza.
+                    return self.baixar_arquivo(arquivo_remoto, destino_local, on_progress, cancel_event, timeout, sanitizar=False)
                 raise ErroUploadMega(f"download falhou (rc={rc}): {saida[:200]}")
 
             # MEGAcmd salvou o arquivo dentro do tmp_dir com o basename remoto.
@@ -893,6 +925,7 @@ class MegaUploader:
         on_progress: Callable[[float], None] | None = None,
         cancel_event: threading.Event | None = None,
         timeout: float | None = TIMEOUT_UPLOAD_PADRAO_SEG,
+        sanitizar: bool = True,
     ) -> bool:
         """`mega-get <pasta_remota> <destino_dir>` → baixa uma PASTA inteira
         (recursivo) pra dentro de `destino_dir`. O MEGAcmd recria a subpasta com
@@ -901,8 +934,12 @@ class MegaUploader:
         Espelha `baixar_arquivo` (progresso, cancel, retry em sessão expirada),
         mas sem tmp dir/`os.replace` — pasta vai direto pro destino escolhido.
         Usado quando um campo foi enviado como pasta (nome termina em "/").
+
+        `sanitizar=False`: ver `baixar_arquivo` (fallback p/ nome com caractere
+        especial físico no MEGA — auditoria #29).
         """
-        pasta_remota = _sanitizar_caminho_mega(pasta_remota)
+        if sanitizar:
+            pasta_remota = _sanitizar_caminho_mega(pasta_remota)
         if not pasta_remota.startswith("/"):
             pasta_remota = "/" + pasta_remota
         # mega-get não aceita '/' final em alguns builds — tira.
@@ -925,7 +962,8 @@ class MegaUploader:
             if self._eh_sessao_expirada(saida):
                 self._logado = False
                 self.garantir_logado()
-                return self.baixar_pasta(pasta_remota, destino_dir, on_progress, cancel_event, timeout)
+                # pasta_remota já está no formato final → não re-sanitiza.
+                return self.baixar_pasta(pasta_remota, destino_dir, on_progress, cancel_event, timeout, sanitizar=False)
             raise ErroUploadMega(f"download da pasta falhou (rc={rc}): {saida[:200]}")
 
         if on_progress:

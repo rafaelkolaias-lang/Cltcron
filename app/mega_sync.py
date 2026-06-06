@@ -26,6 +26,7 @@ from app.mega_uploader import (
     ErroUploadMega,
     MegaUploader,
     PainelMegaApi,
+    _sanitizar_caminho_mega,
 )
 
 LOG = _cfg.LOG_TEC
@@ -91,8 +92,13 @@ def obter_estado_atual_mega_sync(user_id: str) -> dict:
 
 def _normalizar_nome_pasta_mega(nome: str) -> str:
     """MEGAcmd às vezes adiciona '/' no fim de pastas em alguns formatos.
-    Normaliza pra comparar com o banco (que guarda só "NN - Titulo")."""
-    return (nome or "").strip().rstrip("/")
+    Normaliza pra comparar com o banco (que guarda só "NN - Titulo").
+
+    Também remove ponto/espaço FINAL: o Windows/MEGAcmd pode descartar o ponto
+    no fim do nome de pasta (ex.: "03 - O MAIOR ERRO de Einstein."), o que fazia
+    o nome do banco não bater com o do MEGA e a pasta ser inativada indevidamente
+    (auditoria #28). Aplicado nos DOIS lados da comparação."""
+    return (nome or "").strip().rstrip("/").rstrip(" .")
 
 
 def _executar_sincronizacao_blocking(
@@ -150,10 +156,17 @@ def _executar_sincronizacao_blocking(
 
         set_mega = {_normalizar_nome_pasta_mega(n) for n in nomes_no_mega}
         for p in pastas_banco:
-            nome_banco = _normalizar_nome_pasta_mega(str(p.get("nome_pasta") or ""))
+            bruto = str(p.get("nome_pasta") or "")
+            nome_banco = _normalizar_nome_pasta_mega(bruto)
             if not nome_banco:
                 continue
-            if nome_banco not in set_mega:
+            # A pasta pode existir no MEGA com o nome CRU (criada fora do app ou
+            # por versão antiga) OU com o nome SANITIZADO (criada pelo app, que
+            # remove < > | ? * "). Só inativa se NENHUMA das duas formas existe —
+            # senão pastas com "?" no título (a maioria, é canal de perguntas)
+            # somem indevidamente de "Selecionar existente". (auditoria #28)
+            nome_san = _normalizar_nome_pasta_mega(_sanitizar_caminho_mega(bruto))
+            if nome_banco not in set_mega and nome_san not in set_mega:
                 idpl = int(p.get("id_pasta_logica") or 0)
                 if idpl > 0:
                     ids_para_inativar.append(idpl)

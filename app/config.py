@@ -134,9 +134,19 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.3"
+VERSAO_APLICACAO = "v4.0.4"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.4",
+        "data": "06/06/2026",
+        "notas": [
+            "Corrigido: pastas de vídeo já criadas sumiam da lista 'Selecionar existente' ao declarar tarefa. Acontecia quando o título tinha '?', aspas ou terminava em ponto (ex.: '...buraco negro?' ou '...Einstein.') — a sincronização as marcava como inexistentes por engano. Agora elas continuam aparecendo normalmente.",
+            "Corrigido: ao baixar um arquivo de uma pasta antiga ou com caractere especial no nome, o download falhava com erro 'não foi possível baixar / não encontrado'. Agora o app tenta automaticamente os caminhos alternativos e baixa do jeito certo.",
+            "Melhoria: a geração do link público da pasta no MEGA passou a funcionar também em pastas com '?'/aspas no nome.",
+            "Melhoria interna: caracteres que podiam quebrar comandos no Windows (%, &, ^) agora são tratados no nome das pastas.",
+        ],
+    },
     {
         "versao": "v4.0.3",
         "data": "04/06/2026",

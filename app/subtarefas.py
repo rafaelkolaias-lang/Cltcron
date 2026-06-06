@@ -2335,7 +2335,7 @@ class JanelaSubtarefas(tk.Toplevel):
             arq: dict, var_st: tk.StringVar, lbl_st: tk.Label,
             pbar: ttk.Progressbar, btn: ttk.Button, btn_cancel: ttk.Button,
         ) -> None:
-            from app.mega_uploader import ErroUploadCancelado
+            from app.mega_uploader import ErroUploadCancelado, _sanitizar_caminho_mega
 
             caminho_remoto = str(arq.get("caminho_remoto") or "")
             nome_arq = str(arq.get("nome_arquivo") or "arquivo")
@@ -2391,15 +2391,66 @@ class JanelaSubtarefas(tk.Toplevel):
                 except Exception:
                     pass
 
+            # Arquivos enviados ANTES da subpasta por usuário (introduzida em
+            # 2026-05-17) ficam soltos na raiz da pasta lógica, sem o nível
+            # "/<user_id>/" que o download monta hoje. Se o caminho atual falhar
+            # com "não encontrado", tenta de novo no caminho legado (sem a
+            # subpasta do usuário) — cobre uploads antigos sem migrar nada.
+            def _caminho_legado() -> str:
+                uid = str(arq.get("user_id") or "")
+                if not uid:
+                    return ""
+                tem_barra = caminho_remoto.endswith("/")
+                partes = [p for p in caminho_remoto.split("/") if p != ""]
+                if len(partes) >= 2 and partes[-2] == uid:
+                    partes.pop(-2)
+                    novo = "/" + "/".join(partes)
+                    return (novo + "/") if tem_barra else novo
+                return ""
+
+            def _eh_nao_encontrado(e: Exception) -> bool:
+                msg = str(e).lower()
+                return ("couldn't find" in msg or "not found" in msg
+                        or "no such file" in msg or "rc=53" in msg)
+
             def _op() -> bool:
                 uploader = _obter_uploader()
-                if eh_pasta:
-                    return uploader.baixar_pasta(
-                        caminho_remoto, destino, on_progress=_on_progress, cancel_event=cancel_event,
-                    )
-                return uploader.baixar_arquivo(
-                    caminho_remoto, destino, on_progress=_on_progress, cancel_event=cancel_event,
-                )
+                baixar = uploader.baixar_pasta if eh_pasta else uploader.baixar_arquivo
+                legado = _caminho_legado()
+                # Candidatos em ordem, cobrindo as duas falhas conhecidas:
+                #  - subpasta /<user_id>/ ausente (uploads pré-2026-05-17) → caminho legado
+                #  - nome com caractere especial físico no MEGA (?, ", …) que a
+                #    sanitização removeria → tentativa SEM sanitizar (auditoria #29)
+                # Dedup pelo caminho EFETIVO (já sanitizado ou cru) pra não repetir
+                # a mesma chamada mega-get à toa quando o nome não tem caractere especial.
+                vistos: set[str] = set()
+                candidatos: list[tuple[str, bool]] = []
+                for cam in (caminho_remoto, legado):
+                    if not cam:
+                        continue
+                    for sani in (True, False):
+                        efetivo = _sanitizar_caminho_mega(cam) if sani else cam
+                        if efetivo in vistos:
+                            continue
+                        vistos.add(efetivo)
+                        candidatos.append((cam, sani))
+
+                ultimo_erro: Exception | None = None
+                for cam, sani in candidatos:
+                    try:
+                        return baixar(
+                            cam, destino, on_progress=_on_progress,
+                            cancel_event=cancel_event, sanitizar=sani,
+                        )
+                    except ErroUploadCancelado:
+                        raise
+                    except Exception as e:
+                        if not _eh_nao_encontrado(e):
+                            raise
+                        ultimo_erro = e
+                if ultimo_erro is not None:
+                    raise ultimo_erro
+                return False
 
             def _fim_visual() -> None:
                 try:

@@ -125,7 +125,38 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ---
 
+> **Varredura Claude 1 (2026-06-06) — foco: "erro ao baixar do MEGA" + "pasta declarada não aparece em Selecionar existente".** Causa-raiz comum: a **sanitização de nomes** (`_sanitizar_caminho_mega`, remove `< > | ? * "`) era aplicada de forma **inconsistente** entre criar pasta / listar / baixar / comparar na sync. Achados #28–#31 → **TODOS CORRIGIDOS 2026-06-06** (ver Concluído).
+
+---
+
 ### Concluído:
+
+#### 28. 🟠 Alto (8) — Pastas declaradas com `?` `"` `*` `<` `>` `|` no título SOMIAM de "Selecionar existente" (sync diária as inativava por erro de comparação) — CORRIGIDO 2026-06-06 (Claude 1)
+
+- **Era:** a sincronização diária comparava `nome_pasta` (cru, com `?`) contra a listagem do MEGA (onde a pasta existe já sanitizada, sem `?`) usando só `_normalizar_nome_pasta_mega` — nunca batia → marcava como inativa. Como o canal é cheio de títulos em pergunta, atingia a maioria. **Confirmado no banco: 10 inativas com caractere sanitizado, 9 ativas em risco.**
+- **ONDE estava:** `app/mega_sync.py:151-159`; filtro de exibição em `painel/commands/mega/pasta_logica_listar.php:24` (`p.ativo=1`).
+- **Solução aplicada:** a comparação agora aceita match contra o nome **cru OU o sanitizado** (`_sanitizar_caminho_mega` importado em `mega_sync.py`) — cobre pastas criadas das duas formas; só inativa se nenhuma das duas existir no MEGA. `py_compile` OK. **(2026-06-06, parte 2)** `_normalizar_nome_pasta_mega` passou a remover **ponto/espaço final** (`.rstrip(" .")`) nos dois lados da comparação — o Windows/MEGAcmd descarta o ponto no fim (ex.: "03 - O MAIOR ERRO de Einstein.") e isso inativava a pasta indevidamente. **Confirmado ao vivo:** Fala Sacani 01/02/03 (ids 32, 34, 39) tinham sumido de "Selecionar existente"; reativadas.
+- **⚠️ DEPENDE DE BUILD NOVO:** as correções estão no código Python do app desktop. **O app que o usuário roda ainda tem o sync ANTIGO**, que re-inativa as pastas a cada start. Enquanto não gerar/deployar um build novo, qualquer reativação no banco é desfeita no próximo start do app.
+- **Reativação (autorizada pelo usuário, 2026-06-06):** `UPDATE mega_pasta_logica SET ativo=1` nas **5 vítimas legítimas** (ids 30, 31, 35, 95, 98 — têm uploads e sem gêmea ativa). **NÃO reativadas** (pendente decisão do usuário): id=47 (Artemis 3?, 6 uploads, mas gêmea ativa id=51); ids 89/99/100 (0 uploads, duplicatas vazias de 93/105); id=110 (`""asdasd`, lixo de teste).
+
+#### 29. 🟠 Alto (7) — Download falhava ("Couldn't find"/rc=53) em itens cujo nome FÍSICO no MEGA contém `?` `"` etc. (download removia o caractere e procurava nome inexistente) — CORRIGIDO 2026-06-06 (Claude 1)
+
+- **Era:** lado espelhado do #28. `baixar_arquivo`/`baixar_pasta` sempre sanitizavam o caminho; se o MEGA tivesse a pasta com o caractere físico (criada fora do app / versão antiga), o download procurava a versão "limpa" que não existe → rc=53. Caso provável: Asteróide (id=98).
+- **ONDE estava:** `_sanitizar_caminho_mega` (`mega_uploader.py:129`) em `baixar_arquivo`/`baixar_pasta`; caminho montado em `painel/commands/mega/desktop_obter_status_pasta.php:104`.
+- **Solução aplicada:** `baixar_arquivo`/`baixar_pasta` ganharam parâmetro `sanitizar: bool=True`; com `False` pulam a sanitização. `app/subtarefas.py::_op` agora tenta uma lista de **candidatos** (caminho atual e legado × sanitizado e cru), com dedup pelo caminho efetivo, parando no 1º sucesso e só avançando em erro "não encontrado". Cobre as duas falhas (subpasta `/<user_id>/` ausente E caractere especial físico). `py_compile` OK.
+- **Blindagem da geração de link (2026-06-06):** o mesmo problema afetava `mega-export` (geração de link público), que não achava pastas com caractere físico. `_run_mega` ganhou `sanitizar: bool=True`; `MegaUploader.exportar_link` (`mega_uploader.py`) e o script `tools/sync_mega_links.py` agora tentam o caminho **sanitizado E o cru**. Assim toda pasta (inclusive com `?`/`"`) consegue gerar/recuperar o link. `py_compile` OK; testes 79/82 (3 pré-existentes).
+
+#### 30. 🟡 Médio (5) — Caracteres `%` `&` `^` não sanitizados podiam quebrar o comando `cmd.exe` no upload/download/sync — CORRIGIDO 2026-06-06 (Claude 1)
+
+- **Era:** `_MEGA_CHARS_PROIBIDOS` só tratava `< > | ? * "`. O comando roda como `cmd.exe /c "..."`, então `%` (expansão), `&` (separador) e `^` (escape) podiam corromper a linha. Latente hoje (sem `% &` no banco).
+- **ONDE estava:** `mega_uploader.py:119`.
+- **Solução aplicada:** adicionados `% & ^` ao mapa de remoção (mkdir/put/get/ls usam a mesma sanitização → nome casa nos dois lados). `:` e `\` **não** entraram (já existem em pastas no MEGA — removê-los quebraria o casamento). `py_compile` OK.
+
+#### 31. 🟠 Alto (7) — Download de arquivos enviados ANTES de 2026-05-17 falhava ("Couldn't find") porque o caminho montava a subpasta `/<user_id>/` que não existia — CORRIGIDO 2026-06-06 (Claude 1)
+
+- **Era:** a subpasta por usuário no MEGA passou a existir no upload em 2026-05-17 (commit `4464923`); a função de baixar foi criada em 2026-06-05 (`af543de`) montando o caminho **sempre** com `/<user_id>/`. Arquivos enviados antes de 17/05 ficam soltos na raiz da pasta lógica (sem o nível do user), então o `mega-get` procurava num nível inexistente → rc=53. Confirmado no banco: pasta "03 - O MAIOR ERRO de Einstein." (id=39), uploads do user `alex` em 2026-05-06.
+- **ONDE estava:** `app/subtarefas.py` (`_baixar_arquivo_da_pasta` → `_op`); caminho vem de `painel/commands/mega/desktop_obter_status_pasta.php:104` (`/<raiz>/<nome_pasta>/<user_id>/<arquivo>`).
+- **Solução aplicada:** em `app/subtarefas.py::_op`, fallback automático: tenta o caminho com a subpasta do usuário e, se falhar com "não encontrado" (`Couldn't find`/`not found`/`rc=53`), refaz no **caminho legado** sem o nível `/<user_id>/` (helpers `_caminho_legado` e `_eh_nao_encontrado`). Só cai no fallback nesse erro específico; cancelamento e outros erros propagam. Não migra nada no MEGA nem no banco. `py_compile` OK. **NÃO resolve o #29** (caractere `?` no nome físico do MEGA) — só o caso da subpasta.
 
 #### 6. 🟠 Alto (7-8) — Total "A pagar" do Dashboard ficava MENOR que a soma real quando um membro foi pago a mais — CORRIGIDO 2026-06-02 (Claude 1)
 

@@ -461,6 +461,21 @@ class PainelMegaApi:
         payload = _request_painel(url, self._headers(), timeout=timeout)
         return payload.get("dados") or {}
 
+    def salvar_link_pasta(self, id_pasta_logica: int, link_mega: str, timeout: float = 8.0) -> dict:
+        """POST pasta_logica_salvar_link.php → salva o link público da pasta
+        lógica no painel (gerado por MegaUploader.exportar_link). Idempotente —
+        toda pasta nova passa a nascer com link sem depender do script manual.
+        """
+        url = f"{self.url_painel}/commands/mega/pasta_logica_salvar_link.php"
+        payload = _request_painel(
+            url,
+            self._headers(),
+            metodo="POST",
+            corpo={"id_pasta_logica": int(id_pasta_logica), "link_mega": str(link_mega)},
+            timeout=timeout,
+        )
+        return payload.get("dados") or {}
+
     def marcar_pasta_logica_inativa(self, id_pasta_logica: int, timeout: float = 8.0) -> dict:
         """POST desktop_marcar_pasta_logica_inativa.php → soft-delete da pasta
         lógica. Idempotente.
@@ -729,6 +744,34 @@ class MegaUploader:
                 return self.criar_pasta(caminho_remoto)
             raise ErroUploadMega(f"mkdir falhou: {saida[:200]}")
         return True
+
+    @staticmethod
+    def _extrair_link_export(saida: str) -> str | None:
+        """Pega a URL pública do output do mega-export (https://mega.nz/...)."""
+        m = re.search(r"https://mega\.nz/\S+", saida or "")
+        return m.group(0) if m else None
+
+    def exportar_link(self, caminho_remoto: str) -> str | None:
+        """`mega-export -a <pasta>` → gera (ou recupera) o link público da pasta
+        e retorna a URL. Idempotente: se já exportada, tenta `mega-export` sem -a
+        pra pegar o link existente. Best-effort — retorna None se não conseguir.
+
+        Espelha o tools/sync_mega_links.py, mas roda no próprio desktop pra toda
+        pasta nova já nascer com link no painel (sem depender do script manual).
+        """
+        caminho = _sanitizar_caminho_mega(caminho_remoto)
+        if not caminho.startswith("/"):
+            caminho = "/" + caminho
+        caminho = caminho.rstrip("/") or "/"
+
+        self.garantir_logado()
+        r = self._run_mega("mega-export", "-a", caminho, timeout=30.0)
+        link = self._extrair_link_export((r.stdout or "") + " " + (r.stderr or ""))
+        if not link:
+            # Já exportada antes? `mega-export` sem -a devolve o link existente.
+            r2 = self._run_mega("mega-export", caminho, timeout=30.0)
+            link = self._extrair_link_export((r2.stdout or "") + " " + (r2.stderr or ""))
+        return link
 
     def upload_arquivo(
         self,

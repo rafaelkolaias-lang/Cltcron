@@ -3837,6 +3837,24 @@ class JanelaSubtarefas(tk.Toplevel):
             # qual remover.
             estado_entry["arquivo_remoto_anterior"] = f"{pasta_remota}{nome_arq}"
 
+            # Best-effort: gera o link público da pasta lógica (mega-export) e
+            # salva no painel, pra toda pasta nova já aparecer clicável sem
+            # depender do script manual (tools/sync_mega_links.py). Só 1x por
+            # pasta por janela; nunca quebra o upload se falhar.
+            try:
+                _idpl = int(pasta_logica.get("id_pasta_logica") or 0)
+                _exportados = getattr(self, "_links_pasta_exportados", None)
+                if _exportados is None:
+                    _exportados = set()
+                    self._links_pasta_exportados = _exportados
+                if _idpl and _idpl not in _exportados:
+                    _link = uploader.exportar_link(pasta_remota_principal)  # type: ignore[attr-defined]
+                    if _link:
+                        api.salvar_link_pasta(_idpl, _link)  # type: ignore[attr-defined]
+                        _exportados.add(_idpl)
+            except Exception:
+                pass
+
             # Cria sub Aberta no banco no PRIMEIRO upload concluído desta
             # janela (se modo "nova"). Subs em modo edição já existem.
             # No fluxo "Enviar Arquivos" a sub aberta já foi criada antes do

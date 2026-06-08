@@ -56,6 +56,26 @@ try {
     $pdo = obter_conexao_pdo();
     mega_garantir_estrutura($pdo);
 
+    // ------------------------------------------------------------------
+    // INATIVAÇÃO EM LOTE DESLIGADA NO SERVIDOR (auditoria #32, 2026-06-08).
+    // Este endpoint só é chamado pela sincronização diária do desktop, que
+    // marcava pasta como inativa quando o nome do banco não batia com o nome
+    // no MEGA. Mas os editores RENOMEIAM pastas direto no MEGA (ex.: "THUMB
+    // BAIXADO", correção de nome) — qualquer renome legítimo derrubava a pasta
+    // do painel e do "Selecionar existente". Neutralizar aqui protege TODOS os
+    // usuários na hora, inclusive quem ainda roda um app desktop antigo (o fix
+    // do Python em app/mega_sync.py::INATIVAR_AUTOMATICO só vale após novo
+    // build). A exclusão REAL de pasta (ao apagar a última subtarefa) usa o
+    // endpoint unitário desktop_marcar_pasta_logica_inativa.php e segue ativa.
+    responder_json(true, 'OK', [
+        'solicitados'   => count($ids),
+        'inativadas'    => 0,
+        'ids_ignorados' => [],
+        'aviso'         => 'inativacao_em_lote_desativada',
+    ]);
+    // (linhas abaixo preservadas, mas inalcançáveis: histórico do comportamento
+    //  antigo caso se decida religar com matching estável por handle do MEGA.)
+
     // Filtra só IDs que pertencem a canais do user (defesa IDOR).
     $place = implode(',', array_fill(0, count($ids), '?'));
     $st = $pdo->prepare("

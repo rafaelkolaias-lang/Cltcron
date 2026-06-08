@@ -131,6 +131,15 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ### Concluído:
 
+#### 32. 🟠 Alto (8) — Pastas RENOMEADAS à mão no MEGA somem do painel e do "Selecionar existente" (sync diária as inativa) — CORRIGIDO 2026-06-08 (Claude 1)
+
+- **QUANDO ACONTECE:** sempre que um editor renomeia uma pasta **direto no MEGA** como parte do fluxo de trabalho (ex.: prefixo "THUMB BAIXADO", correção de digitação tipo "Buracos negros" → "Burajos negros"). A rotina diária do desktop compara o nome guardado no banco com o nome real no MEGA; como não bate, ela **acha que a pasta foi apagada** e marca como inativa. Pasta inativa some do painel MEGA e do "Selecionar existente" do app.
+- **ONDE:** `app/mega_sync.py` (loop de comparação por nome + chamada `marcar_pastas_logicas_inativas_lote`); endpoint `painel/commands/mega/desktop_marcar_pastas_logicas_inativas_lote.php`; filtro de exibição `painel/commands/mega/pasta_logica_listar.php:24` e `desktop_obter_config.php:117` (`ativo=1`).
+- **SEVERIDADE:** 🟠 Alto 8 (some conteúdo real do fluxo de produção; recorrente — re-inativa a cada start do app).
+- **IMPACTO:** confirmado em produção **60 pastas inativas em 8 canais** (Sacani Para Dormir 14, Canal X 15 [sandbox de teste], Novo canal NIU 8, Canal NIU/Voz do sacani 8, Javier 7, Fala Sacani 4, Xadrez 3, Estilo JJ 1). Editores não conseguiam selecionar pastas que existem no MEGA.
+- **DISTINÇÃO do #28:** o #28 só cobria os caracteres que o MEGA remove sozinho (`?`, ponto final). Renome manual arbitrário NÃO era coberto — daí continuar sumindo após o fix de junho.
+- **Solução aplicada (2026-06-08):** inativação automática **DESLIGADA** em dois níveis (defesa em profundidade): (a) **desktop** — `INATIVAR_AUTOMATICO = False` em `app/mega_sync.py`: a sync vira não-destrutiva (loga divergência, nunca inativa); (b) **servidor** — `desktop_marcar_pastas_logicas_inativas_lote.php` vira no-op (responde `inativacao_em_lote_desativada`, não roda o UPDATE), protegendo inclusive apps desktop antigos sem esperar auto-update. A exclusão REAL de pasta (apagar última subtarefa) usa o endpoint **unitário** `desktop_marcar_pasta_logica_inativa.php`, que **segue ativo**. Dados: religadas as ~39 pastas de conteúdo real (excluído lixo/teste: Canal X inteiro, "Asdasd"/"Hjmhhmj"/""asdasd/"AZ"/"Https...://"). `py_compile` + `php -l` OK. **Trade-off:** a sync não esconde mais pastas que o admin apagou de verdade no MEGA — isso passa a ser manual. Religar matching só se um dia for por handle estável do nó do MEGA, não por nome.
+
 #### 28. 🟠 Alto (8) — Pastas declaradas com `?` `"` `*` `<` `>` `|` no título SOMIAM de "Selecionar existente" (sync diária as inativava por erro de comparação) — CORRIGIDO 2026-06-06 (Claude 1)
 
 - **Era:** a sincronização diária comparava `nome_pasta` (cru, com `?`) contra a listagem do MEGA (onde a pasta existe já sanitizada, sem `?`) usando só `_normalizar_nome_pasta_mega` — nunca batia → marcava como inativa. Como o canal é cheio de títulos em pergunta, atingia a maioria. **Confirmado no banco: 10 inativas com caractere sanitizado, 9 ativas em risco.**

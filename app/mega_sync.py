@@ -33,6 +33,19 @@ LOG = _cfg.LOG_TEC
 
 LOTE_INATIVAR = 300
 
+# Inativação automática de pastas DESLIGADA (auditoria #32, 2026-06-08).
+# A sync comparava o nome guardado no banco com o nome real da pasta no MEGA e,
+# quando não batia, marcava a pasta como inativa (some do painel e do
+# "Selecionar existente"). Só que os editores RENOMEIAM pastas direto no MEGA
+# como parte do fluxo (ex.: prefixo "THUMB BAIXADO", correção de digitação).
+# Qualquer renome legítimo derrubava a pasta — o conserto de caracteres (#28)
+# só cobria o que o MEGA remove sozinho (`?`, ponto final), não renome manual.
+# Com a flag em False a sync vira NÃO-DESTRUTIVA: ainda loga divergências, mas
+# nunca inativa. Se um dia o admin quiser esconder uma pasta, faz manualmente no
+# painel. Religar = True só se o matching deixar de ser por nome (ex.: por
+# handle do nó do MEGA).
+INATIVAR_AUTOMATICO = False
+
 # Lock interno: garante que não rolem 2 syncs ao mesmo tempo (after timer +
 # clique manual em "Iniciar" repetido).
 _lock_execucao = threading.Lock()
@@ -173,6 +186,16 @@ def _executar_sincronizacao_blocking(
 
     if not ids_para_inativar:
         LOG.log("MEGA_SYNC", "nenhuma_pasta_pra_inativar", {"user_id": user_id})
+        return True, ""
+
+    if not INATIVAR_AUTOMATICO:
+        # Sync não-destrutiva (auditoria #32): só registra as divergências de
+        # nome (pasta renomeada no MEGA), nunca inativa.
+        LOG.log(
+            "MEGA_SYNC",
+            "inativacao_desativada_pulando",
+            {"user_id": user_id, "qtd_ignoradas": len(ids_para_inativar), "ids": ids_para_inativar[:50]},
+        )
         return True, ""
 
     LOG.log("MEGA_SYNC", "inativando_em_lote", {"qtd": len(ids_para_inativar)})

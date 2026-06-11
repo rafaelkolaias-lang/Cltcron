@@ -49,19 +49,43 @@ try {
     $upload_ativo    = $cfg ? ((int)$cfg['upload_ativo'] === 1) : false;
     $pasta_raiz_mega = $cfg ? (string)$cfg['nome_pasta_mega'] : '';
 
-    // Campos exigidos para esse user+atividade (só ativos)
-    $st = $pdo->prepare("
-        SELECT label_campo, extensoes_permitidas, quantidade_maxima, obrigatorio, ordem
-          FROM mega_campos_upload
-         WHERE user_id=? AND id_atividade=? AND ativo=1
-         ORDER BY ordem ASC, id_campo ASC
-    ");
-    $st->execute([$user_id, $id_atividade]);
-    $campos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    foreach ($campos as &$c) {
-        $c['quantidade_maxima'] = (int)$c['quantidade_maxima'];
-        $c['obrigatorio']       = (int)$c['obrigatorio'] === 1;
-        $c['ordem']             = (int)$c['ordem'];
+    // Campos exigidos para esse user+atividade (só ativos).
+    //
+    // CONTA "adm" (config especial, 2026-06-08): em vez dos campos cadastrados
+    // canal a canal, recebe TODOS os modelos de campo ativos (mega_campos_modelos)
+    // em QUALQUER canal. Vantagem: modelo novo ou canal novo já aparecem
+    // automaticamente para a adm, sem ninguém reconfigurar. Além disso, para a
+    // adm a obrigatoriedade é SEMPRE falsa — nenhum upload é exigido dela.
+    // Demais usuários seguem o fluxo normal (campos por user+canal).
+    if ($user_id === 'adm') {
+        $st = $pdo->query("
+            SELECT label_campo, extensoes_permitidas, quantidade_maxima, ordem
+              FROM mega_campos_modelos
+             WHERE ativo=1
+             ORDER BY ordem ASC, nome_modelo ASC, id_modelo ASC
+        ");
+        $campos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($campos as &$c) {
+            $c['quantidade_maxima'] = (int)$c['quantidade_maxima'];
+            $c['obrigatorio']       = false; // adm: nunca obrigatório
+            $c['ordem']             = (int)$c['ordem'];
+        }
+        unset($c);
+    } else {
+        $st = $pdo->prepare("
+            SELECT label_campo, extensoes_permitidas, quantidade_maxima, obrigatorio, ordem
+              FROM mega_campos_upload
+             WHERE user_id=? AND id_atividade=? AND ativo=1
+             ORDER BY ordem ASC, id_campo ASC
+        ");
+        $st->execute([$user_id, $id_atividade]);
+        $campos = $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        foreach ($campos as &$c) {
+            $c['quantidade_maxima'] = (int)$c['quantidade_maxima'];
+            $c['obrigatorio']       = (int)$c['obrigatorio'] === 1;
+            $c['ordem']             = (int)$c['ordem'];
+        }
+        unset($c);
     }
 
     // Pastas lógicas existentes (ativas), enriquecidas com o vínculo do

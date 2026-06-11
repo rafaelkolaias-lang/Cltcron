@@ -281,6 +281,12 @@ mega/                          — Módulo MEGA (Fase 1 — config admin + endpo
                                  desktop_obter_config.php   — GET ?id_atividade=Y → {upload_ativo, pasta_raiz_mega,
                                                               campos_exigidos[], pastas_logicas[]}. Sem config retorna
                                                               upload_ativo=false (preserva fluxo legado).
+                                                              **Conta "adm" (2026-06-08):** campos_exigidos NÃO vem de
+                                                              mega_campos_upload — vem de TODOS os mega_campos_modelos
+                                                              ativos, em qualquer canal, com obrigatorio SEMPRE false.
+                                                              Assim modelo/canal novo já aparecem pra adm sem
+                                                              reconfigurar e nada é exigido dela. Demais users seguem
+                                                              o fluxo normal por user+canal.
                                  desktop_criar_pasta.php    — POST cria pasta lógica com nome canônico "NN - Titulo".
                                                               Reativa se existir desativada; retorna 409 se ativa
                                                               colidir.

@@ -77,9 +77,14 @@
   // BLOCO 1 — Configuração por canal
   // ===========================================================
   async function carregarCanais() {
+    // A tabela de config de canais (tbodyMegaCanais) vive em mega-campos.php;
+    // na página de Pastas (mega.php) ela NÃO existe — mas o FILTRO de canais do
+    // bloco "Pastas lógicas" ainda precisa da lista. Por isso NÃO damos return
+    // quando a tabela falta: buscamos os canais do mesmo jeito e só pulamos a
+    // parte que escreve na tabela. (fix: filtro "Todos os canais" vinha vazio
+    // após o split de 2026-06-05.)
     const tbody = document.getElementById('tbodyMegaCanais');
-    if (!tbody) return;
-    tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>';
 
     try {
       const dados = await requisitar(API + 'canal_config_listar.php');
@@ -92,7 +97,7 @@
       atualizarSelectCanaisPastas();
       renderizarCamposPorCanal();
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Erro: ${esc(e.message)}</td></tr>`;
     }
   }
 

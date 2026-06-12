@@ -131,6 +131,14 @@ Se o bug tiver contorno simples, afetar poucos usuários e não envolver dados s
 
 ### Concluído:
 
+#### 33. 🔴 Crítico (10) — Cronômetro parou de gravar tempo trabalhado de TODOS os usuários (~17 dias) por descasamento de schema (`id_atividade` NOT NULL vs app gravando NULL) — CORRIGIDO 2026-06-11 (Claude 1)
+
+- **QUANDO ACONTECE:** sempre, desde ~2026-05-26 (quando entrou o "cronômetro neutro" que grava `cronometro_relatorios.id_atividade = NULL`). Qualquer sessão nova falhava ao consolidar: o `_upsert_relatorio_com_snapshots` (em `app/monitor.py`) tentava INSERT/UPDATE com `id_atividade=NULL`, mas a coluna em produção era **`int NOT NULL`** → MySQL erro 1048 "Column 'id_atividade' cannot be null". A falha era **silenciosa** (`sincronizar_relatorio_parcial` e `_sincronizar_e_obter_adicional` engolem exceção com `try/except: pass`).
+- **ONDE:** schema `cronometro_relatorios.id_atividade` (produção) × `app/monitor.py::_upsert_relatorio_com_snapshots` (grava NULL, "cronômetro neutro"). Validação que expõe o sintoma: `declaracoes_dia.py:736-739` (`obter_segundos_monitorados_do_dia` lia 0 → "Não existe tempo monitorado disponível no cronômetro").
+- **SEVERIDADE:** 🔴 Crítico 10 — perda de dados de horas trabalhadas de TODOS os usuários por ~17 dias (impacta pagamento); nenhum usuário conseguia declarar tarefa.
+- **IMPACTO:** descoberto porque a adm (conta de teste, sem histórico) não conseguia declarar. Diagnóstico: último relatório gravado em produção era 2026-05-26; log técnico do app (`~/.cronometro_leve_log_tecnico.txt`) cheio de `[relatorio_erro] upsert falhou :: id_atividade cannot be null`. Os ~17 dias não gravados **são perda definitiva** (nunca chegaram ao banco); sessões ainda abertas no app podem ser recuperadas no próximo flush.
+- **Solução aplicada (2026-06-11, autorizada pelo usuário):** `ALTER TABLE cronometro_relatorios MODIFY COLUMN id_atividade INT NULL;` em produção — alinha o banco com o app (a coluna não tem FK; registros antigos intactos). Gravação voltou a funcionar para todos imediatamente, sem deploy. **Pendência sugerida:** refletir isso no schema de referência e considerar um guard idempotente no boot (lado servidor) pra evitar regressão se o banco for recriado.
+
 #### 32. 🟠 Alto (8) — Pastas RENOMEADAS à mão no MEGA somem do painel e do "Selecionar existente" (sync diária as inativa) — CORRIGIDO 2026-06-08 (Claude 1)
 
 - **QUANDO ACONTECE:** sempre que um editor renomeia uma pasta **direto no MEGA** como parte do fluxo de trabalho (ex.: prefixo "THUMB BAIXADO", correção de digitação tipo "Buracos negros" → "Burajos negros"). A rotina diária do desktop compara o nome guardado no banco com o nome real no MEGA; como não bate, ela **acha que a pasta foi apagada** e marca como inativa. Pasta inativa some do painel MEGA e do "Selecionar existente" do app.

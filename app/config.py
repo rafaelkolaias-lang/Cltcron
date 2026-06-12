@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.5"
+VERSAO_APLICACAO = "v4.0.6"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.6",
+        "data": "11/06/2026",
+        "notas": [
+            "Corrigido: pastas de vídeo sumiam da lista 'Selecionar existente' quando alguém renomeava a pasta direto no MEGA (ex.: marcando 'THUMB BAIXADO' ou ajustando o nome). O app deixou de remover pastas automaticamente — pastas renomeadas no MEGA continuam aparecendo normalmente.",
+        ],
+    },
     {
         "versao": "v4.0.5",
         "data": "06/06/2026",

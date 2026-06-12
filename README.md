@@ -247,11 +247,28 @@ Instalar o **Cloudflare WARP** ([1.1.1.1](https://1.1.1.1)), abrir o app, escolh
 3. Liberar `MEGAcmd` e os dominios do MEGA (`*.mega.nz`, `*.mega.co.nz`, `g.api.mega.co.nz`, `*.userstorage.mega.co.nz`) no antivirus/firewall.
 4. Testar no 4G/5G do celular (hotspot): se funcionar, confirma que e a rede/provedor do PC.
 
+### "Nao existe tempo monitorado disponivel no cronometro" ao declarar (horas nao salvam) — RESOLVIDO 2026-06-11
+
+**Sintoma:** o usuario cronometra (mexendo no mouse), pausa e tenta declarar, mas recebe `Nao existe tempo monitorado disponivel no cronometro` — mesmo tendo trabalhado. Afetava TODOS os usuarios e nenhuma hora trabalhada era salva.
+
+**Causa:** descasamento de schema. O app grava `cronometro_relatorios.id_atividade` como **NULL** (modo "cronometro neutro"), mas a coluna em producao estava como **`NOT NULL`**. Toda gravacao falhava com erro MySQL 1048 ("Column 'id_atividade' cannot be null") e a falha era **silenciosa** (`try/except: pass`). O banco ficava sem horas → a validacao anti-fraude via 0 → recusava a declaracao. O sintoma aparece no log tecnico (`~/.cronometro_leve_log_tecnico.txt`) como `[relatorio_erro] upsert falhou :: id_atividade cannot be null`.
+
+**Solucao:** `ALTER TABLE cronometro_relatorios MODIFY COLUMN id_atividade INT NULL;` (alinha o banco com o app). Resolve para todos na hora, sem precisar de novo build/deploy. As horas do periodo em que ficou quebrado nao foram gravadas, mas dá para reconstruir parcialmente a partir de `cronometro_eventos_status` (heartbeats com `situacao`). Detalhes em `auditoria.md` #33.
+
 ---
 
 ## Changelog
 
 > A lista completa e por-versao do app desktop fica em `app/config.py` (`HISTORICO_VERSOES`), que e a fonte da verdade e e exibida dentro do proprio app. Abaixo, so os destaques recentes.
+
+### v4.0.7 (2026-06-12)
+
+- **Fix:** ao declarar tarefa, um arquivo selecionado (ex.: thumb) podia nao ser enviado ao MEGA mesmo o sistema mostrando a tarefa como salva — acontecia sempre na conta administradora (todos os campos opcionais) e nos campos opcionais dos demais usuarios. Agora, havendo qualquer arquivo selecionado, o botao fica em "Enviar Arquivos" e o upload acontece de verdade antes de salvar. (auditoria #34)
+- **Fix:** enviar arquivo sem preencher o tempo travava o app (`bad window path name`) porque o auto-save tentava concluir exigindo tempo > 0 numa janela ja fechada. Agora, sem tempo valido, a tarefa e salva como Aberta (entrega de thumb/arquivo sem horas) e o erro nao quebra mais.
+
+### v4.0.6 (2026-06-11)
+
+- **Fix:** pastas de video renomeadas direto no MEGA (ex.: marcando "THUMB BAIXADO" ou corrigindo o nome) sumiam da lista "Selecionar existente" — a sincronizacao diaria as inativava por engano. O app deixou de inativar pastas automaticamente; pastas renomeadas no MEGA continuam aparecendo. (Tambem reforcado no servidor, que protege ate quem esta em versao antiga.)
 
 ### v4.0.5 (2026-06-06)
 

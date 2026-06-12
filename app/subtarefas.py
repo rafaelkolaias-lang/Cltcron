@@ -3339,6 +3339,21 @@ class JanelaSubtarefas(tk.Toplevel):
                 var_texto_botao.set("Enviar Arquivos")
                 return
 
+            # Mesmo SEM campo obrigatório pendente, qualquer arquivo já
+            # SELECIONADO e ainda não enviado precisa subir antes de salvar.
+            # Sem isso o botão virava "Salvar" e o `salvar()` gravava a tarefa
+            # DESCARTANDO o upload — crítico na conta adm, cujos campos vêm
+            # todos como opcionais (bug #34). Força o modo "Enviar Arquivos".
+            staged_pendente = [
+                nome for nome, st in estado_campos.items()
+                if st["state"] != "concluido" and str(st.get("arquivo_local") or "").strip()
+            ]
+            if staged_pendente:
+                var_aviso_bloqueio.set("Arquivos prontos para envio: " + ", ".join(staged_pendente))
+                btn_salvar.configure(state="normal")
+                var_texto_botao.set("Enviar Arquivos")
+                return
+
             # Regra de negócio: se subiu pelo menos 1 arquivo, exige tempo > 0
             # pra concluir a tarefa. Tempo=0 só é permitido quando NÃO subiu
             # nenhum arquivo (sub fica como Aberta só com pasta).
@@ -3372,10 +3387,7 @@ class JanelaSubtarefas(tk.Toplevel):
                 except Exception:
                     pass
                 return
-            deve_concluir = (
-                var_texto_botao.get() == "Salvar e Concluir"
-                or bool(salvar_automaticamente_apos_upload.get("valor"))
-            )
+            auto_apos_upload = bool(salvar_automaticamente_apos_upload.get("valor"))
             try:
                 btn_salvar.configure(state="disabled")
                 btn_cancelar.configure(state="disabled")
@@ -3389,17 +3401,39 @@ class JanelaSubtarefas(tk.Toplevel):
                 tempo_texto = (var_tempo.get() or "").strip()
                 segundos_tempo = self._converter_texto_tempo_para_segundos(tempo_texto) if tempo_texto else 0
             except Exception as erro:
-                try:
+                # No auto-save após upload o arquivo JÁ subiu e a janela já foi
+                # destruída (bug #34): tempo inválido/zero NÃO pode quebrar nem
+                # perder o upload → salva a tarefa como Aberta (sem concluir).
+                if auto_apos_upload:
+                    try:
+                        referencia_data = self._converter_texto_para_data(var_referencia.get())
+                    except Exception:
+                        from datetime import date as _date
+                        referencia_data = _date.today()
+                    tempo_texto = ""
+                    segundos_tempo = 0
+                else:
                     try:
                         btn_salvar.configure(state="normal")
                         btn_cancelar.configure(state="normal")
                         _atualizar_botao_salvar()
                     except Exception:
                         pass
-                except Exception:
-                    pass
-                messagebox.showerror("Erro", str(erro), parent=janela)
-                return
+                    try:
+                        messagebox.showerror("Erro", str(erro), parent=janela)
+                    except Exception:
+                        messagebox.showerror("Erro", str(erro), parent=self)
+                    return
+
+            # Concluir = declarar horas. No auto-save após upload só conclui se
+            # houver tempo positivo válido; sem isso a tarefa fica Aberta (entrega
+            # de thumb/arquivo sem horas — caso típico da conta adm). No fluxo
+            # manual, segue o texto do botão ("Salvar e Concluir" só aparece com
+            # tempo preenchido).
+            if auto_apos_upload:
+                deve_concluir = segundos_tempo > 0
+            else:
+                deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
 
             uid = self._usuario_id()
             # Usa id_atividade efetiva (pode ter sido trocada via combobox de

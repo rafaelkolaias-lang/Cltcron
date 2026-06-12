@@ -134,9 +134,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.6"
+VERSAO_APLICACAO = "v4.0.7"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.7",
+        "data": "12/06/2026",
+        "notas": [
+            "Corrigido: ao declarar tarefa, um arquivo selecionado (por exemplo a thumb) podia não ser enviado para o MEGA mesmo o sistema mostrando a tarefa como salva. Agora, sempre que você seleciona um arquivo, ele é realmente enviado antes de a tarefa ser concluída.",
+            "Corrigido: enviar um arquivo sem preencher o tempo gasto podia travar o app com uma mensagem de erro. Agora a tarefa é salva normalmente (sem horas, como pendente) e o envio acontece sem erro.",
+        ],
+    },
     {
         "versao": "v4.0.6",
         "data": "11/06/2026",

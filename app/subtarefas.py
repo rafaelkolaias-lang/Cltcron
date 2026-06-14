@@ -2806,6 +2806,9 @@ class JanelaSubtarefas(tk.Toplevel):
                             if count == 0:
                                 messagebox.showwarning("Atenção", "A pasta selecionada está vazia.", parent=janela)
                                 return
+                            if not total:
+                                messagebox.showwarning("Atenção", "Seu arquivo está vazio ou corrompido", parent=janela)
+                                return
                             if invalidos:
                                 amostra = ", ".join(invalidos[:5])
                                 resto = f" (e mais {len(invalidos) - 5})" if len(invalidos) > 5 else ""
@@ -2838,6 +2841,9 @@ class JanelaSubtarefas(tk.Toplevel):
                                     )
                                     return
                             tamanho = arquivo.stat().st_size if arquivo.exists() else None
+                            if tamanho == 0:
+                                messagebox.showwarning("Atenção", "Seu arquivo está vazio ou corrompido", parent=janela)
+                                return
                             nome_arq = arquivo.name
 
                         st["arquivo_local"] = str(arquivo)
@@ -3749,6 +3755,10 @@ class JanelaSubtarefas(tk.Toplevel):
                 messagebox.showwarning("Atenção", "A pasta selecionada está vazia.", parent=janela)
                 return
 
+            if tamanho_total == 0:
+                messagebox.showwarning("Atenção", "Seu arquivo está vazio ou corrompido", parent=janela)
+                return
+
             if arquivos_invalidos:
                 amostra = ", ".join(arquivos_invalidos[:5])
                 resto = f" (e mais {len(arquivos_invalidos) - 5})" if len(arquivos_invalidos) > 5 else ""
@@ -3789,6 +3799,9 @@ class JanelaSubtarefas(tk.Toplevel):
 
             arquivo = _Path(caminho)
             tamanho = arquivo.stat().st_size if arquivo.exists() else None
+            if tamanho == 0:
+                messagebox.showwarning("Atenção", "Seu arquivo está vazio ou corrompido", parent=janela)
+                return
             nome_arq = arquivo.name
 
         estado_entry["nome_arquivo_upload"] = nome_arq

@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.7"
+VERSAO_APLICACAO = "v4.0.8"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.8",
+        "data": "14/06/2026",
+        "notas": [
+            "Corrigido: agora o app não deixa enviar arquivos vazios (0 bytes) ou corrompidos. Ao selecionar um arquivo (ou uma pasta só com arquivos vazios) para declarar a tarefa, aparece o aviso 'Seu arquivo está vazio ou corrompido' e o envio é bloqueado, evitando subir arquivos quebrados para o MEGA.",
+        ],
+    },
     {
         "versao": "v4.0.7",
         "data": "12/06/2026",

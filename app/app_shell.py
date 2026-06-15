@@ -530,8 +530,7 @@ class App(tk.Tk):
                 if tamanho_remoto <= 0 or tamanho_remoto == tamanho_local:
                     return  # sem atualização
 
-                self.after(0, lambda: _mostrar_overlay())
-                _baixar(caminho_atual)
+                _baixar(caminho_atual, tamanho_remoto)
             except Exception:
                 pass  # falha silenciosa — atualização é opcional
 
@@ -568,12 +567,60 @@ class App(tk.Tk):
                 bg=_C, fg="#aaaaaa", font=("Segoe UI", 9), justify="center",
             ).pack(pady=(8, 0))
 
-        def _baixar(caminho_atual: Path) -> None:
+        def _baixar(caminho_atual: Path, tamanho_remoto: int) -> None:
             pasta = caminho_atual.parent
             novo_exe = pasta / "CronometroLeve_novo.exe"
             backup_exe = pasta / "CronometroLeve.exe.bak"
             try:
-                urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+                # Baixa para um arquivo temporário e SÓ troca o exe se o
+                # download veio íntegro. Sem essa checagem, um download
+                # truncado (queda de rede) ou uma resposta de erro do GitHub
+                # (rate limit devolve uma página pequena no lugar do exe) era
+                # salva como CronometroLeve.exe; ao reabrir, o Windows não
+                # conseguia carregar o python311.dll embutido e mostrava
+                # "Failed to load Python DLL ... LoadLibrary: módulo não
+                # encontrado". Conferimos tamanho (== Content-Length do HEAD)
+                # e a assinatura "MZ" (todo .exe começa com ela) antes de
+                # aplicar; com até 3 tentativas. Se nenhuma vier boa, mantém
+                # o exe atual funcionando e tenta de novo no próximo ciclo.
+                baixou_ok = False
+                for _tentativa in range(3):
+                    try:
+                        if novo_exe.exists():
+                            novo_exe.unlink()
+                    except Exception:
+                        pass
+                    try:
+                        urllib.request.urlretrieve(URL_ATUALIZACAO, str(novo_exe))
+                    except Exception as e:
+                        LOG_TEC.log("AUTO-UPDATE", "falha no download", {"tentativa": _tentativa + 1, "erro": str(e)})
+                        continue
+                    try:
+                        tam_baixado = novo_exe.stat().st_size
+                        with open(novo_exe, "rb") as _fh:
+                            assinatura = _fh.read(2)
+                    except OSError:
+                        tam_baixado, assinatura = -1, b""
+                    if tamanho_remoto > 0 and tam_baixado != tamanho_remoto:
+                        LOG_TEC.log("AUTO-UPDATE", "download incompleto/divergente",
+                                    {"esperado": tamanho_remoto, "baixado": tam_baixado})
+                        continue
+                    if assinatura != b"MZ":
+                        LOG_TEC.log("AUTO-UPDATE", "arquivo baixado nao e um .exe valido", {"tam": tam_baixado})
+                        continue
+                    baixou_ok = True
+                    break
+
+                if not baixou_ok:
+                    try:
+                        if novo_exe.exists():
+                            novo_exe.unlink()
+                    except Exception:
+                        pass
+                    return  # mantém o exe atual; tenta de novo depois
+
+                # Download íntegro confirmado — agora sim avisa o usuário e troca.
+                self.after(0, _mostrar_overlay)
 
                 # Remove "Mark of the Web" (Zone.Identifier) que o Windows
                 # marca em arquivos baixados via rede. Sem essa limpeza, o

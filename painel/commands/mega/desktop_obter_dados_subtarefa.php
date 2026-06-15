@@ -38,7 +38,8 @@ try {
     $st = $pdo->prepare("
         SELECT s.id_subtarefa, s.id_atividade, s.titulo,
                mc.nome_pasta_mega, mc.upload_ativo,
-               pl.id_pasta_logica, pl.nome_pasta, pl.ativo AS pasta_logica_ativa
+               pl.id_pasta_logica, pl.nome_pasta, pl.ativo AS pasta_logica_ativa,
+               pl.video_publicado
           FROM atividades_subtarefas s
           LEFT JOIN mega_canal_config mc ON mc.id_atividade = s.id_atividade
           LEFT JOIN mega_pasta_logica pl ON pl.id_atividade = s.id_atividade AND pl.nome_pasta = s.titulo
@@ -61,6 +62,7 @@ try {
             'id_pasta_logica' => (int)$row['id_pasta_logica'],
             'nome_pasta'      => (string)$row['nome_pasta'],
             'ativo'           => (int)$row['pasta_logica_ativa'] === 1,
+            'video_publicado' => (int)($row['video_publicado'] ?? 0) === 1,
         ];
     }
 

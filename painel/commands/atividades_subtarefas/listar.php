@@ -131,6 +131,7 @@ try {
         $l['segundos_gastos']    = (int)$l['segundos_gastos'];
         $l['bloqueada_pagamento'] = (bool)$l['bloqueada_pagamento'];
         $l['mega_pasta_vinculada'] = false;
+        $l['video_publicado'] = false;
     }
     unset($l);
 
@@ -146,19 +147,20 @@ try {
         try {
             $placeholders = implode(',', array_fill(0, count($id_ativs), '?'));
             $stM = $pdo->prepare(
-                "SELECT id_atividade, nome_pasta
+                "SELECT id_atividade, nome_pasta, video_publicado
                    FROM mega_pasta_logica
                   WHERE ativo = 1 AND id_atividade IN ($placeholders)"
             );
             $stM->execute(array_values($id_ativs));
             $mapaMega = [];
             foreach ($stM->fetchAll(PDO::FETCH_ASSOC) ?: [] as $r) {
-                $mapaMega[((int)$r['id_atividade']) . '|' . (string)$r['nome_pasta']] = true;
+                $mapaMega[((int)$r['id_atividade']) . '|' . (string)$r['nome_pasta']] = (int)($r['video_publicado'] ?? 0) === 1;
             }
             foreach ($linhas as &$l) {
                 $chave = ((int)$l['id_atividade']) . '|' . (string)$l['titulo'];
                 if (isset($mapaMega[$chave])) {
                     $l['mega_pasta_vinculada'] = true;
+                    $l['video_publicado'] = $mapaMega[$chave];
                 }
             }
             unset($l);

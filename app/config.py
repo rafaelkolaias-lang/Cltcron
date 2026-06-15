@@ -134,9 +134,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.8"
+VERSAO_APLICACAO = "v4.0.9"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.0.9",
+        "data": "14/06/2026",
+        "notas": [
+            "Corrigido: às vezes, ao se atualizar sozinho, o programa mostrava o erro 'Failed to load Python DLL' e não abria. Agora a atualização só é aplicada se o download vier completo e íntegro — se vier corrompido, o app continua funcionando normalmente e tenta de novo depois.",
+            "Novidade: quando um vídeo é marcado como 'publicado' no painel, a pasta dele fica verde pra todo mundo (inclusive quem faz thumb já vê que não precisa fazer) e ninguém consegue mais subir arquivo nem excluir a tarefa. Só dá pra ajustar a hora declarada e a descrição.",
+        ],
+    },
     {
         "versao": "v4.0.8",
         "data": "14/06/2026",

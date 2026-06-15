@@ -1187,12 +1187,34 @@ class RepositorioDeclaracoesDia:
         )
         self._sincronizar_item_espelho_da_subtarefa(int(id_subtarefa), user_id)
 
+    def _pasta_logica_publicada(self, id_atividade: int, titulo: str) -> bool:
+        """True se a subtarefa pertence a uma pasta lógica com vídeo publicado.
+        Associação por id_atividade + titulo == nome_pasta (convenção MEGA).
+        Tolerante a ambientes sem o módulo MEGA (tabela ausente → False)."""
+        try:
+            linha = self._banco.consultar_um(
+                """
+                SELECT video_publicado
+                  FROM mega_pasta_logica
+                 WHERE id_atividade = %s AND nome_pasta = %s AND ativo = 1
+                 LIMIT 1
+                """,
+                [int(id_atividade), str(titulo)],
+            )
+        except Exception:
+            return False
+        return bool(linha and int(linha.get("video_publicado") or 0) == 1)
+
     def excluir_subtarefa(self, *, user_id: str, id_subtarefa: int) -> None:
         self._garantir_estrutura()
 
         antes = self._obter_subtarefa(user_id, int(id_subtarefa))
         referencia = self._normalizar_data(antes.get("referencia_data"))
         self._validar_periodo_editavel(user_id, referencia, id_subtarefa=int(id_subtarefa))
+
+        # Vídeo publicado = pasta fechada: não pode ser excluída.
+        if self._pasta_logica_publicada(int(antes.get("id_atividade") or 0), str(antes.get("titulo") or "")):
+            raise RuntimeError("Este vídeo já foi publicado — a tarefa não pode ser excluída.")
 
         self._registrar_historico_subtarefa(
             id_subtarefa=int(id_subtarefa),

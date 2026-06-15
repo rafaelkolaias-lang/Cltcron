@@ -64,14 +64,19 @@ try {
     // Confere que a pasta lógica existe e está ativa, E que o user pertence
     // ao canal dela (defesa contra IDOR — sem isso qualquer user autenticado
     // poderia injetar metadados de upload em pastas lógicas de outros canais).
-    $st = $pdo->prepare("SELECT id_atividade FROM mega_pasta_logica WHERE id_pasta_logica=? AND ativo=1 LIMIT 1");
+    $st = $pdo->prepare("SELECT id_atividade, video_publicado FROM mega_pasta_logica WHERE id_pasta_logica=? AND ativo=1 LIMIT 1");
     $st->execute([$id_pasta_logica]);
-    $id_ativ_pasta = (int)($st->fetchColumn() ?: 0);
+    $pasta = $st->fetch(PDO::FETCH_ASSOC);
+    $id_ativ_pasta = (int)($pasta['id_atividade'] ?? 0);
     if ($id_ativ_pasta <= 0) {
         responder_json(false, 'pasta lógica não encontrada ou inativa', null, 404);
     }
     if (!mega_user_pertence_atividade($pdo, $user_id, $id_ativ_pasta)) {
         responder_json(false, 'usuário não tem acesso a esta atividade', null, 403);
+    }
+    // Vídeo publicado = pasta fechada: não aceita upload de arquivo novo.
+    if ((int)($pasta['video_publicado'] ?? 0) === 1) {
+        responder_json(false, 'Este vídeo já foi publicado — não é possível enviar novos arquivos.', null, 409);
     }
 
     $st = $pdo->prepare("

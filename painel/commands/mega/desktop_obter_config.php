@@ -106,6 +106,7 @@ try {
                pl.numero_video,
                pl.titulo_video,
                pl.criado_em,
+               pl.video_publicado,
                sm.id_subtarefa AS id_subtarefa_usuario,
                sm.concluida    AS sub_concluida,
                sm.bloqueada    AS sub_bloqueada,
@@ -163,6 +164,10 @@ try {
         $p['bloqueada_pagamento']   = $bloqueada;
         $p['segundos_gastos']       = $segundos;
         $p['thumb_entregue']        = $thumb_entregue;
+        // Vídeo publicado: pinta de verde para todos (inclusive thumbmakers,
+        // que assim sabem que não precisam fazer a thumb) e o desktop bloqueia
+        // upload/exclusão dessa pasta.
+        $p['video_publicado']       = (int)($p['video_publicado'] ?? 0) === 1;
 
         if ($id_sub <= 0) {
             $p['status_visual'] = 'livre';

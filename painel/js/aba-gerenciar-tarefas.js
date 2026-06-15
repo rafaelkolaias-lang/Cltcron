@@ -309,6 +309,24 @@
       }
     }
 
+    // Vídeo publicado: pasta fechada. Só a HORA declarada e a DESCRIÇÃO podem
+    // mudar — canal e status de conclusão ficam travados (o título já fica
+    // travado por ser tarefa MEGA). O backend (editar.php) também recusa, e
+    // não há exclusão de tarefa pelo painel.
+    const canalEl = el("gtEditCanal");
+    const conclEl = el("gtEditConcluida");
+    if (tarefa.video_publicado) {
+      if (canalEl) { canalEl.disabled = true; canalEl.title = "Vídeo publicado — bloqueado."; }
+      if (conclEl) { conclEl.disabled = true; conclEl.title = "Vídeo publicado — bloqueado."; }
+      if (aviso) {
+        aviso.textContent = "Vídeo publicado: só dá pra alterar a hora declarada e a descrição. Título, canal e status ficam bloqueados, e a tarefa não pode ser excluída.";
+        aviso.classList.remove("d-none");
+      }
+    } else {
+      if (canalEl) { canalEl.disabled = false; canalEl.removeAttribute("title"); }
+      if (conclEl) { conclEl.disabled = false; conclEl.removeAttribute("title"); }
+    }
+
     const info = el("gtEditInfo");
     if (info) {
       info.textContent = `${tarefa.nome_exibicao || tarefa.user_id} · ${dataIsoBr(tarefa.referencia_data)} · ${tarefa.atividade_titulo || "—"}`;

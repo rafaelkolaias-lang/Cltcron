@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.0.9"
+VERSAO_APLICACAO = "v4.1.0"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.0",
+        "data": "15/06/2026",
+        "notas": [
+            "Atualização interna: o sistema passou a usar um servidor novo, mais estável e rápido. Você não precisa fazer nada — o app se reconecta sozinho ao novo servidor. As horas e tarefas continuam normais.",
+        ],
+    },
     {
         "versao": "v4.0.9",
         "data": "14/06/2026",
@@ -412,7 +419,7 @@ URL_ATUALIZACAO = "https://raw.githubusercontent.com/rafaelkolaias-lang/Cltcron/
 # `http://localhost/cronometro-web/painel`).
 import os as _os  # local — evita poluir o namespace público
 
-URL_PAINEL = _os.environ.get("CRONOMETRO_URL_PAINEL", "https://banco-painel.cpgdmb.easypanel.host").rstrip("/")
+URL_PAINEL = _os.environ.get("CRONOMETRO_URL_PAINEL", "https://rkproducoes.duckdns.org").rstrip("/")
 
 # Chave fixa usada pelo painel para recifrar credenciais entregues ao desktop
 # (XSalsa20-Poly1305 / libsodium secretbox). Vem de `app/segredos.py`

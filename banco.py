@@ -11,11 +11,26 @@ import pymysql
 # =========================
 # CONFIG BANCO (via ENV ou fallback local)
 # =========================
-DB_HOST = os.environ.get("DB_HOST", "76.13.112.108")
+DB_HOST = os.environ.get("DB_HOST", "rkproducoes.duckdns.org")
 DB_PORTA = int(os.environ.get("DB_PORT", "3306"))
 DB_NOME = os.environ.get("DB_NAME", "dados")
 DB_USUARIO = os.environ.get("DB_USER", "kolaias")
-DB_SENHA = os.environ.get("DB_PASS", "kolaias")
+# A senha NÃO é versionada: vem de `app/segredos.py` (gitignored, embutido no
+# .exe pelo PyInstaller) ou da env `DB_PASS`. Resolvida em TEMPO DE CONEXÃO
+# (`_obter_db_senha`), não no import — assim evita o ciclo de import com o
+# pacote `app`. Em dev sem segredos locais nem env, fica vazia. Mesmo padrão
+# da APP_CLIENT_DECRYPT_KEY (que mora no mesmo `app/segredos.py`).
+_DB_SENHA_ENV = os.environ.get("DB_PASS", "")
+
+
+def _obter_db_senha() -> str:
+    if _DB_SENHA_ENV:
+        return _DB_SENHA_ENV
+    try:
+        from app import segredos as _segredos  # type: ignore
+        return getattr(_segredos, "DB_SENHA", "") or ""
+    except Exception:
+        return ""
 
 # log básico (se quiser desligar, deixe False)
 DEBUG_BANCO = False
@@ -60,7 +75,7 @@ class BancoDados:
             host=DB_HOST,
             port=int(DB_PORTA),
             user=DB_USUARIO,
-            password=DB_SENHA,
+            password=_obter_db_senha(),
             database=DB_NOME,
             charset="utf8mb4",
             autocommit=True,

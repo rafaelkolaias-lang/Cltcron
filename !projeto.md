@@ -10,6 +10,16 @@ Sistema de monitoramento de produtividade. **App desktop** (Windows, Python/Tkin
 
 ---
 
+## 🖥️ Infraestrutura (atualizado 15/06/2026 — migração de servidor)
+
+- **Servidor migrou de EasyPanel (VPS antiga `76.13.112.108`, será desligada) → Dokploy (VPS nova `2.24.87.57`).**
+- **Painel:** `https://rkproducoes.duckdns.org` (HTTPS Let's Encrypt) — Dokploy, projeto "RK produções". Auto-deploy no `git push origin main`.
+- **Banco:** MariaDB 11.8. Externo (app desktop conecta direto): `2.24.87.57:3306` / `rkproducoes.duckdns.org:3306`. Interno (painel): `rk-produes-dados-nafwaa:3306`. Banco `dados`, user `kolaias`, senha **rotacionada** — fica em `app/segredos.py` (gitignored, embutida no .exe) ou env `DB_PASS`; **não** é versionada (banco.py a resolve via `_obter_db_senha()` em tempo de conexão).
+- **App desktop (v4.1.0+):** `banco.py` aponta pro host novo; `app/config.py::URL_PAINEL` aponta pro painel novo. Auto-update via GitHub (independe do servidor). **Armadilha:** a checagem de update roda só **após login** (que consulta o banco) — então app instalado só atualiza se o banco que ele conhece estiver no ar. Por isso, na virada, o banco antigo precisou ser religado 1x pros apps v4.0.9 baixarem a v4.1.0.
+- Detalhes operacionais: ver `temporary_rules.md` (seção "MIGRAÇÃO DE SERVIDOR").
+
+---
+
 ## 🗂️ Onde está cada coisa
 
 ### Desktop (Python)

@@ -1129,6 +1129,13 @@ class JanelaSubtarefas(tk.Toplevel):
                     resultado["falhas"].append(f"falha ao buscar dados MEGA: {e}")
                     dados = None
 
+                # Vídeo publicado = pasta fechada: não pode excluir. Checa ANTES
+                # de qualquer remoção no MEGA pra não deixar banco/MEGA divergentes.
+                pl_chk = (dados or {}).get("pasta_logica") or {}
+                if pl_chk.get("video_publicado"):
+                    resultado["bloqueado_publicado"] = True
+                    return resultado
+
                 if dados and dados.get("upload_ativo") and dados.get("pasta_logica"):
                     resultado["mega_aplicado"] = True
                     pasta_raiz = str(dados.get("pasta_raiz_mega") or "").strip("/")
@@ -1184,6 +1191,14 @@ class JanelaSubtarefas(tk.Toplevel):
 
         def _ok(r: object) -> None:
             d = r if isinstance(r, dict) else {}
+            if d.get("bloqueado_publicado"):
+                messagebox.showwarning(
+                    "Vídeo publicado",
+                    "Este vídeo já foi publicado — a tarefa não pode ser excluída.",
+                    parent=self,
+                )
+                self._recarregar_dados()
+                return
             falhas = d.get("falhas") or []
             if falhas:
                 resumo = falhas[:5]
@@ -2191,6 +2206,7 @@ class JanelaSubtarefas(tk.Toplevel):
             1ª montagem quanto no rebuild — mantém a regra num lugar só."""
             status = str(p.get("status_visual") or "livre")
             thumb_ok = bool(p.get("thumb_entregue"))
+            publicado = bool(p.get("video_publicado"))
             extra = ""
             if status == "concluida":
                 extra = "  ✓"
@@ -2200,14 +2216,18 @@ class JanelaSubtarefas(tk.Toplevel):
                 extra = "  🔒 paga"
             if thumb_ok and status != "paga":
                 extra += "  ✓ thumb feita"
+            # Vídeo publicado: marca explícita pro thumbmaker saber que não
+            # precisa fazer nada nesta pasta (e o upload já fica bloqueado).
+            if publicado:
+                extra += "  ✅ publicado"
             lbx_pasta.insert("end", f"{nome}{extra}")
             if status == "paga":
                 lbx_pasta.itemconfig(i, fg=_COR_PAGA, bg=_BG_PAGA,
                                      selectbackground=_BG_PAGA,
                                      selectforeground=_COR_PAGA)
-            elif status in ("em_andamento", "concluida") or thumb_ok:
+            elif status in ("em_andamento", "concluida") or thumb_ok or publicado:
                 lbx_pasta.itemconfig(i, fg=_COR_EM_USO)
-            # status livre sem thumb = padrão (branco)
+            # status livre sem thumb/publicação = padrão (branco)
 
         nome_inicial = str(pasta_logica.get("nome_pasta") or "")
         idx_inicial = -1
@@ -3705,6 +3725,19 @@ class JanelaSubtarefas(tk.Toplevel):
                 "Defina a pasta lógica do vídeo antes de selecionar arquivos.",
                 parent=janela,
             )
+            return
+
+        # Vídeo publicado = pasta fechada: não aceita upload de arquivo novo.
+        # (O servidor também recusa em desktop_registrar_upload.php — aqui é só
+        #  pra avisar cedo e não nem abrir o seletor de arquivo.)
+        if pasta_logica.get("video_publicado"):
+            messagebox.showwarning(
+                "Vídeo publicado",
+                "Este vídeo já foi publicado — não é possível enviar novos arquivos.",
+                parent=janela,
+            )
+            if ao_finalizar is not None:
+                ao_finalizar(False)
             return
 
         from pathlib import Path as _Path

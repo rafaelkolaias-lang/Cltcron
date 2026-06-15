@@ -49,6 +49,41 @@ try {
         responder_json(false, 'Esta tarefa está bloqueada por pagamento e não pode ser editada.', null, 403);
     }
 
+    // Vídeo publicado: a pasta no MEGA está fechada. Só pode mudar a HORA
+    // declarada e a DESCRIÇÃO (observação). Alterar título, canal ou status
+    // de conclusão fica bloqueado (e excluir também — não há endpoint de
+    // exclusão no painel). Associação subtarefa↔pasta por id_atividade+titulo.
+    $publicado = false;
+    try {
+        $stPub = $pdo->prepare(
+            'SELECT video_publicado
+               FROM mega_pasta_logica
+              WHERE id_atividade = :id_ativ AND nome_pasta = :nome AND ativo = 1
+              LIMIT 1'
+        );
+        $stPub->execute([
+            ':id_ativ' => (int)($atual['id_atividade'] ?? 0),
+            ':nome'    => (string)($atual['titulo'] ?? ''),
+        ]);
+        $publicado = ((int)($stPub->fetchColumn() ?: 0) === 1);
+    } catch (Throwable $_) {
+        // Sem módulo MEGA / tabela ausente: nada a bloquear.
+        $publicado = false;
+    }
+    if ($publicado) {
+        $mudou_titulo = ($titulo !== '' && $titulo !== (string)($atual['titulo'] ?? ''));
+        $canal_norm   = ($canal !== null && $canal !== '') ? $canal : null;
+        $mudou_canal  = ($canal !== null && $canal_norm !== ($atual['canal_entrega'] ?? null));
+        $mudou_concl  = ($concluida !== null && ((int)$concluida) !== (int)($atual['concluida'] ?? 0));
+        if ($mudou_titulo || $mudou_canal || $mudou_concl) {
+            responder_json(false,
+                'Vídeo publicado: só é permitido alterar a hora declarada e a descrição.',
+                ['id_subtarefa' => $id_subtarefa, 'video_publicado' => true],
+                403
+            );
+        }
+    }
+
     // Bloqueio de renomeação para tarefas MEGA: o título de uma tarefa MEGA
     // está acoplado ao `mega_pasta_logica.nome_pasta` e ao nome da pasta no
     // servidor MEGA. Alterar só o título pelo painel deixa banco e MEGA

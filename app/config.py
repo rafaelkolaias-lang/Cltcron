@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.0"
+VERSAO_APLICACAO = "v4.1.1"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.1",
+        "data": "24/06/2026",
+        "notas": [
+            "Corrigido: ao editar uma tarefa que ainda está como 'Aberta' (não declarada) e salvar sem preencher o campo TEMPO GASTO, o app fechava a janela como se tivesse declarado — mas a tarefa continuava aberta com tempo zerado. Agora aparece o aviso 'Você não preencheu o campo TEMPO GASTO. Continuar mesmo assim?' antes de salvar, pra você não achar que declarou sem ter declarado. Para declarar as horas, preencha o tempo no campo TEMPO GASTO (não na Observação).",
+        ],
+    },
     {
         "versao": "v4.1.0",
         "data": "15/06/2026",

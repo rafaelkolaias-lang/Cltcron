@@ -3461,6 +3461,29 @@ class JanelaSubtarefas(tk.Toplevel):
             else:
                 deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
 
+            # Guarda anti-"salvei mas não declarei" (bug do Marcus): ao EDITAR uma
+            # tarefa ainda Aberta (não concluída) sem preencher o TEMPO GASTO, o
+            # save antigo gravava só a observação e fechava a janela em silêncio —
+            # o usuário achava que tinha declarado, mas a tarefa continuava Aberta
+            # com tempo 0 (ele digitava o tempo no campo Observação por engano).
+            # Agora avisa de forma clara e deixa escolher; não bloqueia (permite
+            # editar só a observação de propósito).
+            if (not auto_apos_upload and subtarefa is not None
+                    and not subtarefa_concluida and not deve_concluir):
+                continuar = messagebox.askyesno(
+                    "Tarefa NÃO declarada",
+                    "Você não preencheu o campo TEMPO GASTO. Continuar mesmo assim?",
+                    parent=janela,
+                )
+                if not continuar:
+                    try:
+                        btn_salvar.configure(state="normal")
+                        btn_cancelar.configure(state="normal")
+                        _atualizar_botao_salvar()
+                    except Exception:
+                        pass
+                    return
+
             uid = self._usuario_id()
             # Usa id_atividade efetiva (pode ter sido trocada via combobox de
             # canal — ver tarefa 7.4). NÃO usar self._id_atividade direto:

@@ -156,7 +156,11 @@ class RepositorioDeclaracoesDia:
               id_abatimento BIGINT NOT NULL AUTO_INCREMENT,
               user_id VARCHAR(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
               id_pagamento INT NOT NULL,
-              id_atividade INT NOT NULL,
+              -- NULL = abatimento global (cronômetro neutro). O painel
+              -- (_aplicar_pagamento.php::pagamento_registrar_abatimentos) grava
+              -- 1 linha por pagamento com id_atividade=NULL; manter NOT NULL aqui
+              -- recriava o bug "Falha ao criar pagamento" em banco novo do zero.
+              id_atividade INT NULL,
               segundos_abatidos INT NOT NULL DEFAULT 0,
               criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
               PRIMARY KEY (id_abatimento),

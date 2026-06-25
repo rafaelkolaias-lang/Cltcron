@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.2"
+VERSAO_APLICACAO = "v4.1.3"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.3",
+        "data": "25/06/2026",
+        "notas": [
+            "Ajuste interno no registro de pagamentos/horas (compatibilidade com o painel). Nada muda no uso do app — declarar tarefas e cronometrar continuam exatamente iguais.",
+        ],
+    },
     {
         "versao": "v4.1.2",
         "data": "25/06/2026",

@@ -654,7 +654,7 @@
     return `${h}h ${String(m).padStart(2, "0")}m`;
   }
 
-  let _resumoPeriodoAtivo = "tudo"; // 'tudo' | '30dias' | 'pendente'
+  let _resumoPeriodoAtivo = "pendente"; // 'pendente' (padrão) | 'tudo' | '30dias'
   let _resumoUidAtual = null;
   let _resumoValorHoraAtual = 0;
 

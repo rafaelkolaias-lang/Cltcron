@@ -73,14 +73,26 @@ function pagamento_registrar_abatimentos(PDO $pdo, int $id_pagamento, string $us
         return 0;
     }
 
-    // Corte temporal: última conclusão de qualquer subtarefa do usuário
-    $stCorte = $pdo->prepare("
-        SELECT MAX(COALESCE(concluida_em, criada_em))
-        FROM atividades_subtarefas
-        WHERE user_id = :uid AND concluida = 1
+    // Corte temporal do ciclo pago: o pagamento cobre trabalho até o FIM DO DIA
+    // do período coberto (travado_ate_data) — e nunca além do MOMENTO em que o
+    // pagamento foi registrado (não dá pra pagar trabalho feito depois do clique).
+    // Corte = MENOR(criado_em do pagamento, fim do dia do travado_ate_data).
+    //
+    // ANTES o corte era MAX(concluida_em) de QUALQUER data. Isso abatia horas
+    // cronometradas DEPOIS do período pago quando o usuário declarava mais tarde
+    // (bug: pagamento do dia 23 registrado dia 25 abatia o trabalho do dia 24/25,
+    // que é do ciclo novo). Agora o trabalho após o período/clique fica disponível.
+    $stPag = $pdo->prepare("
+        SELECT criado_em, travado_ate_data
+        FROM Pagamentos WHERE id_pagamento = :id LIMIT 1
     ");
-    $stCorte->execute([':uid' => $user_id]);
-    $corte = $stCorte->fetchColumn() ?: '1900-01-01 00:00:00';
+    $stPag->execute([':id' => $id_pagamento]);
+    $pag = $stPag->fetch(PDO::FETCH_ASSOC) ?: [];
+    $candidatos = [];
+    if (!empty($pag['criado_em']))       { $candidatos[] = (string)$pag['criado_em']; }
+    if (!empty($pag['travado_ate_data'])) { $candidatos[] = ((string)$pag['travado_ate_data']) . ' 23:59:59'; }
+    // Strings 'Y-m-d H:i:s' comparam cronologicamente, então min() = o mais cedo.
+    $corte = $candidatos ? min($candidatos) : date('Y-m-d H:i:s');
 
     // Monitorado global (cronômetro neutro — ignora id_atividade)
     $stMon = $pdo->prepare("

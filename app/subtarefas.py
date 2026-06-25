@@ -3414,6 +3414,11 @@ class JanelaSubtarefas(tk.Toplevel):
                     pass
                 return
             auto_apos_upload = bool(salvar_automaticamente_apos_upload.get("valor"))
+            # Captura a INTENÇÃO do botão ANTES de trocar o texto para "Salvando…".
+            # Sem isso, `deve_concluir` (linha abaixo) lia o texto JÁ alterado para
+            # "Salvando…" e dava sempre False — a declaração manual nunca concluía,
+            # gravava só via atualizar_subtarefa e fechava em silêncio (bug do Marcus).
+            intencao_concluir = var_texto_botao.get() == "Salvar e Concluir"
             try:
                 btn_salvar.configure(state="disabled")
                 btn_cancelar.configure(state="disabled")
@@ -3459,7 +3464,7 @@ class JanelaSubtarefas(tk.Toplevel):
             if auto_apos_upload:
                 deve_concluir = segundos_tempo > 0
             else:
-                deve_concluir = var_texto_botao.get() == "Salvar e Concluir"
+                deve_concluir = intencao_concluir
 
             # Guarda anti-"salvei mas não declarei" (bug do Marcus): ao EDITAR uma
             # tarefa ainda Aberta (não concluída) sem preencher o TEMPO GASTO, o

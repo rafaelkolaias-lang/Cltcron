@@ -15,7 +15,7 @@ try {
     $user_id     = trim((string)($_GET['user_id']     ?? ''));
     $id_atividade = (int)($_GET['id_atividade'] ?? 0);
     $canal       = trim((string)($_GET['canal']       ?? ''));
-    $resumo_periodo = trim((string)($_GET['resumo_periodo'] ?? 'tudo')); // 'tudo' | '30dias'
+    $resumo_periodo = trim((string)($_GET['resumo_periodo'] ?? 'tudo')); // 'tudo' | '30dias' | 'pendente'
 
     // Paginação explícita: substitui o corte silencioso de 500 itens. Sem
     // page/per_page o endpoint mantém o comportamento histórico (primeira
@@ -40,6 +40,10 @@ try {
     // Filtro temporal para os agregados do resumo (não afeta a listagem de subtarefas)
     $filtroResumo = '';
     $paramResumo = [];
+    // 'pendente' = ciclo atual (após o último pagamento). É resolvido POR USUÁRIO
+    // dentro do loop (corte = data do último pagamento), então aqui só liga a flag
+    // e deixa os filtros por período vazios.
+    $modoPendente = ($resumo_periodo === 'pendente');
     if ($resumo_periodo === '30dias') {
         $filtroResumo = ' AND criado_em >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
         $filtroResumoRef = ' AND referencia_data >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
@@ -190,14 +194,37 @@ try {
     $mapaPago = [];   // total de pagamentos
 
     foreach ($userIds as $uid) {
+        // Modo 'pendente': corte = data do último pagamento do usuário. O ciclo
+        // atual é tudo que veio DEPOIS desse corte. Sem pagamento, não há corte
+        // (mostra todo o histórico).
+        $corte = null;
+        if ($modoPendente) {
+            $stCorte = $pdo->prepare("
+                SELECT MAX(p.data_pagamento)
+                FROM Pagamentos p
+                JOIN usuarios u ON u.id_usuario = p.id_usuario
+                WHERE u.user_id = :uid
+            ");
+            $stCorte->execute([':uid' => $uid]);
+            $corte = $stCorte->fetchColumn() ?: null;
+        }
+
         // Horas cronometradas e ociosas (cronometro_relatorios — fonte real do cronômetro)
+        // 'pendente': só o cronometrado com criado_em após a data do pagamento
+        // (DATE(criado_em) > corte exclui o dia do pagamento — já considerado pago).
+        $fragCron = $filtroResumoRef;
+        $paramsCron = [':uid' => $uid];
+        if ($modoPendente) {
+            $fragCron = $corte ? ' AND DATE(criado_em) > :corte' : '';
+            if ($corte) { $paramsCron[':corte'] = $corte; }
+        }
         $stC = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_trabalhando), 0) AS trab,
                    COALESCE(SUM(segundos_ocioso), 0) AS ocio
             FROM cronometro_relatorios
-            WHERE user_id = :uid {$filtroResumoRef}
+            WHERE user_id = :uid {$fragCron}
         ");
-        $stC->execute([':uid' => $uid]);
+        $stC->execute($paramsCron);
         $cron = $stC->fetch(PDO::FETCH_ASSOC);
         $mapaCron[$uid] = (int)($cron['trab'] ?? 0);
         $mapaOcio[$uid] = (int)($cron['ocio'] ?? 0);
@@ -206,10 +233,13 @@ try {
         // CONCLUÍDAS. Tarefas abertas com tempo preenchido continuam
         // aparecendo na listagem da Gestão, mas não devem inflar o valor
         // "A pagar" — a cobrança só considera trabalho finalizado.
+        // 'pendente': declarado = concluídas ainda NÃO travadas por pagamento
+        // (bloqueada_pagamento=0). 'tudo'/'30dias' usam o recorte por período.
+        $fragDeclTotal = $modoPendente ? ' AND bloqueada_pagamento = 0' : $filtroResumoRef;
         $stD = $pdo->prepare("
             SELECT COALESCE(SUM(segundos_gastos), 0)
             FROM atividades_subtarefas
-            WHERE user_id = :uid AND concluida = 1 {$filtroResumoRef}
+            WHERE user_id = :uid AND concluida = 1 {$fragDeclTotal}
         ");
         $stD->execute([':uid' => $uid]);
         $mapaDecl[$uid] = (int)$stD->fetchColumn();
@@ -225,15 +255,20 @@ try {
         $stDnp->execute([':uid' => $uid]);
         $mapaDeclNaoPago[$uid] = (int)$stDnp->fetchColumn();
 
-        // Total pago (soma dos pagamentos)
-        $stP = $pdo->prepare("
-            SELECT COALESCE(SUM(p.valor), 0)
-            FROM Pagamentos p
-            JOIN usuarios u ON u.id_usuario = p.id_usuario
-            WHERE u.user_id = :uid {$filtroResumoData}
-        ");
-        $stP->execute([':uid' => $uid]);
-        $mapaPago[$uid] = (float)$stP->fetchColumn();
+        // Total pago (soma dos pagamentos). No modo 'pendente' o ciclo atual
+        // ainda não foi pago por definição → 0.
+        if ($modoPendente) {
+            $mapaPago[$uid] = 0.0;
+        } else {
+            $stP = $pdo->prepare("
+                SELECT COALESCE(SUM(p.valor), 0)
+                FROM Pagamentos p
+                JOIN usuarios u ON u.id_usuario = p.id_usuario
+                WHERE u.user_id = :uid {$filtroResumoData}
+            ");
+            $stP->execute([':uid' => $uid]);
+            $mapaPago[$uid] = (float)$stP->fetchColumn();
+        }
     }
 
     foreach ($linhas as &$l) {

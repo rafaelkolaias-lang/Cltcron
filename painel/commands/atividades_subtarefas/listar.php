@@ -192,6 +192,8 @@ try {
     $mapaDecl = [];   // total declarado (todas as subtarefas)
     $mapaDeclNaoPago = []; // declarado não pago (para modal de edição)
     $mapaPago = [];   // total de pagamentos
+    $mapaMonGlobal = []; // monitorado global (modo pendente — fórmula anti-fraude)
+    $mapaAbat = [];      // abatido global (modo pendente — fórmula anti-fraude)
 
     foreach ($userIds as $uid) {
         // Modo 'pendente': corte = data do último pagamento do usuário. O ciclo
@@ -207,6 +209,21 @@ try {
             ");
             $stCorte->execute([':uid' => $uid]);
             $corte = $stCorte->fetchColumn() ?: null;
+
+            // "Não declarado" do modo pendente usa a MESMA fórmula do anti-fraude
+            // do app (monitorado_global − abatido_global − declarado_não_pago),
+            // pra a view bater exatamente com o que a pessoa pode declarar —
+            // inclusive depois de injeção manual de horas ou ajuste de abatimento.
+            $stMon = $pdo->prepare("SELECT COALESCE(SUM(segundos_trabalhando),0) FROM cronometro_relatorios WHERE user_id = :uid");
+            $stMon->execute([':uid' => $uid]);
+            $mapaMonGlobal[$uid] = (int)$stMon->fetchColumn();
+            try {
+                $stAb = $pdo->prepare("SELECT COALESCE(SUM(segundos_abatidos),0) FROM pagamento_abatimentos WHERE user_id = :uid");
+                $stAb->execute([':uid' => $uid]);
+                $mapaAbat[$uid] = (int)$stAb->fetchColumn();
+            } catch (Throwable $ignore) {
+                $mapaAbat[$uid] = 0; // tabela pode não existir em banco antigo
+            }
         }
 
         // Horas cronometradas e ociosas (cronometro_relatorios — fonte real do cronômetro)
@@ -275,7 +292,11 @@ try {
         $uid = $l['user_id'];
         $decl = $mapaDecl[$uid] ?? 0;
         $cron = $mapaCron[$uid] ?? 0;
-        $naoDecl = max(0, $cron - $decl);
+        // Pendente: não declarado = disponível real (anti-fraude). Demais modos:
+        // histórico (cronometrado do período − declarado).
+        $naoDecl = $modoPendente
+            ? max(0, ($mapaMonGlobal[$uid] ?? 0) - ($mapaAbat[$uid] ?? 0) - $decl)
+            : max(0, $cron - $decl);
 
         $l['segundos_cronometrados_total'] = $cron;
         $l['segundos_ocioso_total']        = $mapaOcio[$uid] ?? 0;
@@ -294,7 +315,9 @@ try {
     if ($user_id !== '') {
         $declU = $mapaDecl[$user_id] ?? 0;
         $cronU = $mapaCron[$user_id] ?? 0;
-        $naoDeclU = max(0, $cronU - $declU);
+        $naoDeclU = $modoPendente
+            ? max(0, ($mapaMonGlobal[$user_id] ?? 0) - ($mapaAbat[$user_id] ?? 0) - $declU)
+            : max(0, $cronU - $declU);
         $resumo = [
             'user_id'                          => $user_id,
             'segundos_cronometrados_total'     => $cronU,

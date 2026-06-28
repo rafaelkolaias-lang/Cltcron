@@ -139,6 +139,8 @@ require __DIR__ . '/_layout/topo.php';
 
                     <div class="d-grid gap-2 mt-3">
                       <button type="button" class="btn btn-outline-light" id="botaoEditarDadosUsuario">Editar dados</button>
+                      <button type="button" class="btn btn-outline-danger" id="botaoRemoverUsuario" disabled>Excluir definitivamente</button>
+                      <div class="texto-fraco small" id="textoRemoverUsuarioMotivo">Só dá pra excluir contas sem nenhuma tarefa declarada, pagamento ou arquivo enviado.</div>
                     </div>
                   </div>
 

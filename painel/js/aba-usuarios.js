@@ -747,6 +747,9 @@
       carregarCanaisDoUsuario(uid),
     ]);
 
+    // Elegibilidade de exclusão definitiva (habilita/desabilita o botão).
+    carregarElegibilidadeRemocao(uid);
+
     // Alertas de auditoria (opcional — silencioso se o módulo não estiver disponível)
     try {
       await window.PainelAbaAuditoria?.renderizarAlertasNaGestao?.(uid);
@@ -757,6 +760,65 @@
 
     if (typeof window.PainelNucleo_trocarAba === "function") {
       window.PainelNucleo_trocarAba("abaGestaoUsuario");
+    }
+  }
+
+  // ============================
+  // Exclusão DEFINITIVA do usuário (só para contas vazias)
+  // ============================
+  async function carregarElegibilidadeRemocao(uid) {
+    const btn = document.getElementById("botaoRemoverUsuario");
+    const txt = document.getElementById("textoRemoverUsuarioMotivo");
+    if (!btn) return;
+    btn.disabled = true;
+    try {
+      const json = await requisitarJson(
+        `./commands/usuarios/remover_definitivo.php?user_id=${encodeURIComponent(uid)}`
+      );
+      const d = json.dados || {};
+      if (d.removivel) {
+        btn.disabled = false;
+        if (txt) txt.textContent = "Conta vazia — pode ser excluída definitivamente (irreversível).";
+      } else {
+        btn.disabled = true;
+        const motivos = Array.isArray(d.motivos) && d.motivos.length ? d.motivos.join(", ") : "histórico existente";
+        if (txt) txt.textContent = `Não pode excluir: ${motivos}.`;
+      }
+    } catch (_) {
+      btn.disabled = true;
+      if (txt) txt.textContent = "Não foi possível checar se a conta pode ser excluída.";
+    }
+  }
+
+  async function removerUsuarioDefinitivoNoBackend(user_id) {
+    const json = await requisitarJson("./commands/usuarios/remover_definitivo.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: JSON.stringify({ user_id }),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao remover usuário.");
+    return json.dados || null;
+  }
+
+  async function removerUsuarioDefinitivoConfirmar() {
+    const nucleo = obterNucleo();
+    if (!usuarioGestaoAbertoId) return;
+    const uid = usuarioGestaoAbertoId;
+    if (!confirm(`Excluir DEFINITIVAMENTE o usuário "${uid}"?\n\nIsso apaga a conta e todo o rastro dela no banco. NÃO dá pra desfazer.`)) {
+      return;
+    }
+    try {
+      await removerUsuarioDefinitivoNoBackend(uid);
+      await recarregarUsuariosNoEstado();
+      renderizarAbaUsuarios();
+      // Volta para a lista de usuários (a conta não existe mais).
+      if (typeof window.PainelNucleo_trocarAba === "function") {
+        window.PainelNucleo_trocarAba("abaUsuarios");
+      }
+      usuarioGestaoAbertoId = null;
+      nucleo.utilidades.mostrarAlerta("sucesso", "Usuário excluído", `"${uid}" foi removido definitivamente.`);
+    } catch (e) {
+      nucleo.utilidades.mostrarAlerta("erro", "Não foi possível excluir", String(e && e.message ? e.message : e));
     }
   }
 
@@ -1372,6 +1434,9 @@
 
     const botaoEditar = document.getElementById("botaoEditarDadosUsuario");
     if (botaoEditar) botaoEditar.addEventListener("click", () => alternarModoEdicao(true));
+
+    const botaoRemover = document.getElementById("botaoRemoverUsuario");
+    if (botaoRemover) botaoRemover.addEventListener("click", () => removerUsuarioDefinitivoConfirmar());
 
     const botaoCancelar = document.getElementById("botaoCancelarEdicaoUsuario");
     if (botaoCancelar) botaoCancelar.addEventListener("click", () => alternarModoEdicao(false));

@@ -54,11 +54,15 @@ function _http_header(string $nome): string
  */
 function autenticar_cliente_ou_morrer(): array
 {
-    // Proteção anti-brute-force ANTES de tocar no banco:
-    // Limita tentativas por IP, independente de ter ou não credencial.
-    // 30 tentativas por 5 minutos por IP. Excedeu -> 429.
+    // Proteção anti-flood ANTES de tocar no banco: limita o VOLUME de
+    // requisições por IP, independente de ter ou não credencial.
+    // 300 por minuto por IP — alinhado ao consumo:ip (legítimo). O valor antigo
+    // (30 / 5 min ≈ 6/min) era inconsistente com o limite por usuário (120/min)
+    // e barrava uso normal do MEGA (config + uploads + "Atualizar MEGA") com
+    // "rate limit excedido". A força-bruta de senha segue protegida pelo
+    // bucket auth_fail:ip (10 falhas / 5 min) mais abaixo.
     $ip = obter_ip_cliente();
-    rate_limit_proteger('auth_attempt:ip:' . $ip, 30, 300);
+    rate_limit_proteger('auth_attempt:ip:' . $ip, 300, 60);
 
     $user_id = '';
     $chave   = '';

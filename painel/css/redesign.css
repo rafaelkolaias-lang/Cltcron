@@ -432,3 +432,20 @@
   border-left: 3px solid var(--alerta);
   border-color: rgba(255,214,0,.45);
 }
+
+/* ============================================================
+   Legenda de usuários da página Canais (mostrar/ocultar por chip)
+   ============================================================ */
+.chip-usuario-toggle{
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.chip-usuario-toggle .chip-usuario{ transition: opacity .15s ease, filter .15s ease; }
+.chip-usuario-toggle:hover .chip-usuario{ border-color: rgba(255,255,255,.4); }
+.chip-usuario-toggle--off .chip-usuario{
+  opacity: .35;
+  filter: grayscale(.75);
+  text-decoration: line-through;
+}

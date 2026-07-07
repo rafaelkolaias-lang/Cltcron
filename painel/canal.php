@@ -43,6 +43,13 @@ require __DIR__ . '/_layout/topo.php';
                 </div>
               </div>
 
+              <!-- Legenda de usuários: clique num chip pra mostrar/ocultar aquele
+                   usuário nas linhas abaixo (padrão: todos visíveis). -->
+              <div class="d-flex align-items-center gap-2 flex-wrap mb-3 d-none" id="blocoLegendaUsuariosCanais">
+                <span class="texto-fraco small">Mostrar/ocultar usuário:</span>
+                <div id="legendaUsuariosCanais" class="d-flex flex-wrap gap-1"></div>
+              </div>
+
               <!-- Lista de canais com filtros (redesign — ajuste pós-tarefa 11: lista em vez de blocos) -->
               <div class="lista-canais" id="listaAtividades">
                 <div class="texto-fraco">Carregando…</div>
@@ -124,5 +131,5 @@ require __DIR__ . '/_layout/topo.php';
   </div>
 
 <?php
-$scriptsAba = ['./js/aba-atividades.js?v=10'];
+$scriptsAba = ['./js/aba-atividades.js?v=11'];
 require __DIR__ . '/_layout/rodape.php';

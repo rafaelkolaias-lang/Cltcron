@@ -12,6 +12,20 @@
   const seletorFiltroStatus = "#filtroStatusAtividades";
   const seletorFiltroUsuario = "#filtroUsuarioAtividades";
   const CHAVE_PREF_MOSTRAR_ADM = "canais_mostrar_adm";
+  const CHAVE_PREF_USUARIOS_OCULTOS = "canais_usuarios_ocultos";
+
+  // Usuários ocultados individualmente pela legenda (persistido). Vazio =
+  // todos visíveis (padrão). Só afeta os CHIPS exibidos — o cálculo de
+  // "Sem vínculos" continua olhando os vínculos reais.
+  let usuariosOcultos = new Set();
+  try {
+    const salvo = JSON.parse(localStorage.getItem(CHAVE_PREF_USUARIOS_OCULTOS) || "[]");
+    if (Array.isArray(salvo)) usuariosOcultos = new Set(salvo.map(String));
+  } catch (_) { /* padrão: todos visíveis */ }
+
+  function salvarUsuariosOcultos() {
+    try { localStorage.setItem(CHAVE_PREF_USUARIOS_OCULTOS, JSON.stringify([...usuariosOcultos])); } catch (_) {}
+  }
 
   const seletorModal = "#modalNovaAtividade";
   const seletorTitulo = "#entradaAtividadeTitulo";
@@ -185,9 +199,19 @@
 
     const visiveis = usuariosVisiveis(a);
     const semVinculo = visiveis.length === 0;
-    const chipsHtml = semVinculo
-      ? '<span class="badge badge-alerta">⚠ Sem vínculos</span>'
-      : renderizarUsuariosChips(visiveis);
+    // Ocultação individual pela legenda: só esconde chips; "Sem vínculos"
+    // continua refletindo os vínculos reais.
+    const exibidos = visiveis.filter((u) => !usuariosOcultos.has(obterTextoSeguro(u.user_id)));
+    const nOcultos = visiveis.length - exibidos.length;
+    let chipsHtml;
+    if (semVinculo) {
+      chipsHtml = '<span class="badge badge-alerta">⚠ Sem vínculos</span>';
+    } else {
+      chipsHtml = renderizarUsuariosChips(exibidos);
+      if (nOcultos > 0) {
+        chipsHtml += ` <span class="texto-fraco small" title="Usuário(s) ocultado(s) pela legenda acima">+${nOcultos} oculto${nOcultos === 1 ? "" : "s"}</span>`;
+      }
+    }
 
     const classes = ["canal-linha"];
     if (!ativo) classes.push("canal-linha--inativo");
@@ -241,6 +265,38 @@
       .join("");
     sel.innerHTML = `<option value="">Todos os usuários</option>` + opcoes;
     if (atual && vistos.has(atual)) sel.value = atual;
+  }
+
+  // Legenda clicável de usuários: chip aceso = visível; clicado/apagado =
+  // oculto nas linhas. Padrão: todos visíveis. Respeita o toggle "Mostrar adm".
+  function renderizarLegendaUsuarios() {
+    const bloco = document.getElementById("blocoLegendaUsuariosCanais");
+    const legenda = document.getElementById("legendaUsuariosCanais");
+    if (!bloco || !legenda) return;
+
+    const vistos = new Map();
+    cacheAtividades.forEach((a) => {
+      (Array.isArray(a.usuarios) ? a.usuarios : []).forEach((u) => {
+        if (!deveMostrarAdm() && ehAdm(u)) return;
+        const uid = obterTextoSeguro(u.user_id);
+        if (uid && !vistos.has(uid)) vistos.set(uid, obterTextoSeguro(u.nome_exibicao || uid));
+      });
+    });
+
+    if (!vistos.size) { bloco.classList.add("d-none"); return; }
+    bloco.classList.remove("d-none");
+
+    legenda.innerHTML = [...vistos.entries()]
+      .sort((x, y) => x[1].localeCompare(y[1]))
+      .map(([uid, nome]) => {
+        const oculto = usuariosOcultos.has(uid);
+        const chip = (typeof window.chipUsuarioHtml === "function")
+          ? window.chipUsuarioHtml(uid, nome)
+          : `<span class="chip">${escaparHtml(nome)}</span>`;
+        return `<button type="button" class="chip-usuario-toggle${oculto ? " chip-usuario-toggle--off" : ""}"
+                        data-toggle-usuario="${escaparHtml(uid)}"
+                        title="${oculto ? "Oculto — clique para mostrar" : "Visível — clique para ocultar"}">${chip}</button>`;
+      }).join("");
   }
 
   function aplicarFiltroETabela() {
@@ -300,6 +356,7 @@
     const json = await requisitarJson(urlListarAtividades, { method: "GET" });
     cacheAtividades = Array.isArray(json.dados) ? json.dados : [];
     popularFiltroUsuarios();
+    renderizarLegendaUsuarios();
     aplicarFiltroETabela();
   }
 
@@ -642,6 +699,7 @@
       chkAdm.addEventListener("change", () => {
         try { localStorage.setItem(CHAVE_PREF_MOSTRAR_ADM, chkAdm.checked ? "1" : "0"); } catch (_) {}
         popularFiltroUsuarios();
+        renderizarLegendaUsuarios();
         aplicarFiltroETabela();
       });
     }
@@ -649,6 +707,18 @@
     // Filtros de status e de usuário da lista.
     obterElemento(seletorFiltroStatus)?.addEventListener("change", () => aplicarFiltroETabela());
     obterElemento(seletorFiltroUsuario)?.addEventListener("change", () => aplicarFiltroETabela());
+
+    // Legenda de usuários: clique alterna visível/oculto (persistido).
+    document.getElementById("legendaUsuariosCanais")?.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-toggle-usuario]");
+      if (!btn) return;
+      const uid = btn.getAttribute("data-toggle-usuario") || "";
+      if (usuariosOcultos.has(uid)) usuariosOcultos.delete(uid);
+      else usuariosOcultos.add(uid);
+      salvarUsuariosOcultos();
+      renderizarLegendaUsuarios();
+      aplicarFiltroETabela();
+    });
   }
 
   function tentarCarregarQuandoAbrirAba() {

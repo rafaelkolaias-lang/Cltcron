@@ -328,6 +328,18 @@
   max-height: 640px;
   padding-right: 2px;
 }
+/* Em desktop a lateral "Visão Geral" espelha a altura do card Monitoramento
+   (row com align-items-stretch + card h-100): a lista contribui com altura 0
+   pro cálculo e cresce só até o espaço que sobrar, rolando por dentro —
+   assim a lateral nunca estica a row além do Monitoramento. */
+@media (min-width: 992px){
+  .lista-membros-vivo{
+    height: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+}
 .membro-vivo{
   display: flex;
   align-items: center;

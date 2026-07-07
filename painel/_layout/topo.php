@@ -44,7 +44,7 @@ $_classeNav = static function (string $aba) use ($abaAtiva): string {
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="./css/painel.css?v=12" rel="stylesheet">
-  <link href="./css/redesign.css?v=1" rel="stylesheet">
+  <link href="./css/redesign.css?v=2" rel="stylesheet">
 <?php foreach ($cssExtra as $_css): ?>
   <link href="<?= htmlspecialchars($_css, ENT_QUOTES, 'UTF-8') ?>" rel="stylesheet">
 <?php endforeach; ?>

@@ -50,6 +50,36 @@ try {
         );
     }
 
+    // Bloqueio MEGA: canal com pasta lógica ativa ou com upload concluído
+    // tem conteúdo real no MEGA — excluir deixaria arquivos órfãos lá.
+    // Regra (2026-07-07): só pode excluir canal SEM nada no MEGA e SEM horas
+    // declaradas. As tabelas mega_* podem não existir em ambientes novos
+    // (são criadas lazy pelos endpoints mega/) — nesse caso não há conteúdo.
+    try {
+        $stM = $pdo->prepare(
+            'SELECT
+                (SELECT COUNT(1) FROM mega_pasta_logica p
+                  WHERE p.id_atividade = :id AND p.ativo = 1) AS pastas_ativas,
+                (SELECT COUNT(1) FROM mega_uploads u
+                  INNER JOIN mega_pasta_logica p2 ON p2.id_pasta_logica = u.id_pasta_logica
+                  WHERE p2.id_atividade = :id2 AND u.status_upload = \'concluido\') AS uploads_concluidos'
+        );
+        $stM->execute([':id' => $id_atividade, ':id2' => $id_atividade]);
+        $mega = $stM->fetch(PDO::FETCH_ASSOC) ?: [];
+        $tem_conteudo_mega = ((int)($mega['pastas_ativas'] ?? 0)) > 0
+            || ((int)($mega['uploads_concluidos'] ?? 0)) > 0;
+    } catch (Throwable $_) {
+        $tem_conteudo_mega = false; // tabelas mega_* ainda não criadas
+    }
+
+    if ($tem_conteudo_mega) {
+        responder_json(false,
+            'Não é possível excluir este canal porque ele tem conteúdo no MEGA (pastas de vídeo e/ou arquivos enviados). Cancele o canal em vez de excluir.',
+            ['id_atividade' => $id_atividade],
+            409
+        );
+    }
+
     // Tabela legada `cronometro_finalizacoes` (mantida só como rede de
     // segurança — projeto está orfã de gravações novas conforme `!projeto.md`).
     try {

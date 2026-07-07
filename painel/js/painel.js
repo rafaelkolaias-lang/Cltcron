@@ -78,6 +78,52 @@
   }
 
   // ==========================================================
+  // Cor única por usuário (Design System v2 — tarefa 10)
+  // Hash do user_id → matiz HSL estável: o mesmo usuário tem SEMPRE a mesma
+  // cor em toda a plataforma (chips dos canais, timeline, dashboard, gestão).
+  // Ângulo áureo espalha os matizes pra usuários "vizinhos" não colidirem.
+  // ==========================================================
+  const _cacheCorUsuario = {};
+  function corDoUsuario(userId) {
+    const chave = String(userId || "").trim().toLowerCase();
+    if (_cacheCorUsuario[chave]) return _cacheCorUsuario[chave];
+    let h = 0;
+    for (let i = 0; i < chave.length; i++) {
+      h = (h * 31 + chave.charCodeAt(i)) >>> 0;
+    }
+    const matiz = Math.round((h * 137.508) % 360);
+    const cor = {
+      matiz,
+      solida: `hsl(${matiz} 72% 62%)`,          // avatar / barra / série de gráfico
+      texto:  `hsl(${matiz} 85% 74%)`,          // texto sobre fundo escuro
+      fundo:  `hsl(${matiz} 72% 62% / .14)`,    // fundo de chip
+      borda:  `hsl(${matiz} 72% 62% / .45)`,    // borda de chip
+    };
+    _cacheCorUsuario[chave] = cor;
+    return cor;
+  }
+
+  // HTML pronto de chip/avatar (usa as classes .chip-usuario/.avatar-usuario
+  // do redesign.css via CSS vars por elemento).
+  function chipUsuarioHtml(userId, nomeExibicao) {
+    const c = corDoUsuario(userId);
+    const nome = String(nomeExibicao || userId || "?");
+    const inicial = nome.trim().charAt(0).toUpperCase() || "?";
+    return `<span class="chip-usuario" title="${escapeHtml(nome)}"
+        style="--chip-cor:${c.texto};--chip-fundo:${c.fundo};--chip-borda:${c.borda};">
+      <span class="chip-usuario__avatar" style="background:${c.solida};">${escapeHtml(inicial)}</span>${escapeHtml(nome)}</span>`;
+  }
+  function avatarUsuarioHtml(userId, nomeExibicao) {
+    const c = corDoUsuario(userId);
+    const nome = String(nomeExibicao || userId || "?");
+    const inicial = nome.trim().charAt(0).toUpperCase() || "?";
+    return `<span class="avatar-usuario" title="${escapeHtml(nome)}" style="--chip-cor:${c.solida};">${escapeHtml(inicial)}</span>`;
+  }
+  window.corDoUsuario = corDoUsuario;
+  window.chipUsuarioHtml = chipUsuarioHtml;
+  window.avatarUsuarioHtml = avatarUsuarioHtml;
+
+  // ==========================================================
   // Estado global
   // ==========================================================
   const estado = {
@@ -94,6 +140,9 @@
       dataHojeIso,
       dataIsoParaBr,
       dataHoraCurta,
+      corDoUsuario,
+      chipUsuarioHtml,
+      avatarUsuarioHtml,
     },
   };
 

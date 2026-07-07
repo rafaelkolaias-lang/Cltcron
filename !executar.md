@@ -6,6 +6,88 @@
 
 ## Tarefas Claude 1
 
+### ✅ 10. Redesign - Design System Base (CSS e Cores por Usuário)
+**Status: CONCLUÍDO (2026-07-07, Claude 1)**
+
+**Solução aplicada:** criado `painel/css/redesign.css` (carregado após `painel.css` em `_layout/topo.php` — vale pra TODAS as páginas): variáveis semânticas (`--sup-*`, `--borda-*`, `--ok/--alerta/--perigo/--info`, `--acento` rosa RK), cartões com gradiente sutil + sombra, formulários consistentes (focus ring rosa), botões com hierarquia, tabelas com respiro, badges-pílula (`badge-ok/alerta/perigo/info`), scrollbar fina, nav-pills padronizadas. Em `painel/js/painel.js`: `window.corDoUsuario(userId)` (hash × ângulo áureo → HSL estável; mesma cor pro mesmo usuário em toda a plataforma) + helpers `window.chipUsuarioHtml()` / `window.avatarUsuarioHtml()` (classes `.chip-usuario`/`.avatar-usuario` no CSS). Também exposto em `PainelNucleo.utilidades`.
+
+**Objetivo:** Estabelecer a base do novo design system com variáveis semânticas e o script de cores dinâmicas dos usuários.
+**Layout e Componentes:**
+- **Novo Arquivo:** Criar `painel/css/redesign.css` e importá-lo no final de `painel/_layout/topo.php`.
+- **CSS Variables:** Definir cores, gradientes modernos do painel, sombras suaves e bordas transparentes para o estilo "glassmorphism" (`backdrop-filter` aprimorado).
+- **Consistência de Formulários:** Estilizar classes utilitárias para botões (`.btn`), caixas de texto (`.form-control`), seletores (`.form-select`) e caixas de seleção (`.form-check-input`).
+- **Geração de Cores:** Em `painel/js/painel.js`, adicionar função global para gerar e obter cores HSL balanceadas a partir do hash do `user_id` (garantindo que o mesmo usuário tenha sempre a mesma cor na timeline, nos chips dos canais e no dashboard).
+- **De/Para de Elementos:**
+  - CSS Legado: Estilos em `painel/css/painel.css` continuam como base, mas `redesign.css` sobrescreve e estende as regras para novos componentes.
+
+### ✅ 11. Redesign - Página Canais (canal.php)
+**Status: CONCLUÍDO (2026-07-07, Claude 1)**
+
+**Solução aplicada:** tabela `#tbodyAtividades` substituída por cards; **ajuste posterior a pedido do usuário (mesmo dia):** cards viraram **LISTA rica** `#listaAtividades` (linhas `.canal-linha`), mantendo cores/design, com **filtros novos**: status (Todos/Ativados/Desativados, `#filtroStatusAtividades`) e usuário (`#filtroUsuarioAtividades`, populado dos vínculos e respeitando o toggle adm), além da busca. Layout original dos cards (referência histórica): Card: título + **switch Ativado/Desativado** (aberta|em_andamento→ativo, concluida|cancelada→inativo; ligar grava `aberta`, desligar grava `cancelada` via `alterar_status.php`, com revert visual em falha), descrição com line-clamp 2, badges dificuldade/estimativa, rodapé com **chips coloridos por usuário** (`chipUsuarioHtml`) e ações ✎/🗑. **Canais ativos sem vínculo** ganham borda amarela + badge "⚠ Sem vínculos" e ordenam primeiro; desativados ficam esmaecidos por último. **Toggle "Mostrar adm"** (`#chkMostrarAdm`, persistido em localStorage `canais_mostrar_adm`, padrão OFF) oculta a conta `adm` dos chips e da contagem de vínculo. Selects de status dos modais (canal.php E index.php) viraram binários Ativado/Desativado; `montarLinhaAtividade`→`montarCardAtividade`; edição normaliza status legado via `statusParaBinario()`. Cache-bust `aba-atividades.js?v=9`. **Nota:** não houve migração de dados — valores legados no banco só são convertidos quando o admin mexe no switch/modal daquele canal.
+
+**Objetivo:** Substituir a visualização em tabela densa por cards modernos no formato grid e implementar o toggle de "Mostrar adm".
+**Layout e Componentes:**
+- **Visual:** Grid flexível (`.row` e `.col-...`) contendo Cards retangulares/quadrados (`.cartao-grafite`).
+- **Cada Card de Canal deve exibir:**
+  - **Cabeçalho:** Título do canal em destaque e switch binário de Ativado / Desativado (Substitui a seleção antiga de status: "aberta" / "em_andamento" mapeiam para ativo, "concluida" / "cancelada" mapeiam para inativo). O switch ativa/desativa via chamada ao endpoint `alterar_status.php`.
+  - **Corpo:** Descrição (limitar altura com reticências no overflow), badge da dificuldade e estimativa de horas.
+  - **Rodapé:** Lista de usuários vinculados como Chips circulares contendo a inicial do usuário e background colorido dinamicamente com base no hash do `user_id`.
+  - **Destaque:** Canais sem nenhum usuário atribuído (0 membros) devem ter um visual em destaque de atenção (ex: borda amarela/laranja ou badge "Sem vínculos").
+- **Ações no Card:** Botão minimalista de Editar e Excluir.
+- **Filtro global "Mostrar adm":** Adicionar ao lado da barra de busca de canais. Por padrão desativado (filtra o usuário 'adm' da exibição nos chips e não o contabiliza no cálculo de vínculos do card).
+- **De/Para de Elementos (JS - aba-atividades.js):**
+  - Mapear o seletor `#tbodyAtividades` para o container do Grid de Cards.
+  - Substituir a função `montarLinhaAtividade(a)` por `montarCardAtividade(a)`.
+  - Atualizar o filtro em `aplicarFiltroETabela` para suportar o grid e o toggle do "Mostrar adm".
+
+### ✅ 12. Redesign - Dashboard (index.php)
+**Status: CONCLUÍDO (2026-07-07, Claude 1)**
+
+**Solução aplicada:** `garantirEstruturaSimplificada()` (`aba-graficos.js`) agora monta **2 colunas assimétricas**: principal `col-lg-8` (card "Monitoramento de Atividade" com filtros/comparativo/top apps/timelines + card "Tempo Declarado") e lateral `col-lg-4` = card **"Visão Geral da Equipe"** com as 6 métricas ao vivo compactadas (`.card-metrica--mini`, 3×2) + **lista viva de membros** `#listaMembrosVivo` (`.membro-vivo`: bolinha de status brilhante `.dot-status--*`, avatar colorido por `avatarUsuarioHtml`, nome+flag 🚩, badge de conta quando ≠ ativa, pill do app em foco, atividade · R$/h · nº apps, tempos trabalhado/ocioso; item inteiro clicável → Gestão). A antiga tabela de 10 colunas `#tbodyResumoUsuariosGraficos` foi substituída SEM perder nenhuma informação; `_atualizarBandeirasAuditoriaNoResumo` aponta pro novo seletor. Todos os ids de gráficos ECharts preservados. Cache-bust `aba-graficos.js?v=8`.
+
+**Objetivo:** Reorganizar a home do painel em um layout de duas colunas assimétricas modernas para evitar a poluição visual.
+**Layout e Componentes:**
+- **Visual:** Layout de duas colunas `.row` com `.col-lg-8` (coluna principal) e `.col-lg-4` (barra lateral).
+- **Coluna Principal (Esquerda - 8 colunas):**
+  - **Visão Geral da Equipe:** Cards de estatísticas minimalistas (Membros, Ativos, etc.) e o gráfico Donut de distribuição.
+  - **Timeline da Equipe:** Container aprimorado para o gráfico de timeline ECharts de atividade por hora com cores de barra sincronizadas usando o hash de `user_id`.
+  - **Tempo Declarado:** Exibição simplificada de horas declaradas, pagamentos pendentes e gráfico comparativo.
+- **Barra Lateral (Direita - 4 colunas):**
+  - **Monitoramento de Atividade (Ao Vivo):** Grid moderno com status ao vivo por membro (indicador de bolinha brilhante correspondente, avatar, nome do usuário, app focado e tempo decorrido na atividade).
+  - **Top Apps da Equipe:** Lista com barras de progresso horizontais e porcentagem de foco dos aplicativos mais utilizados pela equipe.
+
+### ✅ 13. Redesign - Usuários e Gestão (usuarios.php)
+**Status: CONCLUÍDO (2026-07-07, Claude 1)**
+
+**Solução aplicada:** Gestão do Usuário reorganizada em **nav-pills internas** ocupando a largura toda (**ajuste do mesmo dia a pedido do usuário:** o card "dados do usuário", que ficava fixo na coluna esquerda `col-lg-4`, virou a aba **"Dados do usuário"** `#gestaoTabDados` — sem coluna lateral, tela mais ampla). Abas: **Resumo & Canais** (`#gestaoTabResumo`: resumo p/ pagamento + canais vinculados), **Tarefas** (`#gestaoTabTarefas`), **Pagamentos & Credenciais** (`#gestaoTabPagamentos`: registrar + histórico + credenciais cifradas) e **Auditoria** (`#gestaoTabAuditoria`: `#blocoAlertasAuditoria` movido pra cá, continua auto-oculto sem alertas). Coluna esquerda (dados/edição do usuário) intacta. **Nenhum id consumido pelo JS mudou** — só realocação de DOM; zero mudanças em `aba-usuarios.js`. Script inline dispara `window resize` em `shown.bs.tab` (ECharts em aba oculta nasce com largura 0). Listagem geral: linhas espaçadas/cabeçalho discreto vieram do redesign.css; o botão-olho da chave Pix **já existia** (`alternar-pix`). Divs balanceadas (163/163) e página 200 no smoke test.
+
+**Objetivo:** Modernizar a listagem de usuários e organizar a sub-tela de gestão do usuário em abas internas focadas.
+**Layout e Componentes:**
+- **Listagem Geral:** Tabela moderna com linhas mais espaçadas, badges de status/nível simplificados e chave Pix protegida por um botão minimalista de visualização (olho).
+- **Gestão do Usuário (usuarios.php?user=<id>):**
+  - Organizar a tela em abas internas (Bootstrap Nav Pills):
+    - **Aba 1: Estatísticas & Apps:** Métricas financeiras em cards, timeline de atividade individual diária, donut de aplicativos e foco por janela.
+    - **Aba 2: Tarefas & Histórico:** Tabela paginada e limpa das tarefas declaradas pelo usuário.
+    - **Aba 3: Pagamentos & Credenciais:** Histórico de pagamentos, formulário de lançamento de novo pagamento e gestão de chaves/modelos de APIs cifradas do usuário.
+    - **Aba 4: Auditoria & Segurança:** Exibição de alertas 🚩 de auditoria do usuário e apps suspeitos.
+- **De/Para de Elementos (JS - aba-usuarios.js):**
+  - Adaptar os seletores de renderização do perfil do usuário para os novos containers das abas.
+
+### ✅ 14. Redesign - Ajustes Visuais e Consistência Global
+**Status: CONCLUÍDO (2026-07-07, Claude 1)**
+
+**Solução aplicada:** **Login** redesenhado (vidro com backdrop-filter, barra de acento com o gradiente RK, foco/checkbox/botão rosa RK com glow — saiu o azul genérico). **Gerenciar Tarefas, Relatório, Credenciais, Auditoria, Log e MEGA Pastas** herdam automaticamente o Design System v2 via `redesign.css` no `_layout/topo.php` (tabelas com respiro e cabeçalho uppercase discreto, inputs/selects/switches consistentes, badges-pílula, modais escuros com raio 16px, scrollbar fina) — sem mexer nos JS dessas telas. Smoke test autenticado: 10/10 páginas HTTP 200. **Não feito de propósito** (ficam pra um passo 2 se o usuário quiser): credenciais em "cards inline" (hoje segue tabela, já modernizada) e retrabalhos estruturais página a página além do tema.
+
+**Objetivo:** Aplicar consistência visual nas telas secundárias utilizando o novo Design System.
+**Layout e Componentes:**
+- **Login (login.php):** Redesenhar o card central de login com efeito de vidro (backdrop-filter) e fundo com o gradiente RK sutil.
+- **Gerenciar Tarefas (gerenciar-tarefas.php):** Modernizar a tabela geral de tarefas declaradas e seus filtros.
+- **Relatório (relatorio.php):** Reestruturar cards de exportação de dados e tabela de horas consolidadas.
+- **Credenciais (credenciais.php):** Substituir listas densas por cards inline com as chaves globais e templates.
+- **Auditoria (auditoria.php):** Visual aprimorado para lista de usuários alertados e cadastro de novos apps suspeitos.
+- **Log (log.php):** Tabela de logs limpa com modal de visualização de JSON antes/depois modernizada.
+- **MEGA Pastas (mega.php):** Tabela de pastas lógicas no MEGA refinada.
+
 ### ✅ 9. Link público automático da pasta lógica (sem depender do script) (2026-06-05)
 
 **Problema:** o link público da pasta no painel (MEGA → Pastas lógicas) só era gerado pelo script manual `tools/sync_mega_links.py`. Pastas novas ficavam sem link até alguém rodar o script.

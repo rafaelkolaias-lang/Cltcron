@@ -53,10 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $segundos_bloqueio <= 0) {
 
     body {
       min-height: 100vh;
-      background: #0b1220;
+      background: #050811;
       background-image:
-        radial-gradient(ellipse 60% 50% at 20% 30%, rgba(255,31,91,.08) 0%, transparent 70%),
-        radial-gradient(ellipse 50% 40% at 80% 70%, rgba(100,60,200,.07) 0%, transparent 70%);
+        radial-gradient(ellipse 60% 50% at 15% 25%, rgba(255,31,91,.14) 0%, transparent 70%),
+        radial-gradient(ellipse 50% 45% at 85% 70%, rgba(168,0,255,.13) 0%, transparent 70%),
+        radial-gradient(ellipse 45% 35% at 55% 95%, rgba(255,107,31,.08) 0%, transparent 70%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -65,15 +66,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $segundos_bloqueio <= 0) {
     }
 
     .card {
-      background: rgba(22, 28, 45, 0.97);
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 12px;
+      background: rgba(255,255,255,.045);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 16px;
       width: 360px;
       overflow: hidden;
-      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      box-shadow: 0 10px 40px rgba(0,0,0,.55);
     }
 
-    .card-accent { height: 3px; background: linear-gradient(90deg, #1b6ef3, #5b9af8); }
+    .card-accent { height: 3px; background: linear-gradient(90deg, #ff1f5b, #ff6b1f, #ffd600, #a800ff); }
 
     .card-body { padding: 32px; }
 
@@ -119,7 +122,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $segundos_bloqueio <= 0) {
       transition: border-color .15s;
     }
     input[type=text]:focus, input[type=password]:focus {
-      border-color: #1b6ef3;
+      border-color: rgba(255,31,91,.65);
+      box-shadow: 0 0 0 3px rgba(255,31,91,.15);
     }
     input::placeholder { color: #4a5568; }
 
@@ -131,23 +135,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $segundos_bloqueio <= 0) {
       gap: 8px;
       margin-bottom: 22px;
     }
-    .lembrar-row input[type=checkbox] { accent-color: #1b6ef3; width: 15px; height: 15px; cursor: pointer; }
+    .lembrar-row input[type=checkbox] { accent-color: #ff1f5b; width: 15px; height: 15px; cursor: pointer; }
     .lembrar-row span { font-size: 13px; color: #94a3b8; }
 
     .btn-entrar {
       width: 100%;
-      background: #1b6ef3;
+      background: linear-gradient(90deg, #ff1f5b, #ff6b1f);
       border: none;
-      border-radius: 7px;
+      border-radius: 10px;
       color: #fff;
       font-family: inherit;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
       padding: 11px;
       cursor: pointer;
-      transition: background .15s;
+      transition: filter .15s, box-shadow .15s;
     }
-    .btn-entrar:hover { background: #1457cc; }
+    .btn-entrar:hover { filter: brightness(1.12); box-shadow: 0 0 18px rgba(255,31,91,.35); }
 
     .erro {
       background: rgba(192,57,43,.15);

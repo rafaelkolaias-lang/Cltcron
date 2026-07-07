@@ -279,77 +279,15 @@
     if (!aba) return;
     if (document.getElementById("painelGraficosSimplificado")) return;
 
+    // Layout em 2 colunas assimétricas (tarefa 12): coluna principal (lg-8) com
+    // Monitoramento de Atividade + Tempo Declarado; barra lateral (lg-4) com a
+    // Visão Geral da Equipe ao vivo (métricas + lista de membros). A antiga
+    // tabela de 10 colunas (#tbodyResumoUsuariosGraficos) virou a lista
+    // compacta #listaMembrosVivo — mesmo conteúdo, novo formato.
     aba.innerHTML = `
       <div id="painelGraficosSimplificado" class="container-fluid px-0">
-
-        <!-- Cards de resumo - status em tempo real -->
-        <div class="row g-3 secao-graficos">
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Trabalhando</div>
-              <div class="card-metrica__valor text-success" id="numeroResumoTrabalhandoAgora">0</div>
-            </div>
-          </div>
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Ociosos</div>
-              <div class="card-metrica__valor text-warning" id="numeroResumoOciososAgora">0</div>
-            </div>
-          </div>
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Pausados</div>
-              <div class="card-metrica__valor" id="numeroResumoPausadosAgora">0</div>
-            </div>
-          </div>
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Trabalhado</div>
-              <div class="card-metrica__valor texto-mono text-success" style="font-size:1.1rem" id="textoResumoTempoTrabalhando">00:00:00</div>
-            </div>
-          </div>
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Ocioso</div>
-              <div class="card-metrica__valor texto-mono text-warning" style="font-size:1.1rem" id="textoResumoTempoOcioso">00:00:00</div>
-            </div>
-          </div>
-          <div class="col-6 col-md-4 col-xl-2">
-            <div class="card-metrica">
-              <div class="card-metrica__rotulo">Pausado</div>
-              <div class="card-metrica__valor texto-mono" style="font-size:1.1rem" id="textoResumoTempoPausado">00:00:00</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tabela de usuários com status -->
-        <div class="cartao-grafite p-3 secao-graficos">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h6 class="mb-0 fw-bold">Visão Geral da Equipe</h6>
-            <div class="texto-fraco small" id="textoTotalUsuarios"></div>
-          </div>
-          <div class="table-responsive tabela-limite" style="max-height:400px">
-            <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-              <thead>
-                <tr class="texto-fraco small">
-                  <th>Membro</th>
-                  <th>Status</th>
-                  <th>Atividade</th>
-                  <th>App em foco</th>
-                  <th class="text-center">Conta</th>
-                  <th class="text-end">R$/hora</th>
-                  <th class="text-end">Trabalhado</th>
-                  <th class="text-end">Ocioso</th>
-                  <th class="text-end">Apps</th>
-                  <th class="text-end">Ações</th>
-                </tr>
-              </thead>
-              <tbody id="tbodyResumoUsuariosGraficos">
-                <tr><td colspan="10" class="texto-fraco">Carregando…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+       <div class="row g-3 align-items-stretch">
+        <div class="col-12 col-lg-8 d-flex flex-column gap-3 ordem-principal">
 
         <!-- Detalhe do usuário selecionado -->
         <div class="cartao-grafite p-3 secao-graficos">
@@ -472,6 +410,62 @@
           <div id="areaDeclaradoPorUsuario"><div class="texto-fraco small">Carregando…</div></div>
         </div>
 
+        </div><!-- /col principal -->
+
+        <!-- Barra lateral: Visão Geral da Equipe (ao vivo) -->
+        <div class="col-12 col-lg-4">
+          <div class="cartao-grafite p-3 h-100 d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0 fw-bold">Visão Geral da Equipe</h6>
+              <div class="texto-fraco small" id="textoTotalUsuarios"></div>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Trabalhando</div>
+                  <div class="card-metrica__valor text-success" id="numeroResumoTrabalhandoAgora">0</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Ociosos</div>
+                  <div class="card-metrica__valor text-warning" id="numeroResumoOciososAgora">0</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Pausados</div>
+                  <div class="card-metrica__valor" id="numeroResumoPausadosAgora">0</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Trabalhado</div>
+                  <div class="card-metrica__valor texto-mono text-success" id="textoResumoTempoTrabalhando">00:00:00</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Ocioso</div>
+                  <div class="card-metrica__valor texto-mono text-warning" id="textoResumoTempoOcioso">00:00:00</div>
+                </div>
+              </div>
+              <div class="col-4">
+                <div class="card-metrica card-metrica--mini">
+                  <div class="card-metrica__rotulo">Pausado</div>
+                  <div class="card-metrica__valor texto-mono" id="textoResumoTempoPausado">00:00:00</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="lista-membros-vivo flex-grow-1" id="listaMembrosVivo">
+              <div class="texto-fraco small">Carregando…</div>
+            </div>
+          </div>
+        </div><!-- /sidebar -->
+
+       </div><!-- /row -->
       </div>
     `;
   }
@@ -658,9 +652,9 @@
   }
 
   function _atualizarBandeirasAuditoriaNoResumo() {
-    document.querySelectorAll("#tbodyResumoUsuariosGraficos tr[data-user-id]").forEach((tr) => {
-      const uid = tr.getAttribute("data-user-id");
-      const alvo = tr.querySelector(".marcador-bandeira-auditoria-resumo");
+    document.querySelectorAll("#listaMembrosVivo [data-user-id]").forEach((item) => {
+      const uid = item.getAttribute("data-user-id");
+      const alvo = item.querySelector(".marcador-bandeira-auditoria-resumo");
       if (alvo) alvo.innerHTML = _bandeiraAuditoriaHtml(uid);
     });
   }
@@ -669,14 +663,19 @@
     window.addEventListener("painel:flags-auditoria-atualizadas", _atualizarBandeirasAuditoriaNoResumo);
   } catch (_) { /* noop */ }
 
+  // Lista viva da equipe na barra lateral (tarefa 12 — substituiu a tabela de
+  // 10 colunas). Mantém TODAS as informações da tabela antiga em formato
+  // compacto: bolinha de status, avatar colorido, nome+flag, conta, app em
+  // foco, atividade, R$/h, nº de apps, trabalhado e ocioso. Item inteiro
+  // clicável → Gestão do Usuário.
   function montarTabelaUsuarios(dados) {
-    const tbody = document.getElementById("tbodyResumoUsuariosGraficos");
-    if (!tbody) return;
+    const lista = document.getElementById("listaMembrosVivo");
+    if (!lista) return;
     const usuarios = dados.usuarios || [];
     setTexto("textoTotalUsuarios", `${usuarios.length} membro${usuarios.length !== 1 ? "s" : ""}`);
 
     if (!usuarios.length) {
-      tbody.innerHTML = `<tr><td colspan="10" class="texto-fraco">Sem dados para este período.</td></tr>`;
+      lista.innerHTML = `<div class="texto-fraco small">Sem dados para este período.</div>`;
       return;
     }
 
@@ -687,8 +686,15 @@
         .catch(() => { /* silencioso */ });
     } catch (_) { /* silencioso */ }
 
+    const dotStatus = (s) => {
+      if (s === "trabalhando") return "dot-status--trabalhando";
+      if (s === "ocioso") return "dot-status--ocioso";
+      if (s === "pausado") return "dot-status--pausado";
+      return "dot-status--offline";
+    };
+
     const [tIniMs, tFimMs] = _obterJanelaRecorteMs();
-    tbody.innerHTML = usuarios.map(u => {
+    lista.innerHTML = usuarios.map(u => {
       const nome = escaparHtml(u.nome_exibicao || u.user_id || "—");
       const uid = escaparHtml(u.user_id || "");
       const status = u.status_atual || "sem_status";
@@ -700,39 +706,42 @@
       const tu = _temposUsuarioNoRecorte(u);
 
       const bandeiraInicial = _bandeiraAuditoriaHtml(u.user_id);
+      const contaOk = (u.status_conta || "").toLowerCase() === "ativa";
+      const badgeConta = contaOk ? "" :
+        `<span class="badge badge-perigo" style="font-size:.62rem">${escaparHtml((u.status_conta || "—"))}</span>`;
+      const avatar = (typeof window.avatarUsuarioHtml === "function")
+        ? window.avatarUsuarioHtml(u.user_id, u.nome_exibicao)
+        : `<div class="perfil-avatar" style="width:30px;height:30px;font-size:.72rem;border-radius:8px">${iniciais(u.nome_exibicao || u.user_id)}</div>`;
+      const valorHora = `R$ ${Number(u.valor_hora || 0).toFixed(2).replace(".", ",")}/h`;
 
-      return `<tr data-user-id="${uid}">
-        <td>
-          <div class="d-flex align-items-center gap-2">
-            <div class="perfil-avatar" style="width:32px;height:32px;font-size:.75rem;border-radius:8px">${iniciais(u.nome_exibicao || u.user_id)}</div>
-            <div style="min-width:0">
-              <div class="fw-semibold d-flex align-items-center gap-1" style="font-size:.88rem">
-                <span>${nome}</span>
-                <span class="marcador-bandeira-auditoria-resumo">${bandeiraInicial}</span>
-              </div>
-              <div class="texto-fraco" style="font-size:.72rem">${uid}</div>
-            </div>
+      return `<div class="membro-vivo" data-user-id="${uid}" data-gestao-uid="${uid}" role="button"
+                   title="${nome} · ${escaparHtml(textoStatus(status))} — clique para abrir a Gestão">
+        <span class="dot-status ${dotStatus(status)}" title="${escaparHtml(textoStatus(status))}"></span>
+        ${avatar}
+        <div class="membro-vivo__info">
+          <div class="membro-vivo__nome">
+            <span>${nome}</span>
+            <span class="marcador-bandeira-auditoria-resumo">${bandeiraInicial}</span>
+            ${badgeConta}
           </div>
-        </td>
-        <td><span class="indicador-status ${classeStatus(status)}">${textoStatus(status)}</span></td>
-        <td class="texto-fraco" style="font-size:.85rem;max-width:180px" title="${ativ}"><div class="text-truncate">${ativ}</div></td>
-        <td style="font-size:.85rem">${app !== "—" ? `<span class="pill-app"><span class="pill-app__dot"></span>${app}</span>` : '<span class="texto-fraco">—</span>'}</td>
-        <td class="text-center"><span class="badge ${(u.status_conta||"").toLowerCase() === "ativa" ? "text-bg-success" : "text-bg-secondary"}">${escaparHtml((u.status_conta||"—").charAt(0).toUpperCase() + (u.status_conta||"").slice(1))}</span></td>
-        <td class="text-end fw-semibold" style="font-size:.85rem">R$ ${Number(u.valor_hora || 0).toFixed(2).replace(".",",")}</td>
-        <td class="text-end texto-mono text-success" style="font-size:.85rem">${hhmmss(tu.segundos_trabalhando)}</td>
-        <td class="text-end texto-mono text-warning" style="font-size:.85rem">${hhmmss(tu.segundos_ocioso)}</td>
-        <td class="text-end">${qtdApps}</td>
-        <td class="text-end"><button class="btn btn-sm btn-outline-light" type="button" data-gestao-uid="${uid}">Gestão</button></td>
-      </tr>`;
+          <div class="membro-vivo__detalhe texto-fraco">
+            ${app !== "—" ? `<span class="pill-app" style="padding:1px 8px;font-size:.7rem"><span class="pill-app__dot"></span>${app}</span>` : ""}
+            <span title="Atividade atual · valor hora · apps no período">${ativ} · ${valorHora} · ${qtdApps} app${qtdApps === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="membro-vivo__tempos texto-mono">
+          <span class="text-success" title="Trabalhado no recorte">${hhmmss(tu.segundos_trabalhando)}</span>
+          <span class="text-warning" title="Ocioso no recorte">${hhmmss(tu.segundos_ocioso)}</span>
+        </div>
+      </div>`;
     }).join("");
 
-    // Event delegation para botão Gestão. Se a Gestão existe nesta página (SPA
-    // do index), abre inline; senão (multipágina) navega para a página Usuários
-    // com deep-link ?user=<id> que abre a Gestão daquele usuário.
-    tbody.onclick = (e) => {
-      const btn = e.target.closest("button[data-gestao-uid]");
-      if (!btn) return;
-      const uid = btn.dataset.gestaoUid;
+    // Item inteiro clicável → Gestão. Se a Gestão existe nesta página (SPA do
+    // index), abre inline; senão navega pra usuarios.php?user=<id>.
+    lista.onclick = (e) => {
+      const item = e.target.closest("[data-gestao-uid]");
+      if (!item) return;
+      const uid = item.dataset.gestaoUid;
       if (document.getElementById("abaGestaoUsuario")) {
         window.PainelAbaUsuarios?.abrirModalGestaoUsuario?.(uid);
       } else {

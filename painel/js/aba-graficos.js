@@ -287,10 +287,10 @@
     aba.innerHTML = `
       <div id="painelGraficosSimplificado" class="container-fluid px-0">
        <div class="row g-3 align-items-stretch">
-        <div class="col-12 col-lg-8 d-flex flex-column gap-3 ordem-principal">
+        <div class="col-12 col-lg-8 ordem-principal">
 
         <!-- Detalhe do usuário selecionado -->
-        <div class="cartao-grafite p-3 secao-graficos">
+        <div class="cartao-grafite p-3 secao-graficos h-100">
           <!-- Cabeçalho com título + filtros integrados -->
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
             <div>
@@ -391,27 +391,8 @@
           </div>
         </div>
 
-        <!-- Tempo declarado -->
-        <div class="cartao-grafite p-3 secao-graficos">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <div>
-              <h6 class="mb-0 fw-bold">Tempo Declarado</h6>
-              <div class="texto-fraco small mt-1">Apenas o tempo que o membro declarou como trabalhado</div>
-            </div>
-            <span class="badge badge-suave">declarado</span>
-          </div>
-          <div class="row g-3 mb-3" id="cardsDeclarado">
-            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Total declarado</div><div class="card-metrica__valor texto-mono" id="declTotalHoras">—</div></div></div>
-            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pagamento Pendente</div><div class="card-metrica__valor text-warning" id="declTotalValor">—</div></div></div>
-            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pago</div><div class="card-metrica__valor text-success" id="declTotalPago">—</div></div></div>
-            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Membros</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
-            <div class="col-6 col-md-4"><div class="card-metrica"><div class="card-metrica__rotulo">Período</div><div class="card-metrica__valor" style="font-size:1rem" id="declPeriodo">—</div></div></div>
-          </div>
-          <div id="areaDeclaradoPorUsuario"><div class="texto-fraco small">Carregando…</div></div>
-        </div>
-
-        </div><!-- /col principal -->
-
+        </div><!-- /col principal (só o Monitoramento — Visão Geral da lateral
+                    espelha esta altura via align-items-stretch + h-100) -->
         <!-- Barra lateral: Visão Geral da Equipe (ao vivo) -->
         <div class="col-12 col-lg-4">
           <div class="cartao-grafite p-3 h-100 d-flex flex-column">
@@ -466,6 +447,25 @@
         </div><!-- /sidebar -->
 
        </div><!-- /row -->
+
+        <!-- Tempo declarado (full-width, abaixo da row Monitoramento × Visão Geral) -->
+        <div class="cartao-grafite p-3 secao-graficos mt-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <div>
+              <h6 class="mb-0 fw-bold">Tempo Declarado</h6>
+              <div class="texto-fraco small mt-1">Apenas o tempo que o membro declarou como trabalhado</div>
+            </div>
+            <span class="badge badge-suave">declarado</span>
+          </div>
+          <div class="row g-3 mb-3" id="cardsDeclarado">
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Total declarado</div><div class="card-metrica__valor texto-mono" id="declTotalHoras">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pagamento Pendente</div><div class="card-metrica__valor text-warning" id="declTotalValor">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Pago</div><div class="card-metrica__valor text-success" id="declTotalPago">—</div></div></div>
+            <div class="col-6 col-md-2"><div class="card-metrica"><div class="card-metrica__rotulo">Membros</div><div class="card-metrica__valor" id="declTotalEditores">—</div></div></div>
+            <div class="col-6 col-md-4"><div class="card-metrica"><div class="card-metrica__rotulo">Período</div><div class="card-metrica__valor" style="font-size:1rem" id="declPeriodo">—</div></div></div>
+          </div>
+          <div id="areaDeclaradoPorUsuario"><div class="texto-fraco small">Carregando…</div></div>
+        </div>
       </div>
     `;
   }

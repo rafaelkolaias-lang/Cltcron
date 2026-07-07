@@ -26,7 +26,12 @@ require __DIR__ . '/_layout/topo.php';
                   <span class="badge badge-suave" id="badgeUsuariosStatus">BANCO</span>
                 </div>
 
-                <div class="d-flex gap-2 align-items-center">
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                  <select id="filtroStatusUsuarios" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:auto;">
+                    <option value="">Todos os status</option>
+                    <option value="ativa">Ativas</option>
+                    <option value="inativa">Inativas</option>
+                  </select>
                   <div class="input-group campo-busca">
                     <span class="input-group-text bg-transparent text-white border-secondary">🔎</span>
                     <input id="entradaBuscaUsuarios" class="form-control bg-transparent text-white border-secondary"
@@ -39,25 +44,9 @@ require __DIR__ . '/_layout/topo.php';
                 </div>
               </div>
 
-              <div class="table-responsive tabela-limite" style="max-height: 620px;">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width: 260px;">Usuário</th>
-                      <th class="text-center" style="min-width: 140px;">Nível</th>
-                      <th class="text-center" style="min-width: 120px;">R$/hora</th>
-                      <th class="text-center" style="min-width: 180px;">Chave Pix</th>
-                      <th class="text-center" style="min-width: 140px;">Status</th>
-                      <th class="text-center" style="min-width: 170px;">Atualizado</th>
-                      <th class="text-end" style="min-width: 220px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyUsuarios">
-                    <tr>
-                      <td colspan="7" class="texto-fraco">Carregando…</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <!-- Lista rica de usuários (mesmo modelo da página Canais) -->
+              <div class="lista-canais" id="listaUsuarios" style="max-height: 620px; overflow-y: auto;">
+                <div class="texto-fraco">Carregando…</div>
               </div>
 
               <div class="texto-fraco small mt-2">
@@ -656,6 +645,6 @@ $scriptsAba = [
     './js/aba-auditoria.js?v=3',
     './js/aba-credenciais.js?v=2',
     './js/aba-gerenciar-tarefas.js?v=11',
-    './js/aba-usuarios.js?v=10',
+    './js/aba-usuarios.js?v=11',
 ];
 require __DIR__ . '/_layout/rodape.php';

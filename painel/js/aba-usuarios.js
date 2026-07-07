@@ -338,9 +338,9 @@
   }
 
   function _atualizarBandeirasUsuarios() {
-    document.querySelectorAll("#tbodyUsuarios tr[data-user-id]").forEach((tr) => {
-      const uid = tr.getAttribute("data-user-id");
-      const alvo = tr.querySelector(".marcador-bandeira-auditoria");
+    document.querySelectorAll("#listaUsuarios [data-user-id]").forEach((item) => {
+      const uid = item.getAttribute("data-user-id");
+      const alvo = item.querySelector(".marcador-bandeira-auditoria");
       if (alvo) alvo.innerHTML = _renderizarBandeiraSync(uid);
     });
   }
@@ -353,25 +353,40 @@
   // ============================
   // Render: Aba Usuários
   // ============================
+  // Lista rica no mesmo modelo da página Canais (.canal-linha): inativas
+  // esmaecidas no fim, filtro de status + busca, avatar colorido por usuário.
   function renderizarAbaUsuarios() {
     const nucleo = obterNucleo();
-    const tbody = document.getElementById("tbodyUsuarios");
-    if (!tbody) return;
+    const container = document.getElementById("listaUsuarios");
+    if (!container) return;
 
     const entradaBusca = document.getElementById("entradaBuscaUsuarios");
     const busca = String(entradaBusca?.value || "").trim().toLowerCase();
+    const filtroStatus = String(document.getElementById("filtroStatusUsuarios")?.value || "");
 
     const lista = (nucleo.estado.usuariosGestao || [])
       .slice(0)
       .filter((u) => {
+        if (filtroStatus && String(u.status_conta || "").toLowerCase() !== filtroStatus) return false;
         if (!busca) return true;
         const hay = [u.user_id, u.nome_exibicao, u.nivel].join(" ").toLowerCase();
         return hay.includes(busca);
       })
-      .sort((a, b) => String(a.user_id).localeCompare(String(b.user_id), "pt-BR", { sensitivity: "base" }));
+      .sort((a, b) => {
+        // Ativas primeiro; dentro do grupo, ordem alfabética por user_id.
+        const pa = String(a.status_conta).toLowerCase() === "ativa" ? 0 : 1;
+        const pb = String(b.status_conta).toLowerCase() === "ativa" ? 0 : 1;
+        return pa - pb || String(a.user_id).localeCompare(String(b.user_id), "pt-BR", { sensitivity: "base" });
+      });
+
+    const badgeTotal = document.getElementById("badgeUsuariosStatus");
+    if (badgeTotal) {
+      const total = (nucleo.estado.usuariosGestao || []).length;
+      badgeTotal.textContent = lista.length === total ? String(total) : `${lista.length}/${total}`;
+    }
 
     if (!lista.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Nenhum usuário cadastrado.</td></tr>`;
+      container.innerHTML = `<div class="texto-fraco">Nenhum usuário encontrado.</div>`;
       return;
     }
 
@@ -384,57 +399,43 @@
         .catch(() => { /* silencioso */ });
     } catch (_) { /* silencioso */ }
 
-    tbody.innerHTML = lista.map((u) => {
+    container.innerHTML = lista.map((u) => {
       const uid = escapeHtmlSeguro(u.user_id);
-      const nomeLinha = u.nome_exibicao && u.nome_exibicao !== u.user_id
-        ? `<div class="texto-fraco small">${escapeHtmlSeguro(u.nome_exibicao)}</div>`
+      const inativa = String(u.status_conta || "").toLowerCase() !== "ativa";
+      const nome = String(u.nome_exibicao || "").trim();
+      const nomeExtra = nome && nome !== u.user_id ? `${escapeHtmlSeguro(nome)} · ` : "";
+
+      // Marcador — preenchido depois por _atualizarBandeirasUsuarios
+      const bandeiraInicial = _renderizarBandeiraSync(u.user_id);
+      const avatar = (typeof window.avatarUsuarioHtml === "function")
+        ? window.avatarUsuarioHtml(u.user_id, u.nome_exibicao)
         : "";
 
-      // Marcador invisível — preenchido depois por _atualizarBandeirasUsuarios
-      const bandeiraInicial = _renderizarBandeiraSync(u.user_id);
-
       return `
-        <tr data-user-id="${uid}">
-          <td>
-            <div class="d-flex align-items-center gap-2">
+        <div class="canal-linha ${inativa ? "canal-linha--inativo" : ""}" data-user-id="${uid}">
+          ${avatar}
+          <div class="canal-linha__main">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <strong>${uid}</strong>
               <span class="marcador-bandeira-auditoria">${bandeiraInicial}</span>
-              <div>
-                <div class="fw-semibold">${uid}</div>
-                ${nomeLinha}
-                <div class="texto-fraco small">Chave: <span class="texto-mono">${escapeHtmlSeguro(u.chave || "—")}</span></div>
-              </div>
-            </div>
-          </td>
-
-          <td class="text-center">${badgeNivel(u.nivel)}</td>
-
-          <td class="text-center">
-            <span class="fw-semibold">${escapeHtmlSeguro(formatarDinheiroBr(u.valor_hora))}</span>
-          </td>
-
-          <td class="text-center">
-            ${renderCelulaChavePix(u)}
-          </td>
-
-          <td class="text-center">
-            <div class="d-inline-flex align-items-center gap-2">
+              ${badgeNivel(u.nivel)}
               ${badgeStatusConta(u.status_conta)}
-              ${botaoVisibilidadeDashboard(u)}
+              <span class="fw-semibold small" title="Valor por hora">${escapeHtmlSeguro(formatarDinheiroBr(u.valor_hora))}/h</span>
             </div>
-          </td>
-
-          <td class="text-center">
-            <span class="texto-mono">${escapeHtmlSeguro(dataHoraCurta(u.atualizado_em))}</span>
-          </td>
-
-          <td class="text-end">
-            <div class="d-inline-flex gap-2">
-              <button class="btn btn-sm btn-light" type="button" data-acao-usuario="abrir-gestao" data-uid="${uid}">
-                Gestão
-              </button>
+            <div class="texto-fraco small text-truncate">
+              ${nomeExtra}Chave: <span class="texto-mono">${escapeHtmlSeguro(u.chave || "—")}</span>
+              <span style="opacity:.55">· atualizado ${escapeHtmlSeguro(dataHoraCurta(u.atualizado_em))}</span>
             </div>
-          </td>
-        </tr>
+          </div>
+
+          <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end flex-shrink-0">
+            ${renderCelulaChavePix(u)}
+            ${botaoVisibilidadeDashboard(u)}
+            <button class="btn btn-sm btn-light" type="button" data-acao-usuario="abrir-gestao" data-uid="${uid}">
+              Gestão
+            </button>
+          </div>
+        </div>
       `;
     }).join("");
 
@@ -446,8 +447,11 @@
     if (_usuariosTabelaDelegacaoVinculada) return;
     _usuariosTabelaDelegacaoVinculada = true;
     const nucleo = obterNucleo();
-    const tbody = document.getElementById("tbodyUsuarios");
+    const tbody = document.getElementById("listaUsuarios");
     if (!tbody) return;
+
+    // Filtro de status re-renderiza a lista (bind único, junto da delegação).
+    document.getElementById("filtroStatusUsuarios")?.addEventListener("change", () => renderizarAbaUsuarios());
     tbody.addEventListener("click", async (ev) => {
       const btn = ev.target.closest("button[data-acao-usuario][data-uid]");
       if (!btn) return;

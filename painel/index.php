@@ -236,9 +236,9 @@ require __DIR__ . '/_layout/topo.php';
 //  - aba-usuarios.js / aba-atividades.js: handlers dos atalhos "+ Adicionar
 //    Usuário" / "+ Adicionar Canal" (modais mantidos neste index).
 $scriptsAba = [
-    './js/aba-usuarios.js?v=10',
+    './js/aba-usuarios.js?v=11',
     './js/aba-atividades.js?v=10',
     './js/aba-auditoria.js?v=3',
-    './js/aba-graficos.js?v=8',
+    './js/aba-graficos.js?v=9',
 ];
 require __DIR__ . '/_layout/rodape.php';

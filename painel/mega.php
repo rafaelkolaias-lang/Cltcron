@@ -64,5 +64,5 @@ require __DIR__ . '/_layout/topo.php';
 
 <?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=12'];
+$scriptsAba = ['./js/aba-mega.js?v=13'];
 require __DIR__ . '/_layout/rodape.php';

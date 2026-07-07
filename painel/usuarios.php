@@ -76,23 +76,30 @@ require __DIR__ . '/_layout/topo.php';
               </div>
             </div>
 
-            <!-- Alertas de auditoria (só renderiza se houver histórico) -->
-            <article id="blocoAlertasAuditoria" class="cartao-grafite p-3 mb-3 d-none" style="border-left: 3px solid var(--bs-danger, #dc3545);">
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <div class="d-flex align-items-center gap-2">
-                  <h6 class="mb-0">🚨 Alertas de Auditoria</h6>
-                </div>
-                <a href="./auditoria.php" class="small" id="linkIrAuditoriaGestao">Ver aba Auditoria →</a>
-              </div>
-              <div id="alertasAuditoriaCorpo">
-                <div class="texto-fraco small">—</div>
-              </div>
-            </article>
+            <ul class="nav nav-pills gap-1 mb-3" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" type="button" data-bs-toggle="pill" data-bs-target="#gestaoTabResumo" role="tab">Resumo &amp; Canais</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" type="button" data-bs-toggle="pill" data-bs-target="#gestaoTabTarefas" role="tab">Tarefas</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" type="button" data-bs-toggle="pill" data-bs-target="#gestaoTabPagamentos" role="tab">Pagamentos &amp; Credenciais</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" type="button" data-bs-toggle="pill" data-bs-target="#gestaoTabDados" role="tab">Dados do usuário</button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" type="button" data-bs-toggle="pill" data-bs-target="#gestaoTabAuditoria" role="tab">Auditoria</button>
+              </li>
+            </ul>
 
-            <div class="row g-3">
+            <div class="tab-content">
 
-              <!-- Coluna esquerda: dados do usuário -->
-              <div class="col-12 col-lg-4">
+              <!-- ===== ABA: Dados do usuário ===== -->
+              <div class="tab-pane fade" id="gestaoTabDados" role="tabpanel">
+                <div class="row">
+                  <div class="col-12 col-md-8 col-xl-5">
                 <article class="cartao-grafite p-3">
 
                   <div class="texto-fraco small">Usuário</div>
@@ -172,10 +179,12 @@ require __DIR__ . '/_layout/topo.php';
 
                 </article>
 
-              </div>
+                  </div><!-- /col interna -->
+                </div><!-- /row -->
+              </div><!-- /aba Dados do usuário -->
 
-              <!-- Coluna direita: resumo + pagamentos -->
-              <div class="col-12 col-lg-8">
+                <!-- ===== ABA: Resumo & Canais ===== -->
+                <div class="tab-pane fade show active" id="gestaoTabResumo" role="tabpanel">
 
                 <!-- Resumo para pagamento -->
                 <article class="cartao-grafite p-3 mb-3" id="blocoResumoHorasPagamento">
@@ -227,6 +236,29 @@ require __DIR__ . '/_layout/topo.php';
                   </div>
                   <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos. Pago = total já pago no período.</div>
                 </article>
+
+                <!-- Canais vinculados -->
+                <article class="cartao-grafite p-3">
+                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <h6 class="mb-0">Canais vinculados</h6>
+                      <span class="badge badge-suave" id="textoGestaoTotalCanais">—</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnSalvarCanaisGestao">Salvar canais</button>
+                  </div>
+                  <div class="texto-fraco small mb-2">
+                    Marque os canais nos quais este usuário deve participar.
+                    Você não precisa abrir o canal: o vínculo é gravado direto a partir daqui.
+                  </div>
+                  <div id="listaCanaisGestao" class="row g-2">
+                    <div class="col-12"><div class="texto-fraco">Carregando canais…</div></div>
+                  </div>
+                </article>
+
+                </div><!-- /aba Resumo & Canais -->
+
+                <!-- ===== ABA: Pagamentos & Credenciais ===== -->
+                <div class="tab-pane fade" id="gestaoTabPagamentos" role="tabpanel">
 
                 <!-- Registrar pagamento -->
                 <div class="row g-3">
@@ -283,30 +315,37 @@ require __DIR__ . '/_layout/topo.php';
                   </div>
                 </div>
 
-              </div>
-
-              <!-- Canais vinculados (full-width) -->
-              <div class="col-12 mt-3">
-                <article class="cartao-grafite p-3">
-                  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <!-- Credenciais e APIs do usuário -->
+                <article class="cartao-grafite p-3 mt-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="d-flex align-items-center gap-2">
-                      <h6 class="mb-0">Canais vinculados</h6>
-                      <span class="badge badge-suave" id="textoGestaoTotalCanais">—</span>
+                      <h6 class="mb-0">Credenciais e APIs</h6>
+                      <span class="badge badge-suave">CRIPTOGRAFADO</span>
                     </div>
-                    <button type="button" class="btn btn-sm btn-primary" id="btnSalvarCanaisGestao">Salvar canais</button>
+                    <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Modelos globais</button>
                   </div>
-                  <div class="texto-fraco small mb-2">
-                    Marque os canais nos quais este usuário deve participar.
-                    Você não precisa abrir o canal: o vínculo é gravado direto a partir daqui.
-                  </div>
-                  <div id="listaCanaisGestao" class="row g-2">
-                    <div class="col-12"><div class="texto-fraco">Carregando canais…</div></div>
+                  <div class="table-responsive" style="max-height:420px;">
+                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
+                      <thead class="sticky-top" style="background:var(--cor-fundo);">
+                        <tr class="texto-fraco small">
+                          <th style="min-width:160px;">Serviço</th>
+                          <th class="text-center" style="min-width:110px;">Estado</th>
+                          <th style="min-width:180px;">Máscara</th>
+                          <th style="min-width:140px;">Atualizado em</th>
+                          <th class="text-end" style="min-width:220px;">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="tbodyGestaoCredenciais">
+                        <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
+                      </tbody>
+                    </table>
                   </div>
                 </article>
-              </div>
 
-              <!-- Tarefas declaradas (full-width abaixo) -->
-              <div class="col-12 mt-3">
+                </div><!-- /aba Pagamentos & Credenciais -->
+
+                <!-- ===== ABA: Tarefas ===== -->
+                <div class="tab-pane fade" id="gestaoTabTarefas" role="tabpanel">
                 <article class="cartao-grafite p-3">
                   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                     <h6 class="mb-0">Tarefas declaradas</h6>
@@ -344,38 +383,39 @@ require __DIR__ . '/_layout/topo.php';
                   <!-- Paginação inferior. Substitui o corte silencioso de 500 itens -->
                   <nav class="mt-2 d-flex justify-content-end" id="paginacaoGestaoTarefas" aria-label="Paginação das tarefas declaradas"></nav>
                 </article>
-              </div>
 
-              <!-- Credenciais e APIs do usuário (full-width) -->
-              <div class="col-12 mt-3">
-                <article class="cartao-grafite p-3">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <div class="d-flex align-items-center gap-2">
-                      <h6 class="mb-0">Credenciais e APIs</h6>
-                      <span class="badge badge-suave">CRIPTOGRAFADO</span>
+                </div><!-- /aba Tarefas -->
+
+                <!-- ===== ABA: Auditoria ===== -->
+                <div class="tab-pane fade" id="gestaoTabAuditoria" role="tabpanel">
+                  <div class="texto-fraco small mb-2">
+                    Alertas aparecem aqui quando o sistema detecta <strong>apps suspeitos</strong> ou
+                    <strong>input automatizado</strong> deste usuário. Sem alertas = tudo limpo. ✅
+                  </div>
+                  <!-- Alertas de auditoria (só aparece se houver histórico — controlado pelo aba-auditoria.js) -->
+                  <article id="blocoAlertasAuditoria" class="cartao-grafite p-3 mb-3 d-none" style="border-left: 3px solid var(--bs-danger, #dc3545);">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                      <div class="d-flex align-items-center gap-2">
+                        <h6 class="mb-0">🚨 Alertas de Auditoria</h6>
+                      </div>
+                      <a href="./auditoria.php" class="small" id="linkIrAuditoriaGestao">Ver aba Auditoria →</a>
                     </div>
-                    <button class="btn btn-outline-light btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#modalGerenciarModelos">⚙ Modelos globais</button>
-                  </div>
-                  <div class="table-responsive" style="max-height:420px;">
-                    <table class="table table-dark table-borderless align-middle mb-0 tabela-suave">
-                      <thead class="sticky-top" style="background:var(--cor-fundo);">
-                        <tr class="texto-fraco small">
-                          <th style="min-width:160px;">Serviço</th>
-                          <th class="text-center" style="min-width:110px;">Estado</th>
-                          <th style="min-width:180px;">Máscara</th>
-                          <th style="min-width:140px;">Atualizado em</th>
-                          <th class="text-end" style="min-width:220px;">Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody id="tbodyGestaoCredenciais">
-                        <tr><td colspan="5" class="texto-fraco">Carregando…</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              </div>
-            </div>
+                    <div id="alertasAuditoriaCorpo">
+                      <div class="texto-fraco small">—</div>
+                    </div>
+                  </article>
+                </div><!-- /aba Auditoria -->
+
+                </div><!-- /tab-content -->
           </div>
+
+  <script>
+    // ECharts dentro de aba oculta nasce com largura 0 — ao exibir uma aba da
+    // Gestão, dispara resize pros gráficos se ajustarem (evento bubbla do pill).
+    document.addEventListener('shown.bs.tab', function () {
+      try { window.dispatchEvent(new Event('resize')); } catch (_) {}
+    });
+  </script>
 
 <?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
 

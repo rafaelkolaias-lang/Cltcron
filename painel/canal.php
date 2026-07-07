@@ -15,14 +15,26 @@ require __DIR__ . '/_layout/topo.php';
               <div class="linha-header-card">
                 <div class="d-flex align-items-center gap-2">
                   <h2 class="h6 mb-0">Canais</h2>
-                  <span class="badge badge-suave">BANCO</span>
+                  <span class="badge badge-suave" id="badgeTotalAtividades">—</span>
                 </div>
 
-                <div class="d-flex gap-2 align-items-center">
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                  <label class="small texto-fraco d-flex align-items-center gap-1" style="cursor:pointer;"
+                         title="A conta 'adm' é ocultada dos vínculos por padrão. Ligue para vê-la.">
+                    <input class="form-check-input m-0" type="checkbox" id="chkMostrarAdm"> Mostrar adm
+                  </label>
+                  <select id="filtroStatusAtividades" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:auto;">
+                    <option value="">Todos os status</option>
+                    <option value="ativo">Ativados</option>
+                    <option value="inativo">Desativados</option>
+                  </select>
+                  <select id="filtroUsuarioAtividades" class="form-select form-select-sm bg-transparent text-white border-secondary" style="width:auto;min-width:170px;">
+                    <option value="">Todos os usuários</option>
+                  </select>
                   <div class="input-group campo-busca">
                     <span class="input-group-text bg-transparent text-white border-secondary">🔎</span>
                     <input id="entradaBuscaAtividades" class="form-control bg-transparent text-white border-secondary"
-                      placeholder="Buscar por título, status, usuário...">
+                      placeholder="Buscar por título, usuário...">
                   </div>
 
                   <button class="btn btn-light botao-mini" type="button" data-bs-toggle="modal" data-bs-target="#modalNovaAtividade">
@@ -31,28 +43,13 @@ require __DIR__ . '/_layout/topo.php';
                 </div>
               </div>
 
-              <div class="table-responsive tabela-limite" style="max-height: 680px;">
-                <table class="table table-dark table-borderless align-middle tabela-suave mb-0 cabecalho-tabela-sticky">
-                  <thead>
-                    <tr class="texto-fraco small">
-                      <th style="min-width: 320px;">Canal</th>
-                      <th class="text-center" style="min-width: 150px;">Dificuldade</th>
-                      <th class="text-center" style="min-width: 160px;">Estimativa</th>
-                      <th style="min-width: 320px;">Usuários</th>
-                      <th class="text-center" style="min-width: 170px;">Status</th>
-                      <th class="text-end" style="min-width: 210px;">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbodyAtividades">
-                    <tr>
-                      <td colspan="6" class="texto-fraco">Carregando…</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <!-- Lista de canais com filtros (redesign — ajuste pós-tarefa 11: lista em vez de blocos) -->
+              <div class="lista-canais" id="listaAtividades">
+                <div class="texto-fraco">Carregando…</div>
               </div>
 
-              <div class="texto-fraco small mt-2">
-                Dica: uma atividade pode ser atribuída para 1 ou mais usuários.
+              <div class="texto-fraco small mt-3">
+                Um canal pode ser atribuído a 1 ou mais usuários. Canais <span class="badge badge-alerta">Sem vínculos</span> estão sem ninguém trabalhando neles.
               </div>
             </article>
           </section>
@@ -91,10 +88,8 @@ require __DIR__ . '/_layout/topo.php';
             <div class="col-12 col-md-4">
               <label class="form-label texto-fraco">Status</label>
               <select id="entradaAtividadeStatus" class="form-select bg-transparent text-white border-secondary">
-                <option value="aberta" selected>Aberta</option>
-                <option value="em_andamento">Em andamento</option>
-                <option value="concluida">Concluída</option>
-                <option value="cancelada">Cancelada</option>
+                <option value="aberta" selected>Ativado</option>
+                <option value="cancelada">Desativado</option>
               </select>
             </div>
           </div>
@@ -129,5 +124,5 @@ require __DIR__ . '/_layout/topo.php';
   </div>
 
 <?php
-$scriptsAba = ['./js/aba-atividades.js?v=8'];
+$scriptsAba = ['./js/aba-atividades.js?v=10'];
 require __DIR__ . '/_layout/rodape.php';

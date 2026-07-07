@@ -264,6 +264,11 @@
     const m = MEGA_TIPOS.find((x) => x.v === v);
     return m ? m.t : 'Outro';
   }
+  // Badge colorido por tipo (cores em painel.css: .badge-tipo-*).
+  function badgeTipoCampo(v) {
+    const tipo = MEGA_TIPOS.some((x) => x.v === v) ? v : 'outro';
+    return `<span class="badge badge-tipo badge-tipo-${tipo}">${rotuloTipoCampo(tipo)}</span>`;
+  }
   function opcoesTipoCampo(sel) {
     const atual = MEGA_TIPOS.some((x) => x.v === sel) ? sel : 'outro';
     return MEGA_TIPOS.map((x) => `<option value="${x.v}"${x.v === atual ? ' selected' : ''}>${x.t}</option>`).join('');
@@ -303,9 +308,7 @@
       : c.quantidade_maxima;
     const obrig = c.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
     const ativo = c.ativo ? '<span class="badge bg-success">ativo</span>' : '<span class="badge bg-secondary">inativo</span>';
-    const tipoBadge = (c.tipo && c.tipo !== 'outro')
-      ? `<span class="badge bg-info text-dark">${esc(rotuloTipoCampo(c.tipo))}</span>`
-      : '<span class="texto-fraco">—</span>';
+    const tipoBadge = badgeTipoCampo(c.tipo);
     return `
       <tr data-id-campo="${c.id_campo}" data-id-atividade="${c.id_atividade || 0}" data-modo="leitura" ${c.ativo ? '' : 'style="opacity:0.55;"'}>
         <td>${c.ordem}</td>
@@ -337,23 +340,43 @@
       </tr></thead>`;
   }
 
-  // Renderiza TODOS os canais do usuário, cada um com seus campos (mini-tabela)
-  // + "+ Novo campo" próprio. Sem precisar escolher canal a canal.
+  // Estado vazio amigável (sem usuário / sem canais) com passo a passo.
+  function _htmlVazio(icone, titulo, subtitulo, mostrarPassos) {
+    const passos = mostrarPassos ? `
+      <div class="mega-passos mt-3">
+        <div class="mega-passo"><span class="mega-passo-num">1</span> Escolha o usuário</div>
+        <div class="mega-passo"><span class="mega-passo-num">2</span> Veja os canais dele</div>
+        <div class="mega-passo"><span class="mega-passo-num">3</span> Adicione campos na mão ou aplique um modelo pronto</div>
+      </div>` : '';
+    return `
+      <div class="mega-vazio">
+        <div class="mega-vazio-icone">${icone}</div>
+        <div class="mb-1"><strong>${titulo}</strong></div>
+        <div class="texto-fraco small">${subtitulo}</div>
+        ${passos}
+      </div>`;
+  }
+
+  // Renderiza TODOS os canais do usuário, cada um como um CARD com seus campos
+  // + botões "+ Novo campo" e "Aplicar modelos" próprios. Sem escolher canal a canal.
   function renderizarCamposPorCanal() {
     const cont = document.getElementById('megaCamposPorCanal');
     if (!cont) return;
 
     const uid = String(estado.filtroUserId || '');
     if (!uid) {
-      cont.innerHTML = '<div class="texto-fraco">Selecione um usuário acima.</div>';
+      cont.innerHTML = _htmlVazio('👤', 'Escolha um usuário acima para começar',
+        'Os campos de upload definem o que o usuário precisa enviar ao MEGA ao declarar uma tarefa.', true);
       return;
     }
     const canais = canaisDoUsuario(uid);
     if (!canais.length) {
-      cont.innerHTML = '<div class="texto-fraco">Esse usuário não está vinculado a nenhum canal. Vincule em <strong>Usuários → Gestão</strong>.</div>';
+      cont.innerHTML = _htmlVazio('🔗', 'Esse usuário não está vinculado a nenhum canal',
+        'Vincule os canais dele em <strong>Usuários → Gestão do Usuário</strong> e volte aqui.', false);
       return;
     }
 
+    const temModelos = estado.modelosCampos.length > 0;
     cont.innerHTML = canais.map((a) => {
       const idA = Number(a.id_atividade);
       const camposCanal = estado.campos
@@ -362,15 +385,27 @@
       const ativos = camposCanal.filter((c) => c.ativo).length;
       const linhas = camposCanal.length
         ? camposCanal.map(linhaCampoLeitura).join('')
-        : '<tr><td colspan="8" class="texto-fraco">Nenhum campo neste canal. Clique em <strong>+ Novo campo</strong>.</td></tr>';
+        : `<tr class="mega-placeholder"><td colspan="8" class="texto-fraco small py-3">
+             Nenhum campo — o app <strong>não exige upload</strong> neste canal.
+             Use <strong>+ Novo campo</strong> ou <strong>Aplicar modelos</strong> aqui em cima. ↗
+           </td></tr>`;
+      // Aviso quando o canal está com upload desligado (config na aba "Canais").
+      const cfg = estado.canais.find((c) => Number(c.id_atividade) === idA);
+      const avisoUpload = (cfg && cfg.upload_ativo) ? '' :
+        `<span class="badge badge-upload-off" title="O app só exige estes campos com o Upload ativo ligado — veja a aba &quot;Canais (pasta raiz)&quot;.">⚠ upload desativado</span>`;
       return `
-        <div class="mega-canal-grupo mb-3" data-id-atividade="${idA}">
-          <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
-            <div class="d-flex align-items-center gap-2">
+        <div class="mega-canal-card" data-id-atividade="${idA}">
+          <div class="mega-canal-card-header">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
               <strong>${esc(a.titulo)}</strong>
-              <span class="badge badge-suave">${ativos}</span>
+              <span class="badge badge-suave" title="Campos ativos neste canal">${ativos} campo${ativos === 1 ? '' : 's'}</span>
+              ${avisoUpload}
             </div>
-            <button class="btn btn-sm btn-outline-light mega-novo-campo-canal" type="button" data-id-atividade="${idA}">+ Novo campo</button>
+            <div class="d-flex gap-2">
+              <button class="btn btn-sm btn-outline-light mega-aplicar-modelos-canal" type="button" data-id-atividade="${idA}"
+                      ${temModelos ? 'title="Adicionar campos prontos (modelos) neste canal"' : 'disabled title="Nenhum modelo cadastrado — crie na aba Modelos de campo"'}>Aplicar modelos</button>
+              <button class="btn btn-sm btn-light mega-novo-campo-canal" type="button" data-id-atividade="${idA}">+ Novo campo</button>
+            </div>
           </div>
           <div class="table-responsive">
             <table class="table table-dark table-borderless align-middle tabela-suave mb-0">
@@ -407,8 +442,17 @@
         const tbody = cont.querySelector(`tbody.tbody-canal[data-id-atividade="${idA}"]`);
         if (!tbody) return;
         if (tbody.querySelector('tr[data-id-campo="0"]')) return; // já há uma linha nova
+        tbody.querySelectorAll('tr.mega-placeholder').forEach((el) => el.remove());
         tbody.insertAdjacentHTML('afterbegin', linhaCampoEditavel({ id_campo: 0, id_atividade: idA }));
         bindCamposActions();
+      });
+    });
+
+    // "Aplicar modelos" de UM canal: abre o modal já com esse canal marcado.
+    cont.querySelectorAll('.mega-aplicar-modelos-canal').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        const idA = parseInt(ev.currentTarget.getAttribute('data-id-atividade'), 10) || 0;
+        abrirModalUsarModelos(idA);
       });
     });
 
@@ -484,63 +528,95 @@
 
   function atualizarBotoesModelos() {
     const btnUsar = document.getElementById('megaBotaoUsarModelo');
-    if (btnUsar) {
-      btnUsar.disabled = !(estado.filtroUserId && estado.modelosCampos.length);
-    }
+    if (!btnUsar) return;
+    const temUser = !!estado.filtroUserId;
+    const temModelos = estado.modelosCampos.length > 0;
+    btnUsar.disabled = !(temUser && temModelos);
+    btnUsar.title = !temUser
+      ? 'Selecione um usuário primeiro'
+      : (!temModelos
+        ? 'Nenhum modelo cadastrado — crie na aba "Modelos de campo"'
+        : 'Adicionar campos prontos (modelos) em um ou mais canais de uma vez');
   }
 
-  // Popup "Usar modelo existente": marca MODELOS + CANAIS do usuário; ao salvar,
+  // Resumo ao vivo do modal: N modelos × N canais = até N campos. Habilita o
+  // botão só quando há pelo menos 1 de cada.
+  function atualizarResumoUsarModelos() {
+    const nM = document.querySelectorAll('#modalUsarModelosLista .mega-modelo-check:checked').length;
+    const nC = document.querySelectorAll('#modalUsarModelosCanais .mega-canal-check:checked').length;
+    const resumo = document.getElementById('modalUsarModelosResumo');
+    const btn = document.getElementById('modalUsarModelosSalvar');
+    if (resumo) {
+      resumo.innerHTML = (nM && nC)
+        ? `<strong>${nM}</strong> modelo${nM === 1 ? '' : 's'} × <strong>${nC}</strong> ${nC === 1 ? 'canal' : 'canais'} = até <strong>${nM * nC}</strong> campo${nM * nC === 1 ? '' : 's'} novo${nM * nC === 1 ? '' : 's'} <span class="texto-fraco">(os que já existem são pulados)</span>`
+        : 'Marque ao menos 1 modelo e 1 canal.';
+    }
+    if (btn) btn.disabled = !(nM && nC);
+  }
+
+  // Modal "Aplicar modelos": marca MODELOS + CANAIS do usuário; ao confirmar,
   // cria cada modelo marcado em cada canal marcado (cartesiano), de uma vez.
-  function abrirModalUsarModelos() {
+  // preIdAtividade (opcional): abre com esse canal já marcado (botão do card).
+  function abrirModalUsarModelos(preIdAtividade) {
     if (!estado.filtroUserId) {
-      alerta('erro', 'MEGA', 'Selecione um usuário antes de usar modelos.');
+      alerta('erro', 'MEGA', 'Selecione um usuário antes de aplicar modelos.');
       return;
     }
     const lista = document.getElementById('modalUsarModelosLista');
     const listaCanais = document.getElementById('modalUsarModelosCanais');
     const modalEl = document.getElementById('modalUsarModelos');
     if (!lista || !listaCanais || !modalEl) return;
+    const preIdA = Number(preIdAtividade) || 0;
 
-    // --- Modelos (todos desmarcados por padrão) ---
+    // --- Modelos (desmarcados por padrão) ---
     if (!estado.modelosCampos.length) {
-      lista.innerHTML = '<div class="texto-fraco small">Nenhum modelo cadastrado. Crie modelos na tabela "Modelos de campo" abaixo.</div>';
+      lista.innerHTML = '<div class="texto-fraco small p-2">Nenhum modelo cadastrado. Crie na aba <strong>Modelos de campo</strong>.</div>';
     } else {
       lista.innerHTML = estado.modelosCampos.map((m) => {
-        const tipoTxt = (m.tipo && m.tipo !== 'outro') ? rotuloTipoCampo(m.tipo) : '—';
-        const ext = m.extensoes_permitidas || 'qualquer';
+        const ext = m.extensoes_permitidas || 'qualquer arquivo';
+        const detalhes = [`campo "${esc(m.label_campo)}"`, esc(ext)];
+        if (m.obrigatorio) detalhes.push('obrigatório');
         return `
-          <div class="form-check d-flex align-items-start gap-2 py-1">
-            <input class="form-check-input mega-modelo-check" type="checkbox" value="${m.id_modelo}" id="mum_${m.id_modelo}">
-            <label class="form-check-label small" for="mum_${m.id_modelo}">
-              <strong>${esc(m.nome_modelo)}</strong>
-              <span class="texto-fraco">— "${esc(m.label_campo)}" · ${esc(tipoTxt)} · ${esc(ext)}</span>
-            </label>
-          </div>`;
+          <label class="mega-item-selecao">
+            <input class="form-check-input mega-modelo-check" type="checkbox" value="${m.id_modelo}">
+            <span>
+              <strong>${esc(m.nome_modelo)}</strong> ${badgeTipoCampo(m.tipo)}
+              <br><span class="texto-fraco small">${detalhes.join(' · ')}</span>
+            </span>
+          </label>`;
       }).join('');
     }
 
-    // --- Canais do usuário (todos desmarcados por padrão) ---
+    // --- Canais do usuário (só o pré-selecionado vem marcado) ---
     const canais = canaisDoUsuario(estado.filtroUserId);
     if (!canais.length) {
-      listaCanais.innerHTML = '<div class="texto-fraco small">Usuário sem canais vinculados.</div>';
+      listaCanais.innerHTML = '<div class="texto-fraco small p-2">Usuário sem canais vinculados.</div>';
     } else {
       listaCanais.innerHTML = canais.map((a) => {
         const idA = Number(a.id_atividade);
         const nCampos = estado.campos.filter((c) => Number(c.id_atividade) === idA && c.ativo).length;
         return `
-          <div class="form-check d-flex align-items-center gap-2 py-1">
-            <input class="form-check-input mega-canal-check" type="checkbox" value="${idA}" id="muc_${idA}">
-            <label class="form-check-label small" for="muc_${idA}">
-              ${esc(a.titulo)} <span class="texto-fraco">(${nCampos} campo${nCampos === 1 ? '' : 's'})</span>
-            </label>
-          </div>`;
+          <label class="mega-item-selecao">
+            <input class="form-check-input mega-canal-check" type="checkbox" value="${idA}" ${idA === preIdA ? 'checked' : ''}>
+            <span>
+              <strong>${esc(a.titulo)}</strong>
+              <br><span class="texto-fraco small">${nCampos ? `já tem ${nCampos} campo${nCampos === 1 ? '' : 's'}` : 'sem campos ainda'}</span>
+            </span>
+          </label>`;
       }).join('');
     }
+
+    // Reseta os "todos" e o resumo a cada abertura.
+    const todosM = document.getElementById('modalUsarModelosTodosModelos');
+    const todosC = document.getElementById('modalUsarModelosTodosCanais');
+    if (todosM) todosM.checked = false;
+    if (todosC) todosC.checked = false;
+    atualizarResumoUsarModelos();
 
     const ctx = document.getElementById('modalUsarModelosContexto');
     if (ctx) {
       const u = estado.usuarios.find((x) => String(x.user_id) === String(estado.filtroUserId));
-      ctx.textContent = `Marque os modelos e os canais. Cada modelo é criado como campo em cada canal marcado de ${u?.nome_exibicao || estado.filtroUserId}.`;
+      ctx.textContent = `Cria os campos marcados nos canais marcados de ${u?.nome_exibicao || estado.filtroUserId} — tudo de uma vez.`;
     }
     if (window.bootstrap?.Modal) {
       window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
@@ -595,10 +671,10 @@
         }
       }
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Salvar selecionados'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Adicionar campos'; }
     const modalEl = document.getElementById('modalUsarModelos');
     if (window.bootstrap?.Modal && modalEl) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-    const detalhe = [`${ok} criado(s)`];
+    const detalhe = [`${ok} campo(s) criado(s)`];
     if (pulados) detalhe.push(`${pulados} já existia(m)`);
     if (falhou) detalhe.push(`${falhou} falhou(aram)`);
     alerta(falhou ? 'erro' : 'sucesso', 'MEGA', detalhe.join(', ') + '.');
@@ -613,9 +689,7 @@
     const ext = m.extensoes_permitidas ? esc(m.extensoes_permitidas) : '<span class="texto-fraco">qualquer</span>';
     const qtd = (parseInt(m.quantidade_maxima, 10) || 0) === 0 ? '<span class="texto-fraco">ilim.</span>' : m.quantidade_maxima;
     const obrig = m.obrigatorio ? '<span class="badge bg-warning text-dark">SIM</span>' : '<span class="badge bg-secondary">não</span>';
-    const tipoBadge = (m.tipo && m.tipo !== 'outro')
-      ? `<span class="badge bg-info text-dark">${esc(rotuloTipoCampo(m.tipo))}</span>`
-      : '<span class="texto-fraco">—</span>';
+    const tipoBadge = badgeTipoCampo(m.tipo);
     return `
       <tr data-id-modelo="${m.id_modelo}" data-modo="leitura">
         <td>${m.ordem || 0}</td>
@@ -941,8 +1015,20 @@
     });
 
 
-    document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', abrirModalUsarModelos);
+    document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', () => abrirModalUsarModelos());
     document.getElementById('modalUsarModelosSalvar')?.addEventListener('click', salvarModelosSelecionados);
+
+    // Modal "Aplicar modelos": "todos" de cada coluna + resumo ao vivo.
+    document.getElementById('modalUsarModelosTodosModelos')?.addEventListener('change', (ev) => {
+      document.querySelectorAll('#modalUsarModelosLista .mega-modelo-check').forEach((c) => { c.checked = ev.target.checked; });
+      atualizarResumoUsarModelos();
+    });
+    document.getElementById('modalUsarModelosTodosCanais')?.addEventListener('change', (ev) => {
+      document.querySelectorAll('#modalUsarModelosCanais .mega-canal-check').forEach((c) => { c.checked = ev.target.checked; });
+      atualizarResumoUsarModelos();
+    });
+    document.getElementById('modalUsarModelosLista')?.addEventListener('change', atualizarResumoUsarModelos);
+    document.getElementById('modalUsarModelosCanais')?.addEventListener('change', atualizarResumoUsarModelos);
     document.getElementById('megaBotaoNovoModelo')?.addEventListener('click', novoModelo);
     document.getElementById('megaBotaoRecarregarModelos')?.addEventListener('click', carregarModelosCampos);
 

@@ -2,8 +2,16 @@
 (function () {
   "use strict";
 
-  const seletorTbody = "#tbodyAtividades";
+  // Redesign (tarefa 11 + ajuste): a tabela antiga virou LISTA de linhas ricas
+  // #listaAtividades (canal.php), com filtros de status (ativo/inativo) e de
+  // usuário. Toggle #chkMostrarAdm oculta/mostra a conta 'adm' nos vínculos
+  // (padrão: oculta).
+  const seletorLista = "#listaAtividades";
   const seletorBusca = "#entradaBuscaAtividades";
+  const seletorMostrarAdm = "#chkMostrarAdm";
+  const seletorFiltroStatus = "#filtroStatusAtividades";
+  const seletorFiltroUsuario = "#filtroUsuarioAtividades";
+  const CHAVE_PREF_MOSTRAR_ADM = "canais_mostrar_adm";
 
   const seletorModal = "#modalNovaAtividade";
   const seletorTitulo = "#entradaAtividadeTitulo";
@@ -75,14 +83,25 @@
     }
   }
 
-  function textoStatus(s) {
-    switch (s) {
-      case "aberta": return "Aberta";
-      case "em_andamento": return "Em andamento";
-      case "concluida": return "Concluída";
-      case "cancelada": return "Cancelada";
-      default: return "—";
-    }
+  // Status binário (tarefa 11): a UI só conhece Ativado/Desativado.
+  // Legado no banco: aberta|em_andamento → ATIVO; concluida|cancelada → INATIVO.
+  // O switch grava 'aberta' (ligar) ou 'cancelada' (desligar) via alterar_status.
+  function statusEhAtivo(s) {
+    return s === "aberta" || s === "em_andamento";
+  }
+  function statusParaBinario(s) {
+    return statusEhAtivo(s) ? "aberta" : "cancelada";
+  }
+
+  function ehAdm(u) {
+    return obterTextoSeguro(u?.user_id).trim().toLowerCase() === "adm";
+  }
+  function deveMostrarAdm() {
+    return document.querySelector(seletorMostrarAdm)?.checked === true;
+  }
+  function usuariosVisiveis(a) {
+    const lista = Array.isArray(a.usuarios) ? a.usuarios : [];
+    return deveMostrarAdm() ? lista : lista.filter((u) => !ehAdm(u));
   }
 
   function normalizarDecimalBrl(valor) {
@@ -140,97 +159,147 @@
 
   function renderizarUsuariosChips(usuarios) {
     const lista = Array.isArray(usuarios) ? usuarios : [];
-    if (lista.length === 0) return '<span class="texto-fraco small">—</span>';
+    if (lista.length === 0) return "";
 
     return lista.map((u) => {
-      const userId = escaparHtml(u.user_id || "");
-      const nome = escaparHtml(u.nome_exibicao || u.user_id || "");
-      return `<span class="chip" title="${nome}">${userId}</span>`;
+      const userId = obterTextoSeguro(u.user_id || "");
+      const nome = obterTextoSeguro(u.nome_exibicao || u.user_id || "");
+      // Chip colorido do Design System v2 (cor única por usuário).
+      if (typeof window.chipUsuarioHtml === "function") {
+        return window.chipUsuarioHtml(userId, nome);
+      }
+      return `<span class="chip" title="${escaparHtml(nome)}">${escaparHtml(userId)}</span>`;
     }).join(" ");
   }
 
-  function montarLinhaAtividade(a) {
+  // Linha rica de canal (lista — mantém as cores/design do redesign: switch
+  // binário, chips coloridos, destaque "Sem vínculos", inativo esmaecido).
+  function montarLinhaCanal(a) {
     const id = Number(a.id_atividade || 0);
     const titulo = escaparHtml(a.titulo || "");
     const descricao = escaparHtml(a.descricao || "");
     const dificuldade = obterTextoSeguro(a.dificuldade || "");
-    const status = obterTextoSeguro(a.status || "");
+    const ativo = statusEhAtivo(obterTextoSeguro(a.status || ""));
     const estimativa = formatarHoras(a.estimativa_horas);
-    const usuariosHtml = renderizarUsuariosChips(a.usuarios);
-
     const criado = formatarDataHoraPtBr(a.criado_em);
 
+    const visiveis = usuariosVisiveis(a);
+    const semVinculo = visiveis.length === 0;
+    const chipsHtml = semVinculo
+      ? '<span class="badge badge-alerta">⚠ Sem vínculos</span>'
+      : renderizarUsuariosChips(visiveis);
+
+    const classes = ["canal-linha"];
+    if (!ativo) classes.push("canal-linha--inativo");
+    if (semVinculo && ativo) classes.push("canal-linha--sem-vinculo");
+
     return `
-      <tr>
-        <td>
-          <div class="fw-semibold">${titulo}</div>
-          <div class="texto-fraco small">${descricao || "—"}</div>
-          <div class="texto-fraco small mt-1">Criada em: ${criado}</div>
-        </td>
+      <div class="${classes.join(" ")}" data-id-atividade="${id}">
+        <label class="form-check form-switch m-0 d-flex align-items-center flex-shrink-0"
+               title="${ativo ? "Canal ativado — clique para desativar" : "Canal desativado — clique para ativar"}">
+          <input class="form-check-input m-0" type="checkbox" role="switch"
+                 data-acao="switch-status" data-id="${id}" ${ativo ? "checked" : ""}>
+        </label>
 
-        <td class="text-center">
-          <span class="badge badge-suave">${escaparHtml(textoDificuldade(dificuldade))}</span>
-        </td>
-
-        <td class="text-center">
-          <span class="texto-mono">${escaparHtml(estimativa)}</span>
-        </td>
-
-        <td>${usuariosHtml}</td>
-
-        <td class="text-center">
-          <select class="form-select form-select-sm bg-transparent text-white border-secondary"
-            data-acao="status" data-id="${id}">
-            <option value="aberta" ${status === "aberta" ? "selected" : ""}>Aberta</option>
-            <option value="em_andamento" ${status === "em_andamento" ? "selected" : ""}>Em andamento</option>
-            <option value="concluida" ${status === "concluida" ? "selected" : ""}>Concluída</option>
-            <option value="cancelada" ${status === "cancelada" ? "selected" : ""}>Cancelada</option>
-          </select>
-          <div class="texto-fraco small mt-1">${escaparHtml(textoStatus(status))}</div>
-        </td>
-
-        <td class="text-end">
-          <div class="d-flex justify-content-end gap-2">
-            <button class="btn btn-outline-light btn-sm" data-acao="editar" data-id="${id}">Editar</button>
-            <button class="btn btn-outline-light btn-sm" data-acao="excluir" data-id="${id}">Excluir</button>
+        <div class="canal-linha__main">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <strong>${titulo}</strong>
+            <span class="badge badge-suave" title="Dificuldade">${escaparHtml(textoDificuldade(dificuldade))}</span>
+            <span class="badge badge-suave texto-mono" title="Estimativa de horas">⏱ ${escaparHtml(estimativa)}</span>
+            ${ativo ? "" : '<span class="badge badge-perigo">Desativado</span>'}
           </div>
-        </td>
-      </tr>
+          <div class="texto-fraco small text-truncate" title="${descricao}">${descricao || "Sem descrição."} <span style="opacity:.55">· criado em ${criado}</span></div>
+        </div>
+
+        <div class="canal-linha__chips">${chipsHtml}</div>
+
+        <div class="d-flex gap-1 flex-shrink-0">
+          <button class="btn btn-outline-light btn-sm" data-acao="editar" data-id="${id}" title="Editar canal">✎</button>
+          <button class="btn btn-outline-danger btn-sm" data-acao="excluir" data-id="${id}" title="Excluir canal">🗑</button>
+        </div>
+      </div>
     `;
   }
 
+  // Popula o filtro "Todos os usuários" com os usuários que aparecem em algum
+  // canal (respeitando o toggle "Mostrar adm").
+  function popularFiltroUsuarios() {
+    const sel = obterElemento(seletorFiltroUsuario);
+    if (!sel) return;
+    const atual = sel.value;
+    const vistos = new Map();
+    cacheAtividades.forEach((a) => {
+      (Array.isArray(a.usuarios) ? a.usuarios : []).forEach((u) => {
+        if (!deveMostrarAdm() && ehAdm(u)) return;
+        const uid = obterTextoSeguro(u.user_id);
+        if (uid && !vistos.has(uid)) vistos.set(uid, obterTextoSeguro(u.nome_exibicao || uid));
+      });
+    });
+    const opcoes = [...vistos.entries()]
+      .sort((x, y) => x[1].localeCompare(y[1]))
+      .map(([uid, nome]) => `<option value="${escaparHtml(uid)}">${escaparHtml(nome)}</option>`)
+      .join("");
+    sel.innerHTML = `<option value="">Todos os usuários</option>` + opcoes;
+    if (atual && vistos.has(atual)) sel.value = atual;
+  }
+
   function aplicarFiltroETabela() {
-    const tbody = obterElemento(seletorTbody);
-    if (!tbody) return;
+    const lista = obterElemento(seletorLista);
+    if (!lista) return;
 
     const termo = obterTextoSeguro(obterElemento(seletorBusca)?.value).trim().toLowerCase();
+    const filtroStatus = obterTextoSeguro(obterElemento(seletorFiltroStatus)?.value);
+    const filtroUsuario = obterTextoSeguro(obterElemento(seletorFiltroUsuario)?.value);
 
     const filtradas = cacheAtividades.filter((a) => {
-      const titulo = obterTextoSeguro(a.titulo).toLowerCase();
-      const status = obterTextoSeguro(a.status).toLowerCase();
-      const dif = obterTextoSeguro(a.dificuldade).toLowerCase();
+      const ativo = statusEhAtivo(obterTextoSeguro(a.status));
+      if (filtroStatus === "ativo" && !ativo) return false;
+      if (filtroStatus === "inativo" && ativo) return false;
 
+      if (filtroUsuario) {
+        const usuarios = Array.isArray(a.usuarios) ? a.usuarios : [];
+        if (!usuarios.some((u) => obterTextoSeguro(u.user_id) === filtroUsuario)) return false;
+      }
+
+      if (termo === "") return true;
+      const titulo = obterTextoSeguro(a.titulo).toLowerCase();
+      const dif = obterTextoSeguro(a.dificuldade).toLowerCase();
       const usuarios = Array.isArray(a.usuarios) ? a.usuarios : [];
       const usuariosTexto = usuarios.map((u) => `${u.user_id} ${u.nome_exibicao}`).join(" ").toLowerCase();
-
-      const base = `${titulo} ${status} ${dif} ${usuariosTexto}`;
-      return termo === "" ? true : base.includes(termo);
+      return `${titulo} ${dif} ${usuariosTexto}`.includes(termo);
     });
 
+    // Ordena: ativos sem vínculo primeiro (precisam de atenção), depois ativos,
+    // depois desativados.
+    const peso = (a) => {
+      const ativo = statusEhAtivo(obterTextoSeguro(a.status));
+      if (!ativo) return 2;
+      return usuariosVisiveis(a).length === 0 ? 0 : 1;
+    };
+    filtradas.sort((x, y) => peso(x) - peso(y) || obterTextoSeguro(x.titulo).localeCompare(obterTextoSeguro(y.titulo)));
+
+    const badge = document.getElementById("badgeTotalAtividades");
+    if (badge) {
+      badge.textContent = filtradas.length === cacheAtividades.length
+        ? String(cacheAtividades.length)
+        : `${filtradas.length}/${cacheAtividades.length}`;
+    }
+
     if (filtradas.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Nenhuma atividade encontrada.</td></tr>`;
+      lista.innerHTML = `<div class="mega-vazio"><div class="mega-vazio-icone">📺</div><div><strong>Nenhum canal encontrado</strong></div><div class="texto-fraco small">Ajuste a busca/filtros ou clique em <strong>+ Adicionar Canal</strong>.</div></div>`;
       return;
     }
 
-    tbody.innerHTML = filtradas.map(montarLinhaAtividade).join("");
+    lista.innerHTML = filtradas.map(montarLinhaCanal).join("");
   }
 
   async function carregarAtividades() {
-    const tbody = obterElemento(seletorTbody);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="texto-fraco">Carregando…</td></tr>`;
+    const lista = obterElemento(seletorLista);
+    if (lista) lista.innerHTML = `<div class="texto-fraco">Carregando…</div>`;
 
     const json = await requisitarJson(urlListarAtividades, { method: "GET" });
     cacheAtividades = Array.isArray(json.dados) ? json.dados : [];
+    popularFiltroUsuarios();
     aplicarFiltroETabela();
   }
 
@@ -357,7 +426,9 @@
     if (titulo === "") throw new Error("Informe o título da atividade.");
     if (titulo.length < 3) throw new Error("Título inválido (mínimo 3 caracteres).");
     if (!["facil", "media", "dificil", "critica"].includes(dificuldade)) throw new Error("Selecione uma dificuldade válida.");
+    // UI binária (tarefa 11): qualquer valor legado é normalizado.
     if (!["aberta", "em_andamento", "concluida", "cancelada"].includes(status)) throw new Error("Selecione um status válido.");
+    const statusNormalizado = statusParaBinario(status);
     if (!Number.isFinite(estimativaNumero) || estimativaNumero < 0) throw new Error("Estimativa inválida. Use um número (ex: 6 ou 6,5).");
 
     const ids_usuarios = obterIdsUsuariosSelecionados();
@@ -372,7 +443,7 @@
           descricao,
           dificuldade,
           estimativa_horas: estimativaNumero,
-          status,
+          status: statusNormalizado,
           ids_usuarios
         })
       });
@@ -388,7 +459,7 @@
           descricao,
           dificuldade,
           estimativa_horas: estimativaNumero,
-          status,
+          status: statusNormalizado,
           ids_usuarios
         })
       });
@@ -447,7 +518,7 @@
     if (desc) desc.value = obterTextoSeguro(atividade.descricao);
     if (dif) dif.value = obterTextoSeguro(atividade.dificuldade || "media");
     if (est) est.value = obterTextoSeguro(atividade.estimativa_horas || "");
-    if (st) st.value = obterTextoSeguro(atividade.status || "aberta");
+    if (st) st.value = statusParaBinario(obterTextoSeguro(atividade.status || "aberta"));
 
     marcarUsuariosNoModal(atividade.usuarios);
     abrirModal();
@@ -458,11 +529,20 @@
       const alvo = ev.target;
       if (!(alvo instanceof HTMLElement)) return;
 
-      if (alvo.matches('select[data-acao="status"][data-id]')) {
+      // Switch Ativado/Desativado do card (tarefa 11).
+      if (alvo.matches('input[data-acao="switch-status"][data-id]')) {
         const id = Number(alvo.getAttribute("data-id") || 0);
-        const status = obterTextoSeguro(alvo.value);
+        const status = alvo.checked ? "aberta" : "cancelada";
         if (id > 0) {
-          try { await alterarStatusAtividade(id, status); } catch (e) { console.error(e); }
+          alvo.disabled = true;
+          try {
+            await alterarStatusAtividade(id, status);
+          } catch (e) {
+            console.error(e);
+            alvo.checked = !alvo.checked; // reverte visual em caso de falha
+            alvo.disabled = false;
+            window.PainelNucleo?.utilidades?.mostrarAlerta?.("erro", "Canais", String(e?.message || e));
+          }
         }
       }
     });
@@ -546,12 +626,29 @@
 
   function registrarEventosBusca() {
     const busca = obterElemento(seletorBusca);
-    if (!busca) return;
-    let _debounceTimerAtividades = null;
-    busca.addEventListener("input", () => {
-      clearTimeout(_debounceTimerAtividades);
-      _debounceTimerAtividades = setTimeout(() => aplicarFiltroETabela(), 300);
-    });
+    if (busca) {
+      let _debounceTimerAtividades = null;
+      busca.addEventListener("input", () => {
+        clearTimeout(_debounceTimerAtividades);
+        _debounceTimerAtividades = setTimeout(() => aplicarFiltroETabela(), 300);
+      });
+    }
+
+    // Toggle "Mostrar adm" (tarefa 11): persiste a preferência e re-renderiza
+    // (o filtro de usuários também muda — adm entra/sai das opções).
+    const chkAdm = obterElemento(seletorMostrarAdm);
+    if (chkAdm) {
+      try { chkAdm.checked = localStorage.getItem(CHAVE_PREF_MOSTRAR_ADM) === "1"; } catch (_) {}
+      chkAdm.addEventListener("change", () => {
+        try { localStorage.setItem(CHAVE_PREF_MOSTRAR_ADM, chkAdm.checked ? "1" : "0"); } catch (_) {}
+        popularFiltroUsuarios();
+        aplicarFiltroETabela();
+      });
+    }
+
+    // Filtros de status e de usuário da lista.
+    obterElemento(seletorFiltroStatus)?.addEventListener("change", () => aplicarFiltroETabela());
+    obterElemento(seletorFiltroUsuario)?.addEventListener("change", () => aplicarFiltroETabela());
   }
 
   function tentarCarregarQuandoAbrirAba() {
@@ -578,10 +675,10 @@
 
   inicializar();
 
-  // Página dedicada (canal.php): sem o SPA do index (#abaDashboard), carrega a
-  // tabela ao abrir. No index a carga é disparada ao clicar na aba "Canal"
+  // Página dedicada (canal.php): sem o SPA do index (#abaDashboard), carrega o
+  // grid ao abrir. No index a carga é disparada ao clicar na aba "Canal"
   // (tentarCarregarQuandoAbrirAba) ou via window.recarregarAbaAtividades.
-  if (!document.getElementById("abaDashboard") && document.querySelector(seletorTbody)) {
+  if (!document.getElementById("abaDashboard") && document.querySelector(seletorLista)) {
     carregarAtividades().catch(console.error);
   }
 })();

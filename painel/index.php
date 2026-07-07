@@ -188,10 +188,8 @@ require __DIR__ . '/_layout/topo.php';
             <div class="col-12 col-md-4">
               <label class="form-label texto-fraco">Status</label>
               <select id="entradaAtividadeStatus" class="form-select bg-transparent text-white border-secondary">
-                <option value="aberta" selected>Aberta</option>
-                <option value="em_andamento">Em andamento</option>
-                <option value="concluida">Concluída</option>
-                <option value="cancelada">Cancelada</option>
+                <option value="aberta" selected>Ativado</option>
+                <option value="cancelada">Desativado</option>
               </select>
             </div>
           </div>
@@ -239,8 +237,8 @@ require __DIR__ . '/_layout/topo.php';
 //    Usuário" / "+ Adicionar Canal" (modais mantidos neste index).
 $scriptsAba = [
     './js/aba-usuarios.js?v=10',
-    './js/aba-atividades.js?v=8',
+    './js/aba-atividades.js?v=10',
     './js/aba-auditoria.js?v=3',
-    './js/aba-graficos.js?v=7',
+    './js/aba-graficos.js?v=8',
 ];
 require __DIR__ . '/_layout/rodape.php';

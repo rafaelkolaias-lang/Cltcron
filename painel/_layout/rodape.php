@@ -18,7 +18,7 @@ $scriptsAba = $scriptsAba ?? [];
 <?php foreach ($scriptsAba as $_src): ?>
   <script src="<?= htmlspecialchars($_src, ENT_QUOTES, 'UTF-8') ?>"></script>
 <?php endforeach; ?>
-  <script src="./js/painel.js?v=9"></script>
+  <script src="./js/painel.js?v=10"></script>
   <script>
     // Toggle da sidebar no mobile. Em desktop a sidebar fica fixa e o
     // botão ☰ não é exibido — esse script só importa em ≤ md.

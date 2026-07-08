@@ -84,6 +84,16 @@ class MonitorDeUso:
         self._segundos_ocioso_float: float = 0.0
         self._segundos_pausado_float: float = 0.0
 
+        # Bug #34 — acumulação POR DIA (fonte da verdade da persistência).
+        # {"YYYY-MM-DD": {"trab": float, "oci": float, "pau": float}}.
+        # Cada delta aceito é somado no dia em que ACONTECEU (date.today()).
+        # O upsert grava cada dia com exatamente o que foi acumulado nele —
+        # substitui o rateio retroativo proporcional (dividir_tempos_por_dia),
+        # que reescrevia dias anteriores a cada flush e jogava horas em dias
+        # errados (auditoria #14) ou as rebaixava (auditoria #34). Persistido
+        # no estado local e restaurado junto com a sessão.
+        self._tempos_por_dia: dict[str, dict[str, float]] = {}
+
         self._nome_app_foco: str = "desconhecido"
         self._titulo_janela_foco: str = ""
         self._id_foco_aberto: int | None = None
@@ -229,25 +239,41 @@ class MonitorDeUso:
 
         if self._situacao_manual == "pausado":
             self._segundos_pausado_float += delta
+            self._acumular_dia_locked("pau", delta)
         else:
             if self._situacao_calculada == "ocioso":
                 # Não acumula acima do limite máximo (mesmo teto do trabalhando) —
                 # sem isso, sessões esquecidas abertas por dias inflavam o ocioso
                 # sem limite e distorciam os totais de "Cronometradas".
                 if self._segundos_ocioso_float < LIMITE_HORAS_MAXIMO:
-                    self._segundos_ocioso_float = min(
+                    aceito = min(
                         self._segundos_ocioso_float + delta,
                         float(LIMITE_HORAS_MAXIMO),
-                    )
+                    ) - self._segundos_ocioso_float
+                    self._segundos_ocioso_float += aceito
+                    self._acumular_dia_locked("oci", aceito)
             else:
                 # Não acumula acima do limite máximo
                 if self._segundos_trabalhando_float < LIMITE_HORAS_MAXIMO:
-                    self._segundos_trabalhando_float = min(
+                    aceito = min(
                         self._segundos_trabalhando_float + delta,
                         float(LIMITE_HORAS_MAXIMO),
-                    )
+                    ) - self._segundos_trabalhando_float
+                    self._segundos_trabalhando_float += aceito
+                    self._acumular_dia_locked("trab", aceito)
 
         self._ultimo_marco_mono = mono_agora
+
+    def _acumular_dia_locked(self, chave: str, delta: float) -> None:
+        """Soma `delta` no balde do DIA ATUAL (bug #34 — verdade por dia)."""
+        if delta <= 0:
+            return
+        dia = date.today().isoformat()
+        balde = self._tempos_por_dia.get(dia)
+        if balde is None:
+            balde = {"trab": 0.0, "oci": 0.0, "pau": 0.0}
+            self._tempos_por_dia[dia] = balde
+        balde[chave] = balde.get(chave, 0.0) + delta
 
     def _inserir_evento(
         self,
@@ -935,6 +961,9 @@ class MonitorDeUso:
             "segundos_trabalhando": float(estado.segundos_trabalhando),
             "segundos_ocioso": float(estado.segundos_ocioso),
             "segundos_pausado": float(estado.segundos_pausado),
+            # Bug #34: verdade por dia acompanha a sessão no restore — sem ela,
+            # o upsert caía no rateio legado por relógio.
+            "tempos_por_dia": {d: dict(v) for d, v in self._tempos_por_dia.items()},
             "versao_app": VERSAO_APLICACAO,
             "salvo_em": datetime.now().isoformat(),
         }
@@ -1031,6 +1060,26 @@ class MonitorDeUso:
             self._segundos_ocioso_float = float(dados.get("segundos_ocioso") or 0.0)
             self._segundos_pausado_float = float(dados.get("segundos_pausado") or 0.0)
 
+            # Bug #34: restaura a verdade por dia. Estado antigo (sem a chave)
+            # vira {} — os dias anteriores já persistidos no banco ficam
+            # protegidos pelo UPDATE monotônico; o trabalho novo acumula no
+            # dia em que acontecer.
+            self._tempos_por_dia = {}
+            try:
+                bruto = dados.get("tempos_por_dia") or {}
+                if isinstance(bruto, dict):
+                    for dia_iso, balde in bruto.items():
+                        if not isinstance(balde, dict):
+                            continue
+                        date.fromisoformat(str(dia_iso))  # valida a chave
+                        self._tempos_por_dia[str(dia_iso)] = {
+                            "trab": float(balde.get("trab") or 0.0),
+                            "oci": float(balde.get("oci") or 0.0),
+                            "pau": float(balde.get("pau") or 0.0),
+                        }
+            except Exception:
+                self._tempos_por_dia = {}
+
             self._sessao_carregada = True
             self._rodando = False
             self._situacao_manual = "pausado"
@@ -1077,6 +1126,7 @@ class MonitorDeUso:
             self._segundos_trabalhando_float = 0.0
             self._segundos_ocioso_float = 0.0
             self._segundos_pausado_float = 0.0
+            self._tempos_por_dia = {}
 
             self._sessao_carregada = True
             self._rodando = True
@@ -1262,11 +1312,22 @@ class MonitorDeUso:
         ref_data_fallback: date,
         texto_relatorio: str,
         com_fechamento: bool,
+        tempos_por_dia: dict[str, dict[str, float]] | None = None,
     ) -> None:
         """Grava/atualiza `cronometro_relatorios` por (id_sessao, referencia_data).
         Cronômetro neutro — id_atividade sempre NULL.
         Usa SELECT + UPDATE/INSERT para não depender de UNIQUE KEY (evita ALTER no banco).
-        Divide totais por dia quando a sessão cruza meia-noite.
+
+        Bug #34 (2026-07-07):
+        - Preferência: `tempos_por_dia` (o que foi acumulado em CADA dia) —
+          cada dia é gravado com exatamente o que aconteceu nele. O rateio
+          proporcional `dividir_tempos_por_dia` fica só como fallback legado
+          (estado restaurado de versão antiga, sem o dicionário).
+        - UPDATE MONOTÔNICO: os segundos gravados nunca DIMINUEM
+          (GREATEST(valor_atual, novo)). Um flush com acumulador
+          zerado/menor (restauração com estado perdido, race, versão antiga)
+          não consegue mais apagar horas já persistidas — era isso que
+          zerava dias inteiros de trabalho em sessões multi-dia.
         """
         if id_sessao is None or not user_id:
             return
@@ -1278,96 +1339,127 @@ class MonitorDeUso:
         self._trava_upsert_relatorio.acquire()
         try:
             fim_em_agora = datetime.now()
-            inicio_em = None
-            try:
-                linha_sessao = self._banco.consultar_um(
-                    "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
-                    [id_sessao],
-                )
-                if linha_sessao and linha_sessao.get("iniciado_em"):
-                    inicio_em = linha_sessao["iniciado_em"]
-            except Exception:
-                inicio_em = None
-            if not isinstance(inicio_em, datetime):
-                inicio_em = datetime.combine(ref_data_fallback, datetime.min.time())
 
-            fatias = dividir_tempos_por_dia(
-                inicio_em,
-                fim_em_agora,
-                converter_segundos_para_inteiro(seg_trab_float),
-                converter_segundos_para_inteiro(seg_oci_float),
-                converter_segundos_para_inteiro(seg_pau_float),
-            )
+            if tempos_por_dia:
+                # Caminho novo: verdade por dia, sem rateio retroativo.
+                fatias = []
+                for dia_iso in sorted(tempos_por_dia.keys()):
+                    balde = tempos_por_dia[dia_iso] or {}
+                    try:
+                        dia_val = date.fromisoformat(str(dia_iso))
+                    except Exception:
+                        continue
+                    fatias.append((
+                        dia_val,
+                        converter_segundos_para_inteiro(balde.get("trab", 0.0)),
+                        converter_segundos_para_inteiro(balde.get("oci", 0.0)),
+                        converter_segundos_para_inteiro(balde.get("pau", 0.0)),
+                    ))
+            else:
+                # Fallback legado (sessão restaurada de estado antigo, sem o
+                # dicionário por dia): rateio proporcional pelo relógio.
+                # Inofensivo com o UPDATE monotônico abaixo.
+                inicio_em = None
+                try:
+                    linha_sessao = self._banco.consultar_um(
+                        "SELECT iniciado_em FROM cronometro_sessoes WHERE id_sessao = %s LIMIT 1",
+                        [id_sessao],
+                    )
+                    if linha_sessao and linha_sessao.get("iniciado_em"):
+                        inicio_em = linha_sessao["iniciado_em"]
+                except Exception:
+                    inicio_em = None
+                if not isinstance(inicio_em, datetime):
+                    inicio_em = datetime.combine(ref_data_fallback, datetime.min.time())
+
+                fatias = dividir_tempos_por_dia(
+                    inicio_em,
+                    fim_em_agora,
+                    converter_segundos_para_inteiro(seg_trab_float),
+                    converter_segundos_para_inteiro(seg_oci_float),
+                    converter_segundos_para_inteiro(seg_pau_float),
+                )
 
             texto_efetivo = (texto_relatorio or "").strip() or "Sessão em andamento (parcial)"
 
             for dia, seg_trab_dia, seg_oci_dia, seg_pau_dia in fatias:
-                segundos_total_dia = seg_trab_dia + seg_oci_dia
-                existente = None
+                # Falha em UMA fatia não pode abortar as demais (antes o raise
+                # saía do loop e os outros dias ficavam sem gravar).
                 try:
-                    existente = self._banco.consultar_um(
-                        "SELECT id_relatorio FROM cronometro_relatorios WHERE id_sessao = %s AND referencia_data = %s LIMIT 1",
-                        [id_sessao, dia],
-                    )
-                except Exception:
+                    segundos_total_dia = seg_trab_dia + seg_oci_dia
                     existente = None
+                    try:
+                        existente = self._banco.consultar_um(
+                            "SELECT id_relatorio FROM cronometro_relatorios WHERE id_sessao = %s AND referencia_data = %s ORDER BY id_relatorio ASC LIMIT 1",
+                            [id_sessao, dia],
+                        )
+                    except Exception:
+                        existente = None
 
-                if existente and existente.get("id_relatorio"):
-                    # NÃO sobrescrever `criado_em` no UPDATE: esse campo é a
-                    # âncora temporal do ciclo de pagamento (o reset usa
-                    # `criado_em >= MAX(data_pagamento)` e o abatimento usa
-                    # `criado_em <= corte`). Reescrevê-lo para "agora" a cada
-                    # salvamento parcial fazia as horas de uma sessão longa que
-                    # atravessa um pagamento "pularem" para o ciclo novo. O
-                    # `criado_em` é definido uma única vez no INSERT da linha.
-                    self._banco.executar(
-                        """
-                        UPDATE cronometro_relatorios
-                           SET relatorio = %s,
-                               segundos_total = %s,
-                               segundos_trabalhando = %s,
-                               segundos_ocioso = %s,
-                               segundos_pausado = %s
-                         WHERE id_relatorio = %s
-                        """,
-                        [
-                            texto_efetivo,
-                            int(segundos_total_dia),
-                            int(seg_trab_dia),
-                            int(seg_oci_dia),
-                            int(seg_pau_dia),
-                            int(existente["id_relatorio"]),
-                        ],
-                    )
-                    LOG_TEC.log("relatorio", f"UPDATE dia={dia}", {
-                        "id_relatorio": existente["id_relatorio"],
-                        "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
-                        "fechamento": com_fechamento,
-                    })
-                else:
-                    self._banco.executar(
-                        """
-                        INSERT INTO cronometro_relatorios
-                            (id_sessao, user_id, id_atividade, relatorio, segundos_total,
-                             segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
-                        VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        [
-                            id_sessao,
-                            user_id,
-                            texto_efetivo,
-                            int(segundos_total_dia),
-                            int(seg_trab_dia),
-                            int(seg_oci_dia),
-                            int(seg_pau_dia),
-                            fim_em_agora,
-                            dia,
-                        ],
-                    )
-                    LOG_TEC.log("relatorio", f"INSERT dia={dia}", {
-                        "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
-                        "fechamento": com_fechamento,
-                    })
+                    if existente and existente.get("id_relatorio"):
+                        # NÃO sobrescrever `criado_em` no UPDATE: esse campo é a
+                        # âncora temporal do ciclo de pagamento (o reset usa
+                        # `criado_em >= MAX(data_pagamento)` e o abatimento usa
+                        # `criado_em <= corte`). Reescrevê-lo para "agora" a cada
+                        # salvamento parcial fazia as horas de uma sessão longa que
+                        # atravessa um pagamento "pularem" para o ciclo novo. O
+                        # `criado_em` é definido uma única vez no INSERT da linha.
+                        #
+                        # GREATEST: horas de um dia nunca diminuem (bug #34). O
+                        # MariaDB usa o valor JÁ ATUALIZADO nas atribuições
+                        # seguintes do mesmo SET — por isso segundos_total é
+                        # recalculado por último a partir das colunas novas.
+                        self._banco.executar(
+                            """
+                            UPDATE cronometro_relatorios
+                               SET relatorio = %s,
+                                   segundos_trabalhando = GREATEST(segundos_trabalhando, %s),
+                                   segundos_ocioso = GREATEST(segundos_ocioso, %s),
+                                   segundos_pausado = GREATEST(segundos_pausado, %s),
+                                   segundos_total = segundos_trabalhando + segundos_ocioso
+                             WHERE id_relatorio = %s
+                            """,
+                            [
+                                texto_efetivo,
+                                int(seg_trab_dia),
+                                int(seg_oci_dia),
+                                int(seg_pau_dia),
+                                int(existente["id_relatorio"]),
+                            ],
+                        )
+                        LOG_TEC.log("relatorio", f"UPDATE dia={dia}", {
+                            "id_relatorio": existente["id_relatorio"],
+                            "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
+                            "fechamento": com_fechamento,
+                            "por_dia": bool(tempos_por_dia),
+                        })
+                    else:
+                        self._banco.executar(
+                            """
+                            INSERT INTO cronometro_relatorios
+                                (id_sessao, user_id, id_atividade, relatorio, segundos_total,
+                                 segundos_trabalhando, segundos_ocioso, segundos_pausado, criado_em, referencia_data)
+                            VALUES (%s, %s, NULL, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            [
+                                id_sessao,
+                                user_id,
+                                texto_efetivo,
+                                int(segundos_total_dia),
+                                int(seg_trab_dia),
+                                int(seg_oci_dia),
+                                int(seg_pau_dia),
+                                fim_em_agora,
+                                dia,
+                            ],
+                        )
+                        LOG_TEC.log("relatorio", f"INSERT dia={dia}", {
+                            "trab": seg_trab_dia, "oci": seg_oci_dia, "pau": seg_pau_dia,
+                            "fechamento": com_fechamento,
+                            "por_dia": bool(tempos_por_dia),
+                        })
+                except Exception as erro_fatia:
+                    LOG_TEC.log("relatorio_erro", f"upsert falhou dia={dia}", {"erro": str(erro_fatia)})
         except Exception as erro:
             LOG_TEC.log("relatorio_erro", "upsert falhou", {"erro": str(erro)})
         finally:
@@ -1387,11 +1479,13 @@ class MonitorDeUso:
             seg_oci_snap = self._segundos_ocioso_float
             seg_pau_snap = self._segundos_pausado_float
             ref_data_snap = self._referencia_data_sessao or date.today()
+            tempos_dia_snap = {d: dict(v) for d, v in self._tempos_por_dia.items()}
 
         self._upsert_relatorio_com_snapshots(
             id_sessao_snap, user_id_snap,
             seg_trab_snap, seg_oci_snap, seg_pau_snap,
             ref_data_snap, texto_relatorio="", com_fechamento=False,
+            tempos_por_dia=tempos_dia_snap,
         )
 
     def zerar_sessao(self) -> None:
@@ -1424,11 +1518,13 @@ class MonitorDeUso:
             _seg_ocio_snap = self._segundos_ocioso_float
             _seg_paus_snap = self._segundos_pausado_float
             _ref_data_snap = self._referencia_data_sessao or date.today()
+            _tempos_dia_snap = {d: dict(v) for d, v in self._tempos_por_dia.items()}
 
             self._sessao_carregada = False
             self._segundos_trabalhando_float = 0.0
             self._segundos_ocioso_float = 0.0
             self._segundos_pausado_float = 0.0
+            self._tempos_por_dia = {}
             self._ultimo_marco_mono = 0.0
             self._parar.set()
             self._limpar_estado_local()
@@ -1453,6 +1549,7 @@ class MonitorDeUso:
                 _id_snap, _uid_snap,
                 _seg_trab_snap, _seg_ocio_snap, _seg_paus_snap,
                 _ref_data_snap, texto_relatorio="Sessão zerada", com_fechamento=True,
+                tempos_por_dia=_tempos_dia_snap,
             )
         except Exception:
             pass
@@ -1493,6 +1590,7 @@ class MonitorDeUso:
             _seg_ocio_snap = self._segundos_ocioso_float
             _seg_paus_snap = self._segundos_pausado_float
             _ref_data_snap = self._referencia_data_sessao or date.today()
+            _tempos_dia_snap = {d: dict(v) for d, v in self._tempos_por_dia.items()}
 
         try:
             self._inserir_evento("finalizar", "pausado", 0, _id_snap, _uid_snap)
@@ -1515,12 +1613,14 @@ class MonitorDeUso:
                 _id_snap, _uid_snap,
                 _seg_trab_snap, _seg_ocio_snap, _seg_paus_snap,
                 _ref_data_snap, texto_relatorio=texto_relatorio, com_fechamento=True,
+                tempos_por_dia=_tempos_dia_snap,
             )
         except Exception:
             pass
 
         with self._trava:
             self._sessao_carregada = False
+            self._tempos_por_dia = {}
             self._parar.set()
             self._limpar_estado_local()
 

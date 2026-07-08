@@ -6,6 +6,27 @@
 
 ## Tarefas Claude 1
 
+### ✅ 15. Bug #34 (auditoria.md) — horas cronometradas perdidas em sessão multi-dia: correção + recuperação em produção
+**Status: CONCLUÍDO (2026-07-08, Claude 1)** — ver `auditoria.md` #34 (bloco STATUS) para o resumo completo: fix em `app/monitor.py` (acumulação por dia + UPDATE monotônico GREATEST + resiliência por fatia), validado (repro + 79 pytest + ruff), e **82,3h recuperadas em produção** (alex +50h, joao +16,3h, marcus +15,9h; 27 UPDATEs conservadores via heartbeats, criado_em=NOW). **Pendências:** (a) commit + rebuild/release do .exe (bug segue ativo nos clientes até lá — paliativo: zerar no fim do dia); (b) decisão do usuário sobre backfill das perdas pré-12/06 (#33 e abril — ver números no auditoria.md).
+
+**Contexto:** ver `auditoria.md` #34 (investigação completa) e #14. Sessões desktop que atravessam dias (restauradas ao reabrir o app) tiveram TODAS as horas zeradas em `cronometro_relatorios` (~85h da equipe desde 16/06: alex ~50h, joao ~20h, marcus ~12h). Evidência: linhas zeradas com texto "Sessão em andamento (parcial)" = último escritor foi o flush parcial com acumuladores zerados; o zerar dessas sessões nunca gravou. Acontece nas v4.1.0 e v4.1.3 (mesma versão tem sessões preservadas E zeradas — condição de runtime, causa exata do zero em memória não reproduzida; a correção elimina o dano por design). Repro em `scratchpad/repro_bug34.py` confirma que o código atual preserva total, mas o rateio `dividir_tempos_por_dia` REESCREVE dias anteriores a cada flush (mecanismo do estrago + bug #14). **Usuário AUTORIZOU: corrigir + recuperar horas em produção (UPDATE nas linhas zeradas).**
+
+**JÁ FEITO em `app/monitor.py` (working tree, compila OK, NÃO commitado):**
+1. `self._tempos_por_dia: dict` no `__init__` — acumulação POR DIA (verdade por dia).
+2. `_acumular_tempo_ate_agora_locked` alimenta `_acumular_dia_locked(chave, delta_aceito)` (novo helper).
+3. `_upsert_relatorio_com_snapshots` ganhou param `tempos_por_dia`: fatias vêm do dicionário (rateio legado só como fallback); **UPDATE monotônico com GREATEST** (horas nunca diminuem — mata o bug #34 por design); `segundos_total` recalculado das colunas novas (MariaDB usa valor já atualizado no mesmo SET); SELECT com ORDER BY id_relatorio ASC; try/except POR FATIA (falha numa não aborta as outras).
+4. `_upsert_relatorio_parcial` e `zerar_sessao` passam snapshot do dicionário; zerar limpa `_tempos_por_dia`.
+
+**FALTA FAZER:**
+1. `finalizar()`: passar `tempos_por_dia=_tempos_dia_snap` (snapshot sob lock, como no zerar) + limpar dicionário.
+2. `iniciar()`: resetar `self._tempos_por_dia = {}` (junto do reset dos acumuladores, ~linha 1077).
+3. `_salvar_estado_local_locked`: incluir `"tempos_por_dia": {d: dict(v)...}` no JSON; `restaurar_sessao`: restaurar o dicionário (default {} p/ arquivos antigos).
+4. Rodar `scratchpad/repro_bug34.py` de novo (agora deve manter 3h/2h/1h nos dias CERTOS, sem redistribuir) + criar cenário "flush com acumulador zerado não rebaixa" + `python -m pytest tests/` + ruff.
+5. Auditoria adicional do sistema de cronometragem (não perder/não duplicar): fila offline (`_tentar_flush_fila_offline` — descartes por FK), `pausar_e_preservar`, duplicatas existentes (ex.: relatorios 362/366 mesma sessão+dia em prod), `_verificar_limite_horas` (30h para de computar silenciosamente?), heartbeat vs acumulação.
+6. **Recuperação em produção (AUTORIZADA)**: reconstruir horas por (user, sessão, dia) a partir de `cronometro_eventos_status` (heartbeats 60s: situacao trabalhando→trab, ocioso→oci; conservador) e **UPDATE das linhas zeradas existentes** de `cronometro_relatorios` das sessões: alex 277,281,285,287,291; joao 276,279,292; marcus 275,280,286 (checar também 270-274 e anteriores a 16/06). ANTES: conferir `Pagamentos` de cada user (interação com ciclo `criado_em >= MAX(data_pagamento)` — decidir UPDATE (criado_em histórico) vs INSERT-correção (conta no ciclo atual); apresentar números ao usuário no relatório final. Credencial de leitura/escrita: `app/segredos.py` (DB_SENHA) + host `rkproducoes.duckdns.org:3306`, banco `dados`, user `kolaias`.
+7. Atualizar `auditoria.md` #34 (status/como foi corrigido), `!projeto.md`, e reportar ao usuário. Commit/push/rebuild do .exe SÓ com autorização explícita nova.
+
+
 ### ✅ 10. Redesign - Design System Base (CSS e Cores por Usuário)
 **Status: CONCLUÍDO (2026-07-07, Claude 1)**
 

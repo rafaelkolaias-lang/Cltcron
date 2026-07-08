@@ -134,9 +134,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.3"
+VERSAO_APLICACAO = "v4.1.4"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.4",
+        "data": "08/07/2026",
+        "notas": [
+            "Correção importante: horas cronometradas em sessões que atravessam dias (fechar o app e continuar depois) não são mais perdidas — cada dia grava exatamente o que foi trabalhado nele e as horas salvas no servidor nunca diminuem.",
+            "Se você notou horas sumindo, elas já foram restauradas no servidor — confira em Tarefas.",
+        ],
+    },
     {
         "versao": "v4.1.3",
         "data": "25/06/2026",

@@ -192,6 +192,7 @@ try {
     $mapaDecl = [];   // total declarado (todas as subtarefas)
     $mapaDeclNaoPago = []; // declarado não pago (para modal de edição)
     $mapaPago = [];   // total de pagamentos
+    $mapaDesc = [];   // total de descontos avulsos (pagamento_descontos)
     $mapaMonGlobal = []; // monitorado global (modo pendente — fórmula anti-fraude)
     $mapaAbat = [];      // abatido global (modo pendente — fórmula anti-fraude)
 
@@ -286,6 +287,32 @@ try {
             $stP->execute([':uid' => $uid]);
             $mapaPago[$uid] = (float)$stP->fetchColumn();
         }
+
+        // Total de descontos avulsos (abatimento financeiro no "A pagar").
+        // 'pendente': só os do ciclo atual (data_desconto após o último pagamento).
+        // '30dias': últimos 30 dias. 'tudo': todos.
+        try {
+            $fragDesc = '';
+            $paramsDesc = [':uid' => $uid];
+            if ($modoPendente) {
+                if ($corte) {
+                    $fragDesc = ' AND d.data_desconto > :corte';
+                    $paramsDesc[':corte'] = $corte;
+                }
+            } elseif ($resumo_periodo === '30dias') {
+                $fragDesc = ' AND d.data_desconto >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
+            }
+            $stDesc = $pdo->prepare("
+                SELECT COALESCE(SUM(d.valor), 0)
+                FROM pagamento_descontos d
+                JOIN usuarios u ON u.id_usuario = d.id_usuario
+                WHERE u.user_id = :uid {$fragDesc}
+            ");
+            $stDesc->execute($paramsDesc);
+            $mapaDesc[$uid] = (float)$stDesc->fetchColumn();
+        } catch (Throwable $ignore) {
+            $mapaDesc[$uid] = 0.0; // tabela pagamento_descontos pode não existir ainda
+        }
     }
 
     foreach ($linhas as &$l) {
@@ -305,6 +332,7 @@ try {
         $l['segundos_nao_declarado_total'] = $naoDecl;
         $l['segundos_trabalhados_total']   = $decl + $naoDecl;
         $l['total_pago']                   = $mapaPago[$uid] ?? 0.0;
+        $l['total_descontos']              = $mapaDesc[$uid] ?? 0.0;
     }
     unset($l);
 
@@ -327,6 +355,7 @@ try {
             'segundos_nao_declarado_total'     => $naoDeclU,
             'segundos_trabalhados_total'       => $declU + $naoDeclU,
             'total_pago'                       => $mapaPago[$user_id] ?? 0.0,
+            'total_descontos'                  => $mapaDesc[$user_id] ?? 0.0,
         ];
     }
 

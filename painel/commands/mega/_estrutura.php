@@ -126,6 +126,23 @@ function mega_garantir_estrutura(?PDO $pdo = null): void
         }
     }
 
+    // H. Colunas de cancelamento de vídeo em mega_pasta_logica (2026-07-17).
+    //    Vídeo cancelado = admin decidiu não publicar (com nota do motivo).
+    //    Marcação apenas do painel — desktop não muda de comportamento.
+    $colunas_cancelamento = [
+        'video_cancelado' => "TINYINT(1) NOT NULL DEFAULT 0 AFTER publicado_em",
+        'cancelado_em'    => "DATETIME NULL DEFAULT NULL AFTER video_cancelado",
+        'cancelado_nota'  => "VARCHAR(500) NULL DEFAULT NULL AFTER cancelado_em",
+    ];
+    foreach ($colunas_cancelamento as $col => $def) {
+        try {
+            $pdo->exec("ALTER TABLE mega_pasta_logica ADD COLUMN {$col} {$def}");
+        } catch (PDOException $e) {
+            // 1060 = Duplicate column name — já existe, ignora.
+            if ((int)$e->errorInfo[1] !== 1060) throw $e;
+        }
+    }
+
     // G. Coluna `tipo` do campo de upload (classifica o conteúdo do campo).
     //    Valores canônicos ASCII: 'video','projeto','thumb','texto','outro' (default).
     //    Usada para: (a) "verde compartilhado" — saber que a thumb daquele vídeo já

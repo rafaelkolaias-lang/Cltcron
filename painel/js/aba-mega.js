@@ -860,7 +860,8 @@
     const upadoPor = estado.filtroUpadoPor;
     return estado.pastas.filter((p) => {
       if (status === 'publicado' && !p.video_publicado) return false;
-      if (status === 'pendente' && p.video_publicado) return false;
+      if (status === 'pendente' && (p.video_publicado || p.video_cancelado)) return false;
+      if (status === 'cancelado' && !p.video_cancelado) return false;
       if (upadoPor) {
         const uploaders = (p.upado_por || '').split(',').map((u) => u.trim());
         if (!uploaders.includes(upadoPor)) return false;
@@ -884,9 +885,9 @@
         va = parseInt(va, 10) || 0;
         vb = parseInt(vb, 10) || 0;
       } else if (campo === 'video_publicado') {
-        // booleano → 0/1
-        va = va ? 1 : 0;
-        vb = vb ? 1 : 0;
+        // rank de status: pendente(0) < cancelado(1) < publicado(2)
+        va = a.video_publicado ? 2 : (a.video_cancelado ? 1 : 0);
+        vb = b.video_publicado ? 2 : (b.video_cancelado ? 1 : 0);
       } else if (campo === 'criado_em') {
         va = va ? new Date(String(va).replace(' ', 'T')).getTime() : 0;
         vb = vb ? new Date(String(vb).replace(' ', 'T')).getTime() : 0;
@@ -932,20 +933,31 @@
 
     tbody.innerHTML = filtradas.map((p) => {
       const pub = p.video_publicado;
-      const classeRow = pub ? 'mega-linha-publicado' : '';
+      const canc = p.video_cancelado;
+      const classeRow = pub ? 'mega-linha-publicado' : (canc ? 'mega-linha-cancelado' : '');
       const nomePasta = p.link_mega
         ? `<a href="${esc(p.link_mega)}" target="_blank" rel="noopener" class="text-white text-decoration-underline" title="Abrir no MEGA">${esc(p.nome_pasta)}</a>`
         : `<span title="Link MEGA não disponível">${esc(p.nome_pasta)}</span>`;
+      const notaCancelamento = canc && p.cancelado_nota
+        ? `<div class="texto-fraco small" title="Nota do cancelamento">📝 ${esc(p.cancelado_nota)}</div>`
+        : '';
       const badge = pub
         ? `<span class="badge bg-success">Publicado</span>`
-        : `<span class="badge bg-danger">Pendente</span>`;
+        : canc
+          ? `<span class="badge bg-secondary">Cancelado</span>`
+          : `<span class="badge bg-danger">Pendente</span>`;
       const btnAcao = pub
-        ? `<button class="btn btn-sm btn-outline-danger" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Cancelar publicação">Cancelar</button>`
-        : `<button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicar</button>`;
+        ? `<button class="btn btn-sm btn-outline-danger" data-acao-pasta="desmarcar" data-id="${p.id_pasta_logica}" title="Voltar o vídeo para pendente">Despublicar</button>`
+        : canc
+          ? `<button class="btn btn-sm btn-outline-light" data-acao-pasta="reativar" data-id="${p.id_pasta_logica}" title="Reativar o vídeo (volta para pendente)">Reativar</button>`
+          : `<div class="d-flex gap-1 flex-wrap">
+               <button class="btn btn-sm btn-outline-secondary" data-acao-pasta="marcar" data-id="${p.id_pasta_logica}" title="Marcar como publicado">Publicar</button>
+               <button class="btn btn-sm btn-outline-danger" data-acao-pasta="cancelar" data-id="${p.id_pasta_logica}" title="Cancelar vídeo (não será publicado)">Cancelar Vídeo</button>
+             </div>`;
 
       return `<tr class="${classeRow}">
         <td>${esc(p.titulo_atividade || '—')}</td>
-        <td><strong>${nomePasta}</strong></td>
+        <td><strong>${nomePasta}</strong>${notaCancelamento}</td>
         <td>${esc(p.upado_por || '—')}</td>
         <td>${esc(p.numero_video)}</td>
         <td>${badge}</td>
@@ -958,11 +970,76 @@
     atualizarIconesSort();
   }
 
+  let _idPastaCancelando = 0;
+
+  function abrirModalCancelarVideo(idPasta) {
+    const p = estado.pastas.find((x) => x.id_pasta_logica === idPasta);
+    if (!p) return;
+    _idPastaCancelando = idPasta;
+    const elNome = document.getElementById('modalCancelarVideoNome');
+    const elNota = document.getElementById('modalCancelarVideoNota');
+    if (elNome) elNome.textContent = p.nome_pasta || '—';
+    if (elNota) elNota.value = '';
+    const el = document.getElementById('modalCancelarVideo');
+    if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
+  }
+
+  async function alterarCancelamentoPasta(idPasta, cancelado, nota) {
+    const dados = await requisitar(API + 'pasta_logica_marcar_cancelado.php', 'POST', {
+      id_pasta_logica: idPasta,
+      cancelado: cancelado,
+      nota: nota || '',
+    });
+    const p = estado.pastas.find((x) => x.id_pasta_logica === idPasta);
+    if (p) {
+      p.video_cancelado = cancelado === 1;
+      p.cancelado_em = dados && dados.cancelado_em ? dados.cancelado_em : null;
+      p.cancelado_nota = dados && dados.cancelado_nota ? dados.cancelado_nota : null;
+    }
+    renderizarPastas();
+    alerta('sucesso', 'MEGA', cancelado === 1 ? 'Vídeo cancelado' : 'Vídeo reativado');
+  }
+
+  async function confirmarCancelarVideo() {
+    const id = _idPastaCancelando;
+    if (!id) return;
+    const btn = document.getElementById('modalCancelarVideoConfirmar');
+    const nota = String(document.getElementById('modalCancelarVideoNota')?.value || '').trim();
+    if (btn) btn.disabled = true;
+    try {
+      await alterarCancelamentoPasta(id, 1, nota);
+      _idPastaCancelando = 0;
+      const el = document.getElementById('modalCancelarVideo');
+      if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).hide();
+    } catch (e) {
+      alerta('erro', 'MEGA', e.message);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function bindPastasActions() {
     document.querySelectorAll('[data-acao-pasta]').forEach((btn) => {
       btn.addEventListener('click', async (ev) => {
         const id = parseInt(ev.currentTarget.dataset.id, 10);
         const acao = ev.currentTarget.dataset.acaoPasta;
+
+        if (acao === 'cancelar') {
+          abrirModalCancelarVideo(id);
+          return;
+        }
+
+        if (acao === 'reativar') {
+          ev.currentTarget.disabled = true;
+          try {
+            await alterarCancelamentoPasta(id, 0, '');
+          } catch (e) {
+            alerta('erro', 'MEGA', e.message);
+            ev.currentTarget.disabled = false;
+          }
+          return;
+        }
+
         const publicado = acao === 'marcar' ? 1 : 0;
         ev.currentTarget.disabled = true;
         try {
@@ -977,7 +1054,7 @@
             p.publicado_em = publicado === 1 ? new Date().toISOString() : null;
           }
           renderizarPastas();
-          alerta('sucesso', 'MEGA', publicado ? 'Vídeo marcado como publicado' : 'Publicação cancelada');
+          alerta('sucesso', 'MEGA', publicado ? 'Vídeo marcado como publicado' : 'Vídeo despublicado (voltou para pendente)');
         } catch (e) {
           alerta('erro', 'MEGA', e.message);
           ev.currentTarget.disabled = false;
@@ -1013,6 +1090,7 @@
       estado.filtroUpadoPor = ev.target.value;
       renderizarPastas();
     });
+    document.getElementById('modalCancelarVideoConfirmar')?.addEventListener('click', confirmarCancelarVideo);
 
 
     document.getElementById('megaBotaoUsarModelo')?.addEventListener('click', () => abrirModalUsarModelos());

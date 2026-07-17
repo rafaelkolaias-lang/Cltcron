@@ -26,6 +26,9 @@
   function urlCriarPagamento() { return "./commands/pagamentos/criar.php"; }
   function urlEditarPagamento() { return "./commands/pagamentos/editar.php"; }
   function urlExcluirPagamento() { return "./commands/pagamentos/excluir.php"; }
+  function urlCriarDesconto() { return "./commands/pagamentos/desconto_criar.php"; }
+  function urlEditarDesconto() { return "./commands/pagamentos/desconto_editar.php"; }
+  function urlExcluirDesconto() { return "./commands/pagamentos/desconto_excluir.php"; }
 
   // ============================
   // HTTP helper
@@ -129,6 +132,36 @@
     });
     if (!json.ok) throw new Error(json.mensagem || "Falha ao editar pagamento.");
     return json.dados || null;
+  }
+
+  async function criarDescontoNoBackend(payload) {
+    const json = await requisitarJson(urlCriarDesconto(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao registrar desconto.");
+    return json.dados;
+  }
+
+  async function editarDescontoNoBackend(payload) {
+    const json = await requisitarJson(urlEditarDesconto(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao editar desconto.");
+    return json.dados;
+  }
+
+  async function excluirDescontoNoBackend(idDesconto) {
+    const json = await requisitarJson(urlExcluirDesconto(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_desconto: idDesconto }),
+    });
+    if (!json.ok) throw new Error(json.mensagem || "Falha ao excluir desconto.");
+    return json.dados;
   }
 
   async function excluirPagamentoNoBackend(idPagamento) {
@@ -592,6 +625,23 @@
     if (elData) elData.value = dataHojeIsoSeguro();
     if (elValor) elValor.value = "";
     if (elObs) elObs.value = "";
+
+    const elDescData = document.getElementById("entradaDescontoData");
+    const elDescHoras = document.getElementById("entradaDescontoHoras");
+    const elDescMotivo = document.getElementById("entradaDescontoMotivo");
+
+    if (elDescData) elDescData.value = dataHojeIsoSeguro();
+    if (elDescHoras) elDescHoras.value = "";
+    if (elDescMotivo) elDescMotivo.value = "";
+  }
+
+  // "2:30" / "2" → segundos. Retorna -1 quando o formato é inválido.
+  function converterHorasTextoParaSegundos(texto) {
+    const t = String(texto || "").trim();
+    if (!t) return 0;
+    const m = t.match(/^(\d{1,3})(?::([0-5]?\d))?$/);
+    if (!m) return -1;
+    return parseInt(m[1], 10) * 3600 + parseInt(m[2] || "0", 10) * 60;
   }
 
   async function carregarPagamentosNoModal(uid) {
@@ -603,10 +653,13 @@
       if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="texto-fraco">Carregando…</td></tr>`;
 
       const lista = await listarPagamentosDoBackend(uid);
-      const ordenada = lista.slice(0).sort((a, b) => String(b.data_pagamento || "").localeCompare(String(a.data_pagamento || "")));
+      // Linhas mistas: pagamentos (data_pagamento) + descontos (data_desconto)
+      const ordenada = lista.slice(0).sort((a, b) =>
+        String(b.data_pagamento || b.data_desconto || "").localeCompare(String(a.data_pagamento || a.data_desconto || "")));
       _pagamentosCache = ordenada;
 
-      const total = ordenada.reduce((acc, p) => acc + Number(p.valor || 0), 0);
+      // Total = só dinheiro realmente pago (descontos não entram)
+      const total = ordenada.reduce((acc, p) => acc + (p.tipo === "desconto" ? 0 : Number(p.valor || 0)), 0);
       if (elTotal) elTotal.textContent = formatarDinheiroBr(total);
 
       if (!tbody) return;
@@ -616,11 +669,33 @@
         return;
       }
 
-      tbody.innerHTML = ordenada.map((p, idx) => {
+      // O cadeado de edição vale só para PAGAMENTOS (2 mais recentes editáveis).
+      const idsPagEditaveis = new Set(
+        ordenada.filter((p) => p.tipo !== "desconto").slice(0, 2).map((p) => Number(p.id_pagamento || 0))
+      );
+
+      tbody.innerHTML = ordenada.map((p) => {
+        if (p.tipo === "desconto") {
+          const idDesc = Number(p.id_desconto || 0);
+          const dataDesc = dataIsoParaBrSeguro(String(p.data_desconto || ""));
+          const motivo = String(p.observacao || "").trim() || "—";
+          const horas = formatarHm(p.segundos_desconto);
+          const botoesDesc = `<button class="btn btn-sm btn-outline-light me-1" onclick="window.__editarDesconto(${idDesc})" title="Editar desconto">✏️</button>
+             <button class="btn btn-sm btn-outline-danger" onclick="window.__excluirDesconto(${idDesc})" title="Excluir desconto">🗑️</button>`;
+          return `
+            <tr style="background:rgba(248,113,113,.08);">
+              <td>${escapeHtmlSeguro(dataDesc)}</td>
+              <td class="text-end fw-semibold" style="color:#f87171;">− ${escapeHtmlSeguro(formatarDinheiroBr(p.valor))}</td>
+              <td><span class="badge text-bg-danger me-1">Desconto</span>${escapeHtmlSeguro(horas)} — ${escapeHtmlSeguro(motivo)}</td>
+              <td class="text-end" style="white-space:nowrap;">${botoesDesc}</td>
+            </tr>
+          `;
+        }
+
         const dataPagamento = dataIsoParaBrSeguro(String(p.data_pagamento || ""));
         const observacao = String(p.observacao || "").trim() || "—";
         const idPag = Number(p.id_pagamento || 0);
-        const editavel = idx < 2; // Apenas os 2 mais recentes
+        const editavel = idsPagEditaveis.has(idPag);
 
         const botoes = editavel
           ? `<button class="btn btn-sm btn-outline-light me-1" onclick="window.__editarPagamento(${idPag})" title="Editar">✏️</button>
@@ -672,6 +747,7 @@
     const elOcioso = document.getElementById("gestaoResumoOcioso");
     const elAPagar = document.getElementById("gestaoResumoAPagar");
     const elPago = document.getElementById("gestaoResumoPago");
+    const elDescontos = document.getElementById("gestaoResumoDescontos");
 
     try {
       const rSub = await requisitarJson(`./commands/atividades_subtarefas/listar.php?user_id=${encodeURIComponent(uid)}&resumo_periodo=${encodeURIComponent(_resumoPeriodoAtivo)}`);
@@ -687,7 +763,8 @@
       const trabalhado   = declarado + naoDeclarado;
       const ocioso       = Number(first.segundos_ocioso_total || 0);
       const totalPago    = Number(first.total_pago || 0);
-      const aPagar       = Math.max(0, (declarado * (valorHora / 3600)) - totalPago);
+      const totalDescontos = Number(first.total_descontos || 0);
+      const aPagar       = Math.max(0, (declarado * (valorHora / 3600)) - totalPago - totalDescontos);
 
       if (elTrab) elTrab.textContent = formatarHm(trabalhado);
       if (elDecl) elDecl.textContent = formatarHm(declarado);
@@ -695,6 +772,7 @@
       if (elOcioso) elOcioso.textContent = formatarHm(ocioso);
       if (elAPagar) elAPagar.textContent = formatarDinheiroBr(aPagar);
       if (elPago) elPago.textContent = formatarDinheiroBr(totalPago);
+      if (elDescontos) elDescontos.textContent = totalDescontos > 0 ? `− ${formatarDinheiroBr(totalDescontos)}` : formatarDinheiroBr(0);
     } catch (_) {
       if (elTrab) elTrab.textContent = "—";
       if (elDecl) elDecl.textContent = "—";
@@ -702,6 +780,7 @@
       if (elOcioso) elOcioso.textContent = "—";
       if (elAPagar) elAPagar.textContent = "—";
       if (elPago) elPago.textContent = "—";
+      if (elDescontos) elDescontos.textContent = "—";
     }
   }
 
@@ -1346,9 +1425,202 @@
     }
   }
 
+  // ============================
+  // Descontos avulsos (editar / excluir / registrar)
+  // ============================
+  async function editarDescontoModal(idDesconto) {
+    const nucleo = obterNucleo();
+    const desc = _pagamentosCache.find(p => p.tipo === "desconto" && Number(p.id_desconto) === idDesconto);
+    if (!desc) {
+      nucleo.utilidades.mostrarAlerta("erro", "Erro", "Desconto não encontrado.");
+      return;
+    }
+
+    const seg = Number(desc.segundos_desconto || 0);
+    const horasTexto = `${Math.floor(seg / 3600)}:${String(Math.floor((seg % 3600) / 60)).padStart(2, "0")}`;
+
+    const html = `
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Data do desconto</label>
+        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editDescData" value="${escapeHtmlSeguro(String(desc.data_desconto || ""))}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Horas (hh:mm)</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editDescHoras" value="${escapeHtmlSeguro(horasTexto)}"></div>
+      <div class="mb-2"><label class="form-label small texto-fraco mb-1">Motivo</label>
+        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="_editDescMotivo" value="${escapeHtmlSeguro(String(desc.observacao || ""))}" maxlength="255"></div>
+      <div class="texto-fraco small">O valor em R$ é recalculado pelo valor/hora atual do usuário.</div>
+    `;
+
+    let modal = document.getElementById("modalEditarDesconto");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "modalEditarDesconto";
+      modal.className = "modal fade";
+      modal.tabIndex = -1;
+      modal.innerHTML = `
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary">
+              <h6 class="modal-title">Editar Desconto #${idDesconto}</h6>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="_editDescBody">${html}</div>
+            <div class="modal-footer border-secondary">
+              <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-sm btn-primary" id="_editDescSalvar">Salvar</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    } else {
+      modal.querySelector(".modal-title").textContent = `Editar Desconto #${idDesconto}`;
+      modal.querySelector("#_editDescBody").innerHTML = html;
+    }
+
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    const btnSalvar = modal.querySelector("#_editDescSalvar");
+    const novoBtn = btnSalvar.cloneNode(true);
+    btnSalvar.parentNode.replaceChild(novoBtn, btnSalvar);
+
+    novoBtn.addEventListener("click", async () => {
+      if (novoBtn.disabled) return;
+
+      const novaData = document.getElementById("_editDescData")?.value || "";
+      const segundos = converterHorasTextoParaSegundos(document.getElementById("_editDescHoras")?.value);
+      const motivo = String(document.getElementById("_editDescMotivo")?.value || "").trim();
+
+      if (!novaData) {
+        nucleo.utilidades.mostrarAlerta("aviso", "Data inválida", "Informe a data do desconto.");
+        return;
+      }
+      if (segundos <= 0) {
+        nucleo.utilidades.mostrarAlerta("aviso", "Horas inválidas", "Informe as horas no formato hh:mm (ex: 2:30).");
+        return;
+      }
+      if (!motivo) {
+        nucleo.utilidades.mostrarAlerta("aviso", "Motivo obrigatório", "Informe o motivo do desconto.");
+        return;
+      }
+
+      novoBtn.disabled = true;
+
+      try {
+        await editarDescontoNoBackend({
+          id_desconto: idDesconto,
+          data_desconto: novaData,
+          segundos_desconto: segundos,
+          motivo,
+        });
+
+        bsModal.hide();
+
+        if (usuarioGestaoAbertoId) {
+          const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+          await Promise.all([
+            carregarPagamentosNoModal(usuarioGestaoAbertoId),
+            u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+          ]);
+        }
+
+        nucleo.utilidades.mostrarAlerta("sucesso", "Desconto atualizado", `Desconto #${idDesconto} salvo.`);
+      } catch (e) {
+        nucleo.utilidades.mostrarAlerta("erro", "Erro ao editar desconto", String(e && e.message ? e.message : e));
+      } finally {
+        novoBtn.disabled = false;
+      }
+    });
+  }
+
+  async function excluirDescontoConfirmar(idDesconto) {
+    const nucleo = obterNucleo();
+
+    if (!confirm(`Excluir desconto #${idDesconto}?\n\nAs horas descontadas voltam para o "A pagar" do usuário.`)) {
+      return;
+    }
+
+    try {
+      await excluirDescontoNoBackend(idDesconto);
+
+      if (usuarioGestaoAbertoId) {
+        const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+        await Promise.all([
+          carregarPagamentosNoModal(usuarioGestaoAbertoId),
+          u ? carregarResumoHorasPagamento(u.user_id, u.valor_hora) : Promise.resolve(),
+        ]);
+      }
+
+      nucleo.utilidades.mostrarAlerta("sucesso", "Desconto excluído", "O valor voltou para o A pagar.");
+    } catch (e) {
+      nucleo.utilidades.mostrarAlerta("erro", "Erro ao excluir desconto", String(e && e.message ? e.message : e));
+    }
+  }
+
+  let _registrandoDesconto = false;
+
+  async function registrarDescontoReal() {
+    const nucleo = obterNucleo();
+    if (!usuarioGestaoAbertoId) return;
+    if (_registrandoDesconto) return;
+
+    const u = buscarUsuarioGestao(usuarioGestaoAbertoId);
+    if (!u) return;
+
+    const elData = document.getElementById("entradaDescontoData");
+    const elHoras = document.getElementById("entradaDescontoHoras");
+    const elMotivo = document.getElementById("entradaDescontoMotivo");
+    const elBtn = document.getElementById("botaoAdicionarDesconto");
+
+    const data = String(elData?.value || "").trim();
+    const segundos = converterHorasTextoParaSegundos(elHoras?.value);
+    const motivo = String(elMotivo?.value || "").trim();
+
+    if (!data) {
+      nucleo.utilidades.mostrarAlerta("aviso", "Data inválida", "Informe a data do desconto.");
+      return;
+    }
+    if (segundos <= 0) {
+      nucleo.utilidades.mostrarAlerta("aviso", "Horas inválidas", "Informe as horas no formato hh:mm (ex: 2:30).");
+      return;
+    }
+    if (!motivo) {
+      nucleo.utilidades.mostrarAlerta("aviso", "Motivo obrigatório", "Informe o motivo do desconto.");
+      return;
+    }
+
+    _registrandoDesconto = true;
+    if (elBtn) elBtn.disabled = true;
+
+    try {
+      const dados = await criarDescontoNoBackend({
+        user_id: u.user_id,
+        data_desconto: data,
+        segundos_desconto: segundos,
+        motivo,
+      });
+
+      if (elHoras) elHoras.value = "";
+      if (elMotivo) elMotivo.value = "";
+
+      await Promise.all([
+        carregarPagamentosNoModal(u.user_id),
+        carregarResumoHorasPagamento(u.user_id, u.valor_hora),
+      ]);
+
+      nucleo.utilidades.mostrarAlerta("sucesso", "Desconto registrado", `${u.user_id}: − ${formatarDinheiroBr(dados?.valor || 0)} (${formatarHm(segundos)})`);
+    } catch (e) {
+      nucleo.utilidades.mostrarAlerta("erro", "Erro ao registrar desconto", String(e && e.message ? e.message : e));
+    } finally {
+      _registrandoDesconto = false;
+      if (elBtn) elBtn.disabled = false;
+    }
+  }
+
   // Expor para onclick inline
   window.__editarPagamento = editarPagamentoModal;
   window.__excluirPagamento = excluirPagamentoConfirmar;
+  window.__editarDesconto = editarDescontoModal;
+  window.__excluirDesconto = excluirDescontoConfirmar;
 
   let _registrandoPagamento = false;
 
@@ -1457,6 +1729,9 @@
 
     const botaoRegistrarPagamento = document.getElementById("botaoRegistrarPagamento");
     if (botaoRegistrarPagamento) botaoRegistrarPagamento.addEventListener("click", () => registrarPagamentoReal());
+
+    const botaoAdicionarDesconto = document.getElementById("botaoAdicionarDesconto");
+    if (botaoAdicionarDesconto) botaoAdicionarDesconto.addEventListener("click", () => registrarDescontoReal());
 
     const botaoVoltar = document.getElementById("botaoVoltarUsuarios");
     if (botaoVoltar) {

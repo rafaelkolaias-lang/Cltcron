@@ -46,6 +46,7 @@ try {
     $dados = array_map(
         static function (array $linha): array {
             return [
+                'tipo' => 'pagamento',
                 'id_pagamento' => isset($linha['id_pagamento']) ? (int)$linha['id_pagamento'] : 0,
                 'user_id' => (string)($linha['user_id'] ?? ''),
                 'id_usuario' => isset($linha['id_usuario']) ? (int)$linha['id_usuario'] : 0,
@@ -60,6 +61,37 @@ try {
         },
         $linhas
     );
+
+    // Descontos avulsos do mesmo usuário, mesclados na lista com tipo='desconto'.
+    // Propositalmente SEM a chave `data_pagamento` — consumidores que somam
+    // pagamentos por data (ex.: Dashboard) ignoram essas linhas sem mudança.
+    try {
+        require_once __DIR__ . '/_descontos.php';
+        $stD = $pdo->prepare("
+            SELECT d.id_desconto, u.user_id, d.id_usuario, d.data_desconto,
+                   d.segundos_desconto, d.valor, d.motivo, d.criado_em
+            FROM pagamento_descontos d
+            INNER JOIN usuarios u ON u.id_usuario = d.id_usuario
+            WHERE u.user_id = :user_id
+            ORDER BY d.data_desconto DESC, d.id_desconto DESC
+        ");
+        $stD->execute([':user_id' => $user_id]);
+        foreach ($stD->fetchAll(PDO::FETCH_ASSOC) ?: [] as $d) {
+            $dados[] = [
+                'tipo' => 'desconto',
+                'id_desconto' => (int)$d['id_desconto'],
+                'user_id' => (string)$d['user_id'],
+                'id_usuario' => (int)$d['id_usuario'],
+                'data_desconto' => $d['data_desconto'],
+                'segundos_desconto' => (int)$d['segundos_desconto'],
+                'valor' => (float)$d['valor'],
+                'observacao' => $d['motivo'],
+                'criado_em' => $d['criado_em'] ?? null,
+            ];
+        }
+    } catch (Throwable $ignore) {
+        // Tabela pagamento_descontos ainda não existe — lista só os pagamentos.
+    }
 
     responder_json(true, 'OK', $dados, 200);
 } catch (Throwable $e) {

@@ -198,5 +198,5 @@ require __DIR__ . '/_layout/topo.php';
   </div>
 
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=13'];
+$scriptsAba = ['./js/aba-mega.js?v=14'];
 require __DIR__ . '/_layout/rodape.php';

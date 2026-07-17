@@ -223,6 +223,28 @@ try {
         $mapa_total_pago[$tp['user_id']] = (float)$tp['total_pago'];
     }
 
+    // Descontos avulsos (pagamento_descontos) na mesma janela: abatem o
+    // pendente sem contar como dinheiro pago.
+    $mapa_total_desc = [];
+    try {
+        $cmd_td = $pdo->prepare("
+            SELECT u.user_id, COALESCE(SUM(d.valor), 0) AS total_desc
+            FROM pagamento_descontos d
+            JOIN usuarios u ON u.id_usuario = d.id_usuario
+            WHERE d.data_desconto BETWEEN :data_inicio AND :data_fim
+            GROUP BY u.user_id
+        ");
+        $cmd_td->execute([
+            ':data_inicio' => $data_inicio,
+            ':data_fim'    => $data_fim,
+        ]);
+        foreach ($cmd_td->fetchAll(PDO::FETCH_ASSOC) ?: [] as $td) {
+            $mapa_total_desc[$td['user_id']] = (float)$td['total_desc'];
+        }
+    } catch (Throwable $ignore) {
+        // Tabela pagamento_descontos ainda não existe — sem descontos.
+    }
+
     // -------------------------------------------------------
     // 4. Montar linhas e totais por usuário
     // -------------------------------------------------------
@@ -273,6 +295,7 @@ try {
                 'segundos_trab_total'  => 0,
                 'valor_estimado'       => 0.0,
                 'total_pago'           => $mapa_total_pago[$uid] ?? 0.0,
+                'total_descontos'      => $mapa_total_desc[$uid] ?? 0.0,
                 'dias_trabalhados'     => 0,
             ];
         }
@@ -289,7 +312,8 @@ try {
         $u['trabalhado_formatado'] = relatorio_formatar_horas($u['segundos_trab_total']);
         $u['valor_estimado']       = round($u['valor_estimado'], 2);
         $u['total_pago']           = round($u['total_pago'], 2);
-        $u['valor_pendente']       = round(max(0, $u['valor_estimado'] - $u['total_pago']), 2);
+        $u['total_descontos']      = round($u['total_descontos'], 2);
+        $u['valor_pendente']       = round(max(0, $u['valor_estimado'] - $u['total_pago'] - $u['total_descontos']), 2);
         $totais_por_usuario[]      = $u;
     }
 

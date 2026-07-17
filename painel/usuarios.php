@@ -222,8 +222,14 @@ require __DIR__ . '/_layout/topo.php';
                         <div class="card-metrica__valor" style="color:#a78bfa" id="gestaoResumoPago">—</div>
                       </div>
                     </div>
+                    <div class="col-6 col-md-4 col-xl">
+                      <div class="card-metrica">
+                        <div class="card-metrica__rotulo">Descontos</div>
+                        <div class="card-metrica__valor" style="color:#f87171" id="gestaoResumoDescontos">—</div>
+                      </div>
+                    </div>
                   </div>
-                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos. Pago = total já pago no período.</div>
+                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos − descontos. Pago = total já pago no período. Descontos = abatimentos aplicados no período.</div>
                 </article>
 
                 <!-- Canais vinculados -->
@@ -273,6 +279,32 @@ require __DIR__ . '/_layout/topo.php';
                         </div>
                         <div class="col-12 col-md-4 d-flex align-items-end">
                           <button type="button" class="btn btn-light w-100" id="botaoRegistrarPagamento">Salvar pagamento</button>
+                        </div>
+                      </div>
+
+                      <hr class="border-secondary my-3">
+
+                      <!-- Aplicar desconto (avulso — pode ser registrado a qualquer momento) -->
+                      <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">Aplicar desconto</h6>
+                        <span class="badge text-bg-danger">ABATE DO A PAGAR</span>
+                      </div>
+                      <div class="texto-fraco small mt-1">Desconta horas do usuário (ex.: erro no trabalho). Convertido pelo valor/hora atual. Não conta como pagamento e não trava tarefas.</div>
+                      <div class="row g-2 mt-1">
+                        <div class="col-6 col-md-3">
+                          <label class="form-label texto-fraco">Data</label>
+                          <input type="date" class="form-control bg-transparent text-white border-secondary" id="entradaDescontoData">
+                        </div>
+                        <div class="col-6 col-md-3">
+                          <label class="form-label texto-fraco">Horas (hh:mm)</label>
+                          <input class="form-control bg-transparent text-white border-secondary" id="entradaDescontoHoras" placeholder="ex: 2:30">
+                        </div>
+                        <div class="col-12 col-md-6">
+                          <label class="form-label texto-fraco">Motivo (obrigatório)</label>
+                          <input class="form-control bg-transparent text-white border-secondary" id="entradaDescontoMotivo" placeholder="ex: refação do vídeo 23" maxlength="255">
+                        </div>
+                        <div class="col-12 d-flex justify-content-end">
+                          <button type="button" class="btn btn-outline-danger" id="botaoAdicionarDesconto">Adicionar desconto</button>
                         </div>
                       </div>
                     </article>
@@ -645,6 +677,6 @@ $scriptsAba = [
     './js/aba-auditoria.js?v=3',
     './js/aba-credenciais.js?v=2',
     './js/aba-gerenciar-tarefas.js?v=11',
-    './js/aba-usuarios.js?v=11',
+    './js/aba-usuarios.js?v=12',
 ];
 require __DIR__ . '/_layout/rodape.php';

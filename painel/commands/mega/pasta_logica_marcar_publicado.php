@@ -30,12 +30,16 @@ try {
     mega_garantir_estrutura($pdo);
 
     // Busca estado anterior para log
-    $st = $pdo->prepare("SELECT id_pasta_logica, nome_pasta, video_publicado, publicado_em FROM mega_pasta_logica WHERE id_pasta_logica = ? AND ativo = 1");
+    $st = $pdo->prepare("SELECT id_pasta_logica, nome_pasta, video_publicado, publicado_em, video_cancelado FROM mega_pasta_logica WHERE id_pasta_logica = ? AND ativo = 1");
     $st->execute([$id]);
     $antes = $st->fetch(PDO::FETCH_ASSOC);
 
     if (!$antes) {
         responder_json(false, 'pasta não encontrada ou inativa', null, 404);
+    }
+
+    if ($publicado === 1 && (int)($antes['video_cancelado'] ?? 0) === 1) {
+        responder_json(false, 'vídeo está cancelado — reative antes de publicar', null, 409);
     }
 
     $agora = $publicado === 1 ? date('Y-m-d H:i:s') : null;
@@ -49,12 +53,13 @@ try {
     ];
 
     log_registrar(
+        $pdo,
         'mega_pasta_logica',
         $publicado === 1 ? 'marcar_publicado' : 'desmarcar_publicado',
-        $id,
         ($publicado === 1 ? 'Marcou' : 'Desmarcou') . " publicação: {$antes['nome_pasta']}",
+        $depois,
         ['video_publicado' => (int)$antes['video_publicado'], 'publicado_em' => $antes['publicado_em']],
-        $depois
+        (string)$id
     );
 
     responder_json(true, $publicado === 1 ? 'marcado como publicado' : 'publicação cancelada', $depois);

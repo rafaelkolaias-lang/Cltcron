@@ -1825,6 +1825,11 @@ class JanelaSubtarefas(tk.Toplevel):
 
         # Estado mutável compartilhado pelos closures internos.
         pasta_logica = {"id_pasta_logica": 0, "nome_pasta": ""}
+        # Holder separado (não entra no `pasta_logica` pra não perder a
+        # precisão de tipo por-chave dele): a pasta selecionada é de uma tarefa
+        # já paga (travada). Nesse modo o usuário PODE baixar os arquivos da
+        # pasta, mas não pode enviar/trocar arquivo nem declarar/salvar.
+        pasta_somente_leitura = {"valor": False}
         # Permite trocar o canal em runtime (tarefa 7.4): id_atividade efetiva
         # e pasta raiz são mutáveis. Em edição de sub de outro canal, inicia
         # com o canal da SUB (não da janela) — porque a JanelaSubtarefas
@@ -2087,6 +2092,9 @@ class JanelaSubtarefas(tk.Toplevel):
                 d = r if isinstance(r, dict) else {}
                 pasta_logica["id_pasta_logica"] = int(d.get("id_pasta_logica") or 0)
                 pasta_logica["nome_pasta"] = str(d.get("nome_pasta") or "")
+                # Pasta recém-criada nunca é somente-leitura.
+                pasta_somente_leitura["valor"] = False
+                _aplicar_lock_somente_leitura()
                 var_status_pasta.set(f"✓ pasta criada: {pasta_logica['nome_pasta']}")
                 lbl_status_pasta.configure(fg=_OK)
 
@@ -2335,6 +2343,22 @@ class JanelaSubtarefas(tk.Toplevel):
                     st["botao"].configure(text="Selecionar arquivo")
                 except Exception:
                     pass
+
+        def _aplicar_lock_somente_leitura() -> None:
+            """Aplica/remove o lock de SOMENTE LEITURA nos botões de upload.
+            Pasta de tarefa já paga: desabilita 'Selecionar arquivo'/'Trocar
+            arquivo' e '📁 Pasta' (só o download da pasta segue liberado).
+            Reabilita quando a pasta selecionada volta a ser editável."""
+            estado_botao = "disabled" if pasta_somente_leitura["valor"] else "normal"
+            for st in estado_campos.values():
+                for chave in ("botao", "botao_pasta"):
+                    b = st.get(chave)
+                    if b is None:
+                        continue
+                    try:
+                        b.configure(state=estado_botao)
+                    except Exception:
+                        pass
 
         # ====================================================
         # Status COMPARTILHADO da pasta selecionada (verde + download)
@@ -2609,26 +2633,14 @@ class JanelaSubtarefas(tk.Toplevel):
             p = pastas_existentes[idx]
             status = str(p.get("status_visual") or "livre")
 
-            if status == "paga":
-                # Pasta paga = travada por pagamento. Não muda seleção real,
-                # apenas avisa e volta pro item anterior.
-                messagebox.showwarning(
-                    "Tarefa paga",
-                    "Essa tarefa já foi paga e não pode ser alterada.",
-                    parent=janela,
-                )
-                try:
-                    lbx_pasta.selection_clear(0, "end")
-                    if ultimo_idx_selecionado["valor"] >= 0:
-                        lbx_pasta.selection_set(ultimo_idx_selecionado["valor"])
-                except Exception:
-                    pass
-                return
-
             ultimo_idx_selecionado["valor"] = idx
             nome = str(p.get("nome_pasta") or "")
             pasta_logica["id_pasta_logica"] = int(p.get("id_pasta_logica") or 0)
             pasta_logica["nome_pasta"] = nome
+            # Tarefa já paga = pasta em SOMENTE LEITURA: libera o download dos
+            # arquivos, mas bloqueia enviar/trocar arquivo e declarar/salvar.
+            # Antes a seleção era revertida e o download nem chegava a carregar.
+            pasta_somente_leitura["valor"] = (status == "paga")
 
             # Se essa pasta já tem subtarefa do user, hidrata os uploads
             # existentes — o user vê os arquivos verdes "enviados" e os
@@ -2648,6 +2660,8 @@ class JanelaSubtarefas(tk.Toplevel):
             # arquivos disponíveis pra download) de QUALQUER usuário.
             _carregar_status_pasta(int(pasta_logica.get("id_pasta_logica") or 0))
 
+            # Aplica/remove o lock de somente-leitura conforme a pasta escolhida.
+            _aplicar_lock_somente_leitura()
             _atualizar_botao_salvar()
 
         lbx_pasta.bind("<<ListboxSelect>>", _ao_selecionar_pasta)
@@ -2690,6 +2704,17 @@ class JanelaSubtarefas(tk.Toplevel):
 
         def _alternar_modo_pasta(*_a: object) -> None:
             if modo_pasta.get() == "criar":
+                # Criar nova pasta cancela qualquer lock de somente-leitura
+                # herdado de uma pasta paga selecionada antes — reabilita os
+                # botões de upload e o salvar.
+                pasta_somente_leitura["valor"] = False
+                _aplicar_lock_somente_leitura()
+                try:
+                    _atualizar_botao_salvar()
+                except NameError:
+                    # No boot este trace roda antes de _atualizar_botao_salvar
+                    # existir; a chamada explícita mais abaixo cobre o init.
+                    pass
                 # Recalcula o próximo número toda vez que entra no modo —
                 # cobre o caso de outro usuário ter criado uma pasta entre
                 # o fetch inicial e a alternância.
@@ -2799,6 +2824,18 @@ class JanelaSubtarefas(tk.Toplevel):
                                     eh_pasta: bool) -> Callable[[], None]:
                     def _handler() -> None:
                         from pathlib import Path as _Path
+
+                        # Defesa: pasta de tarefa já paga é somente leitura.
+                        # (Os botões já ficam desabilitados nesse modo — isto é
+                        # só uma trava extra caso o handler dispare mesmo assim.)
+                        if pasta_somente_leitura["valor"]:
+                            messagebox.showwarning(
+                                "Tarefa já paga",
+                                "Esta tarefa já foi paga e não pode ser alterada. "
+                                "Você pode apenas baixar os arquivos desta pasta.",
+                                parent=janela,
+                            )
+                            return
 
                         st = estado_campos[label_local]
                         if eh_pasta:
@@ -3328,6 +3365,16 @@ class JanelaSubtarefas(tk.Toplevel):
                 if not janela.winfo_exists():
                     return
             except Exception:
+                return
+            # Pasta de tarefa já paga: somente leitura. Só o download é
+            # permitido — o botão de salvar/enviar fica travado.
+            if pasta_somente_leitura["valor"]:
+                var_aviso_bloqueio.set(
+                    "Tarefa já paga — não pode ser alterada. "
+                    "Você pode apenas baixar os arquivos desta pasta."
+                )
+                btn_salvar.configure(state="disabled")
+                var_texto_botao.set("Tarefa já paga")
                 return
             tempo = (var_tempo.get() or "").strip()
             obrig_pendente: list[str] = []

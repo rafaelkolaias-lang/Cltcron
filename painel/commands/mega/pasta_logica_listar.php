@@ -28,6 +28,7 @@ try {
         SELECT p.id_pasta_logica, p.id_atividade, p.nome_pasta,
                p.numero_video, p.titulo_video, p.criado_por, p.criado_em, p.ativo,
                p.link_mega, p.video_publicado, p.publicado_em,
+               p.video_cancelado, p.cancelado_em, p.cancelado_nota,
                a.titulo AS titulo_atividade,
                (SELECT GROUP_CONCAT(DISTINCT u2.user_id ORDER BY u2.user_id SEPARATOR ', ')
                 FROM mega_uploads mu
@@ -52,6 +53,9 @@ try {
         $l['video_publicado'] = (int)($l['video_publicado'] ?? 0) === 1;
         $l['link_mega']       = $l['link_mega'] ?? null;
         $l['publicado_em']    = $l['publicado_em'] ?? null;
+        $l['video_cancelado'] = (int)($l['video_cancelado'] ?? 0) === 1;
+        $l['cancelado_em']    = $l['cancelado_em'] ?? null;
+        $l['cancelado_nota']  = $l['cancelado_nota'] ?? null;
     }
 
     responder_json(true, 'OK', $linhas);

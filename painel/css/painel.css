@@ -83,6 +83,14 @@ body{
   background: rgba(40,167,69,.22) !important;
 }
 
+.mega-linha-cancelado{
+  background: rgba(255,255,255,.03) !important;
+  opacity: .55;
+}
+.mega-linha-cancelado:hover{
+  opacity: .8;
+}
+
 .texto-mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   letter-spacing: .2px;

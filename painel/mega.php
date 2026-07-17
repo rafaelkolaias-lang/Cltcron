@@ -24,6 +24,7 @@ require __DIR__ . '/_layout/topo.php';
                     <option value="">Todos os status</option>
                     <option value="pendente">Pendentes</option>
                     <option value="publicado">Publicados</option>
+                    <option value="cancelado">Cancelados</option>
                   </select>
                   <select id="megaFiltroCanalPastas" class="form-select form-select-sm bg-transparent text-white border-secondary" style="min-width:220px;">
                     <option value="">Todos os canais</option>
@@ -63,6 +64,29 @@ require __DIR__ . '/_layout/topo.php';
           </section>
 
 <?php require __DIR__ . '/_layout/fim_conteudo.php'; ?>
+
+<!-- Modal: cancelar vídeo (nota do motivo) -->
+<div class="modal fade" id="modalCancelarVideo" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark text-white border-secondary">
+      <div class="modal-header border-secondary">
+        <h6 class="modal-title">Cancelar vídeo</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Cancelar o vídeo <strong id="modalCancelarVideoNome">—</strong>?</p>
+        <p class="texto-fraco small mb-2">O vídeo fica marcado como <span class="badge bg-secondary">Cancelado</span> no painel. Nada muda para a equipe no app.</p>
+        <label class="form-label small texto-fraco mb-1" for="modalCancelarVideoNota">Nota (motivo do cancelamento — opcional)</label>
+        <textarea id="modalCancelarVideoNota" class="form-control bg-transparent text-white border-secondary" rows="3" maxlength="500" placeholder="Ex.: áudio ruim, vídeo será refeito…"></textarea>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-light btn-sm" data-bs-dismiss="modal">Voltar</button>
+        <button type="button" class="btn btn-danger btn-sm" id="modalCancelarVideoConfirmar">Cancelar vídeo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <?php
-$scriptsAba = ['./js/aba-mega.js?v=13'];
+$scriptsAba = ['./js/aba-mega.js?v=14'];
 require __DIR__ . '/_layout/rodape.php';

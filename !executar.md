@@ -6,6 +6,34 @@
 
 ## Tarefas Claude 1
 
+### ✅ 16. Login do desktop trava em "Verificando…" para sempre (sem timeout) — Opção C
+**Status: CONCLUÍDO (2026-07-25, Claude 1)** — partes A, B e C(1-2) aplicadas e validadas. **Falta o usuário decidir:** (a) gerar o `.exe` v4.1.5 + commit/push/release (precisa de autorização explícita); (b) rodar a parte **D** com o funcionário afetado. **Lembrete crítico:** quem está travado no login NÃO recebe auto-update — a v4.1.5 tem que chegar por download manual.
+
+**Solução aplicada:**
+1. **[banco.py:39-51, 86-96](banco.py#L39)** — novas constantes `TIMEOUT_CONEXAO_SEGUNDOS=8`, `TIMEOUT_LEITURA_SEGUNDOS=30`, `TIMEOUT_ESCRITA_SEGUNDOS=30` passadas ao `pymysql.connect()` (`connect_timeout`/`read_timeout`/`write_timeout`). Sem `read_timeout` o pymysql fazia `sock.settimeout(None)` após o TCP e qualquer leitura bloqueava para sempre.
+2. **[app/config.py:496](app/config.py#L496)** — `LIMITE_RETRY_LOGIN_SEGUNDOS = 15.0`: teto do retry de 3 tentativas do login. Sem ele o pior caso virava 3 × 30s = 96s de tela parada.
+3. **[app/app_shell.py](app/app_shell.py)** — `_logar()` reescrito: trava `_login_em_andamento` (cliques/Enter repetidos não empilham threads), botão Entrar desabilitado durante a verificação (`self._btn_entrar` + helper `_definir_estado_btn_entrar`), status mostra `"Verificando… (tentativa N de 3)"`, helper `_liberar_tela()` devolve o controle em TODOS os caminhos de saída, `try/except` de rede de segurança ("Falha ao verificar o login."), e o retry desiste quando a tentativa estourou o timeout do banco.
+4. **Código morto removido** (`app_shell.py`): `_tentar_auto_login`, `_mostrar_login_com_erro` e `_montar_tela_carregando` — sem chamadores; era um 2º caminho de login sem as proteções novas. O auto-login real é o `_logar()` do `__init__`.
+5. **`app/config.py`** — `VERSAO_APLICACAO` → **v4.1.5** + entrada no `HISTORICO_VERSOES`.
+
+**Verificação:** `py_compile` + import OK; `ruff` só com o achado pré-existente (I001 em config.py); `pytest` 79 passou / 3 falhas pré-existentes (`test_declaracoes_validacao.py`, sem relação). **Repro com servidor mudo** (socket que aceita o TCP e nunca responde — o cenário exato do bug), em `scratchpad/repro_login_travado.py`: antes = infinito; agora = erro em **30s** com a tela liberada. Cenário de falha rápida (porta fechada) mantém as **3 tentativas em 12s**, preservando o retry pós-auto-update.
+
+**QUANDO ACONTECE:** o funcionário digita user/chave, clica em **Entrar**, aparece "Verificando…" e **fica assim para sempre** — sem erro, sem mensagem, sem liberar a tela. Não é senha errada (senha errada responde "Login inválido" na hora) nem servidor fora do ar (servidor validado no ar em 25/07). Acontece quando a conexão com o banco **abre mas não responde** (firewall/antivírus do PC, rota ruim do provedor, servidor demorando a atender aquele IP). Também trava no auto-login da abertura do app, porque `__init__` chama `_logar()` direto.
+
+**Detalhe técnico (causa raiz):** em [banco.py:74-83](banco.py#L74-L83) o `pymysql.connect()` não recebe `read_timeout`/`write_timeout`. O `connect_timeout` (default 10s) cobre **só** o handshake TCP; logo depois o pymysql faz `sock.settimeout(None)`, então a leitura do greeting/autenticação do MySQL bloqueia **indefinidamente**. Consequência: o retry de 3 tentativas em [app_shell.py:818-835](app/app_shell.py#L818-L835) nunca roda (a 1ª tentativa não retorna nem levanta exceção) e o status nunca sai de "Verificando…".
+
+**PENDENTE — C) Entrega para os usuários**
+1. **ARMADILHA CRÍTICA:** a checagem de atualização só roda **depois** do login ([app_shell.py](app/app_shell.py)). Quem está travado na tela de login **nunca recebe auto-update** — a v4.1.5 tem que chegar por download manual (`baixar_app.php` no painel ou GitHub Release). *(Melhoria opcional a propor: mover a checagem de update para ANTES do login — precisa de aval do usuário, muda o fluxo de abertura do app.)*
+2. Commit/push/tag/release e rebuild do `.exe` **só com autorização explícita nova** do usuário.
+
+**PENDENTE — D) Destravar o usuário afetado AGORA (não depende do código)**
+1. Confirmar a **versão do app dele**: se for anterior à **v4.1.0**, ele ainda aponta para o servidor antigo (`76.13.112.108`, desligado na migração de 15/06) — nesse caso a solução é baixar o `.exe` novo, não o fix de timeout.
+2. Se a versão estiver ok, seguir o roteiro já documentado em [README.md:206-225](README.md#L206-L225): testar no 4G/hotspot do celular para confirmar que é a rede dele → instalar **Cloudflare WARP** no modo **"Tráfego e DNS (UDP)"** → se persistir, investigar antivírus/firewall bloqueando a porta 3306.
+
+**Critério de aceite:** com o servidor inalcançável (simular com firewall bloqueando a porta 3306 ou host inválido), o app deve mostrar "Sem conexão com o servidor." em no máximo ~1 min, com o botão Entrar liberado para nova tentativa — nunca ficar preso em "Verificando…".
+
+---
+
 ### ✅ 15. Bug #34 (auditoria.md) — horas cronometradas perdidas em sessão multi-dia: correção + recuperação em produção
 **Status: CONCLUÍDO (2026-07-08, Claude 1)** — ver `auditoria.md` #34 (bloco STATUS) para o resumo completo: fix em `app/monitor.py` (acumulação por dia + UPDATE monotônico GREATEST + resiliência por fatia), validado (repro + 79 pytest + ruff), e **82,3h recuperadas em produção** (alex +50h, joao +16,3h, marcus +15,9h; 27 UPDATEs conservadores via heartbeats, criado_em=NOW). **Release feito:** commit `18d4908` + tag/release **v4.1.4** (08/07) no GitHub — auto-update ativo, clientes atualizam no próximo login. **Pendência (decisão do usuário):** backfill das perdas pré-12/06 (#33 e abril — ver números no auditoria.md) e duplicata do alex em 23/06 (+5h44 a favor dele).
 

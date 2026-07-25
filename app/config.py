@@ -134,9 +134,17 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.4"
+VERSAO_APLICACAO = "v4.1.5"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.5",
+        "data": "25/07/2026",
+        "notas": [
+            "Correção: o login não trava mais em \"Verificando…\" para sempre quando a internet ou o servidor não responde — agora o app desiste e avisa \"Sem conexão com o servidor.\", liberando a tela para tentar de novo.",
+            "O botão Entrar fica desabilitado durante a verificação e o app mostra em qual tentativa está (1, 2 ou 3).",
+        ],
+    },
     {
         "versao": "v4.1.4",
         "data": "08/07/2026",
@@ -484,6 +492,14 @@ INTERVALO_UPSERT_RELATORIO_SEGUNDOS = 300.0  # 5 minutos
 # informativo; se o usuário ignorar, o aviso reaparece no próximo ciclo enquanto
 # houver atualização disponível.
 INTERVALO_VERIFICAR_UPDATE_MS = 2 * 60 * 1000  # 2 minutos (auto-aplica)
+
+# Login: teto para o retry de 3 tentativas. O retry existe para falhas RÁPIDAS
+# (conexão recusada logo após o auto-update, quando o Windows ainda não
+# estabilizou a rede). Quando a tentativa estoura o timeout do banco
+# (`banco.py::TIMEOUT_LEITURA_SEGUNDOS`), repetir só faria o usuário encarar a
+# tela de login por mais um ciclo inteiro — passado esse limite, desiste e já
+# mostra "Sem conexão com o servidor.".
+LIMITE_RETRY_LOGIN_SEGUNDOS = 15.0
 
 ARQUIVO_LOGIN_SALVO = Path.home() / ".cronometro_leve_login.json"
 ARQUIVO_ESTADO_SESSAO = Path.home() / ".cronometro_leve_estado.json"

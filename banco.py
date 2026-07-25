@@ -38,6 +38,19 @@ DEBUG_BANCO = False
 
 PING_INTERVALO_SEGUNDOS = 60.0
 
+# Timeouts da conexão MySQL (segundos).
+# IMPORTANTE: `connect_timeout` cobre APENAS o handshake TCP. Logo depois o
+# pymysql faz `sock.settimeout(None)`, então SEM `read_timeout`/`write_timeout`
+# qualquer leitura (greeting/autenticação/consulta) bloqueia PARA SEMPRE quando
+# a conexão abre mas o servidor não responde (firewall/antivírus segurando a
+# porta 3306, rota ruim do provedor, servidor saturado). Era a causa do login
+# travado em "Verificando…" indefinidamente, sem erro nem mensagem.
+# `LEITURA` vale para TODAS as queries do app (monitor, heartbeat, sync,
+# relatórios) — mantido folgado de propósito.
+TIMEOUT_CONEXAO_SEGUNDOS = 8
+TIMEOUT_LEITURA_SEGUNDOS = 30
+TIMEOUT_ESCRITA_SEGUNDOS = 30
+
 
 class BancoDados:
     """
@@ -80,6 +93,9 @@ class BancoDados:
             charset="utf8mb4",
             autocommit=True,
             cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=TIMEOUT_CONEXAO_SEGUNDOS,
+            read_timeout=TIMEOUT_LEITURA_SEGUNDOS,
+            write_timeout=TIMEOUT_ESCRITA_SEGUNDOS,
         )
         self._local.conexao = conexao
         self._local.ultimo_ping = time.monotonic()

@@ -29,6 +29,7 @@ from app.config import (
     INTERVALO_VERIFICAR_UPDATE_MS,
     LIMITE_HORAS_AVISO,
     LIMITE_HORAS_MAXIMO,
+    LIMITE_RETRY_LOGIN_SEGUNDOS,
     LOG_TEC,
     MODO_SCRIPT,
     URL_ATUALIZACAO,
@@ -85,6 +86,11 @@ class App(tk.Tk):
 
         # T25: modal de aviso de update evita empilhamento quando o user ignora
         self._modal_update_aberto: bool = False
+
+        # Login: trava contra cliques repetidos + referência do botão Entrar
+        # (criado em `_montar_tela_login`), pra desabilitar durante a verificação.
+        self._login_em_andamento: bool = False
+        self._btn_entrar: ttk.Button | None = None
 
         # Tarefa 1: recovery de uploads órfãos (queda abrupta) roda 1x por login.
         self._recovery_orfaos_executado: bool = False
@@ -276,41 +282,6 @@ class App(tk.Tk):
         except Exception:
             pass
 
-    def _montar_tela_carregando(self) -> None:
-        self.geometry("480x520")
-        for widget in self.winfo_children():
-            widget.destroy()
-        fundo = tk.Frame(self, bg="#111111")
-        fundo.pack(fill="both", expand=True)
-        tk.Label(fundo, text="Conectando…", bg="#111111", fg="#606060",
-                 font=("Segoe UI", 12)).place(relx=0.5, rely=0.5, anchor="center")
-
-    def _tentar_auto_login(self, user_id: str, chave: str) -> None:
-        def _em_thread() -> None:
-            try:
-                usuario = self._repositorio.autenticar_usuario(user_id, chave)
-            except Exception:
-                self.after(0, lambda: self._mostrar_login_com_erro(
-                    user_id, chave, "Sem conexão com o servidor."))
-                return
-            if not usuario:
-                self.after(0, lambda: self._mostrar_login_com_erro(
-                    user_id, chave, "Credenciais inválidas."))
-                return
-            def _na_ui() -> None:
-                self._usuario = usuario
-                self._verificar_atualizacao()
-                self._agendar_verificacao_periodica_update()
-                self._montar_tela_principal()
-            self.after(0, _na_ui)
-        threading.Thread(target=_em_thread, daemon=True).start()
-
-    def _mostrar_login_com_erro(self, user_id: str, chave: str, msg: str) -> None:
-        self._montar_tela_login()
-        self._var_user.set(user_id)
-        self._var_chave.set(chave)
-        self._var_status.set(msg)
-
     def _montar_tela_login(self) -> None:
         self.geometry("480x520")
         self.title(f"Cronômetro {VERSAO_APLICACAO}")
@@ -355,9 +326,12 @@ class App(tk.Tk):
         entrada_chave = ttk.Entry(inner, textvariable=self._var_chave, width=34, show="•")
         entrada_chave.pack(fill="x", pady=(3, 18))
 
-        # Botão Entrar
-        ttk.Button(inner, text="Entrar", style="Verde.TButton",
-                   command=self._logar).pack(fill="x")
+        # Botão Entrar — guardado em self._btn_entrar para poder ser
+        # desabilitado durante a verificação (evita empilhar threads de login)
+        # e reabilitado em TODOS os caminhos de saída.
+        self._btn_entrar = ttk.Button(inner, text="Entrar", style="Verde.TButton",
+                                      command=self._logar)
+        self._btn_entrar.pack(fill="x")
 
         # Status — cor muda conforme conteúdo
         lbl_status = tk.Label(inner, textvariable=self._var_status, bg=_C, fg=_D,
@@ -804,7 +778,23 @@ class App(tk.Tk):
         dlg.bind("<Return>", lambda _e: _fechar())
         dlg.bind("<Escape>", lambda _e: _fechar())
 
+    def _definir_estado_btn_entrar(self, habilitado: bool) -> None:
+        """Liga/desliga o botão Entrar. Tolera widget já destruído (troca de tela)."""
+        botao = getattr(self, "_btn_entrar", None)
+        if botao is None:
+            return
+        try:
+            if botao.winfo_exists():
+                botao.configure(state=("normal" if habilitado else "disabled"))
+        except Exception:
+            pass
+
     def _logar(self) -> None:
+        # Sem essa trava, cada clique (ou Enter) enquanto a verificação está em
+        # andamento dispararia mais uma thread de login em paralelo.
+        if getattr(self, "_login_em_andamento", False):
+            return
+
         user_id = (self._var_user.get() or "").strip()
         chave = (self._var_chave.get() or "").strip()
 
@@ -812,46 +802,72 @@ class App(tk.Tk):
             self._var_status.set("Informe user_id e chave.")
             return
 
-        self._var_status.set("Verificando…")
+        self._login_em_andamento = True
+        self._definir_estado_btn_entrar(False)
+        self._var_status.set("Verificando… (tentativa 1 de 3)")
         self.update_idletasks()
+
+        def _liberar_tela(mensagem: str) -> None:
+            """Devolve o controle ao usuário com uma mensagem — nunca deixa a tela muda."""
+            self._login_em_andamento = False
+            self._definir_estado_btn_entrar(True)
+            self._var_status.set(mensagem)
 
         def _em_thread() -> None:
             # Retry: cobre janela de instabilidade de rede logo após o
             # auto-update (o exe novo sobe e dispara auto-login antes do
             # Windows estabilizar conexão). 3 tentativas, 2s entre cada.
+            # Os timeouts da conexão vivem em `banco.py` — sem eles a chamada
+            # abaixo podia bloquear para sempre e travar a tela em "Verificando…".
             usuario = None
             ultimo_erro: Exception | None = None
-            for _tentativa in range(3):
-                try:
-                    usuario = self._repositorio.autenticar_usuario(user_id, chave)
-                    ultimo_erro = None
-                    break
-                except Exception as e:
-                    ultimo_erro = e
-                    time.sleep(2.0)
+            inicio = time.monotonic()
+            try:
+                for tentativa in range(1, 4):
+                    if tentativa > 1:
+                        self.after(0, lambda n=tentativa: self._var_status.set(
+                            f"Verificando… (tentativa {n} de 3)"))
+                    try:
+                        usuario = self._repositorio.autenticar_usuario(user_id, chave)
+                        ultimo_erro = None
+                        break
+                    except Exception as e:
+                        ultimo_erro = e
+                        # O retry existe para falhas RÁPIDAS (conexão recusada
+                        # logo após o auto-update). Se a tentativa estourou o
+                        # timeout do banco, repetir só faria o usuário esperar
+                        # mais um ciclo inteiro olhando pra tela — desiste já.
+                        if (time.monotonic() - inicio) >= LIMITE_RETRY_LOGIN_SEGUNDOS:
+                            break
+                        time.sleep(2.0)
 
-            if ultimo_erro is not None:
-                self.after(0, lambda: self._var_status.set("Sem conexão com o servidor."))
-                return
+                if ultimo_erro is not None:
+                    self.after(0, lambda: _liberar_tela("Sem conexão com o servidor."))
+                    return
 
-            if not usuario:
-                self.after(0, lambda: self._var_status.set("Login inválido."))
-                return
+                if not usuario:
+                    self.after(0, lambda: _liberar_tela("Login inválido."))
+                    return
 
-            def _na_ui() -> None:
-                self._usuario = usuario
-                self._salvar_login(user_id, chave)
-                self._var_status.set("Login OK.")
-                self.unbind("<Return>")
-                self._verificar_atualizacao()
-                self._agendar_verificacao_periodica_update()
-                self._montar_tela_principal()
-                # Recovery de uploads órfãos roda em background (não bloqueia
-                # a UI). Cria 1 subtarefa aberta por pasta lógica que tinha
-                # uploads pendurados de uma queda anterior.
-                self.after(2000, self._disparar_recovery_uploads_orfaos)
+                def _na_ui() -> None:
+                    self._login_em_andamento = False
+                    self._usuario = usuario
+                    self._salvar_login(user_id, chave)
+                    self._var_status.set("Login OK.")
+                    self.unbind("<Return>")
+                    self._verificar_atualizacao()
+                    self._agendar_verificacao_periodica_update()
+                    self._montar_tela_principal()
+                    # Recovery de uploads órfãos roda em background (não bloqueia
+                    # a UI). Cria 1 subtarefa aberta por pasta lógica que tinha
+                    # uploads pendurados de uma queda anterior.
+                    self.after(2000, self._disparar_recovery_uploads_orfaos)
 
-            self.after(0, _na_ui)
+                self.after(0, _na_ui)
+            except Exception:
+                # Rede de segurança: qualquer falha inesperada ainda devolve a
+                # tela ao usuário em vez de deixar "Verificando…" para sempre.
+                self.after(0, lambda: _liberar_tela("Falha ao verificar o login."))
 
         threading.Thread(target=_em_thread, daemon=True).start()
 

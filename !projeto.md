@@ -256,6 +256,12 @@ credenciais/                   — CRUD administrativo (auth painel):
     _auth_cliente.php          — aceita Authorization: Bearer user:chave, X-User-Id+X-User-Chave ou query string. Rate limit 4-bucket.
     listar.php                 — lista identificadores preenchidos do usuário autenticado
     obter.php?identificador=X  — decifra com MASTER → recifra com CLIENT → entrega base64+nonce. Atualiza ultimo_acesso_em.
+editor/api/                    — GASTOS E PRODUÇÕES DO EDITOR PREMIERE PREMIUM por usuário (2026-09-06; auth = _auth_cliente.php
+                                 de credenciais/api). Tabelas editor_gastos / editor_producoes (SQL: editor_gastos_tabelas.sql na raiz).
+    _comum_editor.php          — validação (uid 32 hex, quando), tetos, editor_eh_adm (user_id ou nome_exibicao = "adm")
+    registrar.php              — POST JSON {versao_app, maquina, gastos[], producoes[]} (≤200/tipo). INSERT IGNORE por uid
+                                 (reenvio não duplica); user_id SEMPRE o da auth; inválidos voltam em `rejeitados`.
+    listar.php                 — GET ?usuario=&dias= (vazio = todos, 0 = tudo). SÓ adm (403). usuarios / por_dia / itens / producoes.
 auditoria/                     — Auditoria de apps suspeitos (v2.6, auth painel):
   listar_apps_suspeitos.php    — GET (?incluir_inativos=1 opcional)
   salvar_app_suspeito.php      — POST criar/editar (reativa se nome_app já existir inativo)

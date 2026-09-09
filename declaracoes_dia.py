@@ -223,6 +223,12 @@ class RepositorioDeclaracoesDia:
         self._garantir_coluna("atividades_subtarefas", "referencia_data", "DATE NULL AFTER user_id")
         self._garantir_coluna("atividades_subtarefas", "canal_entrega", "VARCHAR(180) NULL AFTER titulo")
         self._garantir_coluna("atividades_subtarefas", "segundos_gastos", "INT NOT NULL DEFAULT 0 AFTER concluida")
+        # Snapshot do R$/h do usuário no momento da conclusão (v4.1.6). Antes o
+        # painel multiplicava horas antigas pelo valor ATUAL — reajuste de valor
+        # reprecificava histórico já pago. NULL = anterior ao snapshot.
+        self._garantir_coluna(
+            "atividades_subtarefas", "valor_hora", "DECIMAL(10,2) NULL DEFAULT NULL AFTER segundos_gastos"
+        )
         self._garantir_coluna("atividades_subtarefas", "observacao", "VARCHAR(600) NULL AFTER segundos_gastos")
         self._garantir_coluna("atividades_subtarefas", "id_sessao", "BIGINT NULL AFTER observacao")
         self._garantir_coluna("atividades_subtarefas", "id_relatorio", "INT NULL AFTER id_sessao")
@@ -1100,11 +1106,22 @@ class RepositorioDeclaracoesDia:
                 concluida = 1,
                 segundos_gastos = %s,
                 concluida_em = NOW(),
+                valor_hora = COALESCE(
+                    valor_hora,
+                    (SELECT u.valor_hora FROM usuarios u WHERE u.user_id = %s LIMIT 1)
+                ),
                 canal_entrega = COALESCE(%s, canal_entrega),
                 observacao = COALESCE(%s, observacao)
             WHERE id_subtarefa = %s
             """,
-            [referencia, segundos_int, canal_final, observacao_final, int(id_subtarefa)],
+            [
+                referencia,
+                segundos_int,
+                self._normalizar_user_id(user_id),
+                canal_final,
+                observacao_final,
+                int(id_subtarefa),
+            ],
         )
 
         pagamento = self._obter_pagamento_que_trava_data(user_id, referencia)

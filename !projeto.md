@@ -219,7 +219,9 @@ relatorio/tempo_trabalhado.php — relatório com valor_pendente = valor_estimad
                                  que é legada/vazia)** — antes lia da legada e "Trabalhado" saía 00:00:00 pra
                                  todos (bug #17). Agrupa por COALESCE(referencia_data, DATE(criado_em)).
 atividades/                    — listar, criar, editar, excluir, alterar_status
-atividades_subtarefas/         — listar (inclui agregados de horas/pagamentos), editar
+atividades_subtarefas/         — listar (inclui agregados de horas/pagamentos; devolve `valor_declarado_total_geral` em R$
+                                 somado POR TAREFA com o `valor_hora` congelado — o JS do Resumo usa isso em vez de
+                                 `segundos × valor_hora atual`; mesma regra em relatorio/tempo_trabalhado.php), editar
 usuarios/                      — listar, listar_ativos, criar, editar, excluir, atualizar_status,
                                  alternar_visibilidade_dashboard (toggle ocultar_dashboard, payload {user_id, ocultar_dashboard:0|1}).
                                  criar.php herda credenciais com aplicar_novos_usuarios=1.
@@ -398,7 +400,7 @@ log_atividades/                — Log geral de atividades do servidor (auth pai
 | `usuarios` | Membros: `user_id`, `nome_exibicao`, `nivel`, `valor_hora`, `chave`, `status_conta`, `ocultar_dashboard` | `chave` no formato `rk_XXXXX`. `status_conta` enum `('ativa','inativa','bloqueada')` — `_auth_cliente.php` só aceita `'ativa'` (qualquer outro valor barra com 403); `usuarios/atualizar_status.php` só aceita transições para `'ativa'`/`'inativa'`. `ocultar_dashboard=1` esconde do Dashboard e da lista operacional de campos MEGA, mas continua na aba Usuários e nas demais abas administrativas. `valor_hora` aceita 0. |
 | `atividades` | Canais (apesar do nome legacy) | UI mostra como "Canal" |
 | `atividades_usuarios` | N:N canal ↔ membro | |
-| `atividades_subtarefas` | Declarações de horas | `bloqueada_pagamento` (1=trava), `id_pagamento`, `referencia_data`, `canal_entrega` (legacy: pode vir como `#ID - Nome (status)`) |
+| `atividades_subtarefas` | Declarações de horas | `bloqueada_pagamento` (1=trava), `id_pagamento`, `referencia_data`, `canal_entrega` (legacy: pode vir como `#ID - Nome (status)`), **`valor_hora` DECIMAL(10,2) NULL (2026-09-09)** = R$/h congelado na 1ª conclusão (desktop `concluir_subtarefa` e painel `editar.php`, ambos `COALESCE(valor_hora, usuarios.valor_hora)`); NULL = legado → cálculos usam `COALESCE(s.valor_hora, u.valor_hora)`. Coluna criada lazy por `_comum/subtarefas_estrutura.php` e por `declaracoes_dia.py::_garantir_colunas_subtarefas` |
 | `atividades_subtarefas_historico` | Auditoria JSON | `acao`, `dados_antes`, `dados_depois`, `user_id_executor` |
 | `cronometro_sessoes` | Sessões iniciadas | `iniciado_em`, `finalizado_em` |
 | `cronometro_eventos_status` | Heartbeats e transições | enum `tipo_evento`: `inicio`/`pausa`/`retorno`/`ocioso_inicio`/`ocioso_fim`/`finalizar`/`heartbeat`/`zerar` |

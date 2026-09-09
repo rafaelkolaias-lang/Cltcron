@@ -229,7 +229,7 @@ require __DIR__ . '/_layout/topo.php';
                       </div>
                     </div>
                   </div>
-                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h) − pagamentos − descontos. Pago = total já pago no período. Descontos = abatimentos aplicados no período.</div>
+                  <div class="texto-fraco small mt-2">Trabalhado = cronômetro ativo. Declarado = horas nas tarefas. Ocioso = tempo sem atividade no PC. A pagar = (declarado × R$/h vigente em cada declaração) − pagamentos − descontos. Pago = total já pago no período. Descontos = abatimentos aplicados no período.</div>
                 </article>
 
                 <!-- Canais vinculados -->

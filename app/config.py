@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.5"
+VERSAO_APLICACAO = "v4.1.6"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.6",
+        "data": "09/09/2026",
+        "notas": [
+            "Ajuste interno: cada tarefa declarada passa a guardar o valor/hora vigente no momento da declaração. Assim, um reajuste de valor não altera o cálculo de horas antigas já pagas no painel. Nada muda no uso do app.",
+        ],
+    },
     {
         "versao": "v4.1.5",
         "data": "25/07/2026",

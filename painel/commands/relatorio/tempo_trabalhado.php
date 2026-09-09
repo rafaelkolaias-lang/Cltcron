@@ -8,6 +8,7 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/subtarefas_estrutura.php';
 
 function relatorio_validar_data(?string $valor): ?string
 {
@@ -72,10 +73,15 @@ try {
     $membro_filtro = trim((string)($entrada['user_id'] ?? ''));
 
     $pdo = obter_conexao_pdo();
+    subtarefas_garantir_valor_hora($pdo);
 
     // -------------------------------------------------------
     // 1. Horas DECLARADAS por usuário × dia
     //    Fonte: declaracoes_dia_itens
+    //    R$ por item = segundos × valor/hora CONGELADO na tarefa
+    //    (`atividades_subtarefas.valor_hora`, via `id_subtarefa`); item sem
+    //    snapshot (NULL) usa o valor atual do usuário. `valor_hora` da linha
+    //    segue sendo o atual (só exibição).
     // -------------------------------------------------------
     $params_dec = [
         ':data_inicio' => $data_inicio,
@@ -98,9 +104,11 @@ try {
             COALESCE(u.valor_hora, 0)      AS valor_hora,
             d.referencia_data,
             SUM(d.segundos_declarados)     AS segundos_declarados,
+            SUM(d.segundos_declarados * COALESCE(s.valor_hora, u.valor_hora, 0)) / 3600 AS valor_declarado,
             COUNT(d.id_item)               AS total_declaracoes
         FROM declaracoes_dia_itens d
         INNER JOIN usuarios u ON u.user_id = d.user_id
+        LEFT JOIN atividades_subtarefas s ON s.id_subtarefa = d.id_subtarefa
         WHERE {$where_dec}
         GROUP BY d.user_id, u.nome_exibicao, u.valor_hora, d.referencia_data
         ORDER BY d.referencia_data DESC, u.nome_exibicao ASC
@@ -265,7 +273,11 @@ try {
         $pago = $status_pagamento === 'pago';
 
         $horas_float = $segs / 3600.0;
-        $valor_est   = round($horas_float * $vh, 2);
+        // Preferir o R$ calculado no SQL com o valor/hora congelado por tarefa;
+        // fallback ao cálculo antigo (horas × valor atual) se a coluna vier vazia.
+        $valor_est   = isset($linha['valor_declarado']) && $linha['valor_declarado'] !== null
+            ? round((float)$linha['valor_declarado'], 2)
+            : round($horas_float * $vh, 2);
 
         // Divergência: declarado > trabalhado+10% (margem de 10%)
         $divergente = $segs_trab > 0 && $segs > ($segs_trab * 1.1);

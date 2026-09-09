@@ -764,7 +764,13 @@
       const ocioso       = Number(first.segundos_ocioso_total || 0);
       const totalPago    = Number(first.total_pago || 0);
       const totalDescontos = Number(first.total_descontos || 0);
-      const aPagar       = Math.max(0, (declarado * (valorHora / 3600)) - totalPago - totalDescontos);
+      // R$ do declarado vem do backend somado POR TAREFA com o valor/hora
+      // congelado na declaração (reajuste de R$/h não reprecifica histórico).
+      // Fallback ao cálculo antigo (horas × valor atual) se o campo não vier.
+      const valorDeclarado = (first.valor_declarado_total_geral !== undefined && first.valor_declarado_total_geral !== null)
+        ? Number(first.valor_declarado_total_geral)
+        : declarado * (valorHora / 3600);
+      const aPagar       = Math.max(0, valorDeclarado - totalPago - totalDescontos);
 
       if (elTrab) elTrab.textContent = formatarHm(trabalhado);
       if (elDecl) elDecl.textContent = formatarHm(declarado);

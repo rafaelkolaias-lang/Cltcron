@@ -7,6 +7,7 @@ require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
 require_once __DIR__ . '/../_comum/declaracoes_dia_itens.php';
+require_once __DIR__ . '/../_comum/subtarefas_estrutura.php';
 require_once __DIR__ . '/../_comum/log_atividades.php';
 
 try {
@@ -137,6 +138,14 @@ try {
         $sets[] = 'concluida_em = :concluida_em';
         $params[':concluida']    = $concluida ? 1 : 0;
         $params[':concluida_em'] = $concluida ? date('Y-m-d H:i:s') : null;
+        if ($concluida) {
+            // Congela o R$/h vigente na PRIMEIRA conclusão (COALESCE mantém o
+            // snapshot se a tarefa já tinha um). Mesma regra do desktop em
+            // `declaracoes_dia.py::concluir_subtarefa`. Ver subtarefas_estrutura.php.
+            subtarefas_garantir_valor_hora($pdo);
+            $sets[] = 'valor_hora = COALESCE(valor_hora, (SELECT u.valor_hora FROM usuarios u WHERE u.user_id = :uid_vh LIMIT 1))';
+            $params[':uid_vh'] = (string)($atual['user_id'] ?? '');
+        }
     }
     if ($segundos !== null) {
         // Validar: total declarado ACUMULADO (excluindo esta tarefa) + novo valor não pode exceder total trabalhado

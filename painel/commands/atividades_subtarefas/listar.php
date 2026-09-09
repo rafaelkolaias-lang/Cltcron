@@ -6,9 +6,11 @@ require_once __DIR__ . '/../_comum/resposta.php';
 require_once __DIR__ . '/../_comum/auth.php';
 verificar_sessao_painel();
 require_once __DIR__ . '/../conexao/conexao.php';
+require_once __DIR__ . '/../_comum/subtarefas_estrutura.php';
 
 try {
     $pdo = obter_conexao_pdo();
+    subtarefas_garantir_valor_hora($pdo);
 
     $data_inicio = trim((string)($_GET['data_inicio'] ?? ''));
     $data_fim    = trim((string)($_GET['data_fim']    ?? ''));
@@ -108,6 +110,7 @@ try {
             s.canal_entrega,
             s.concluida,
             s.segundos_gastos,
+            s.valor_hora,
             s.observacao,
             s.bloqueada_pagamento,
             s.criada_em,
@@ -133,6 +136,8 @@ try {
         $l['id_atividade']       = (int)$l['id_atividade'];
         $l['concluida']          = (bool)$l['concluida'];
         $l['segundos_gastos']    = (int)$l['segundos_gastos'];
+        // R$/h congelado na conclusão da tarefa; null = anterior ao snapshot.
+        $l['valor_hora']         = ($l['valor_hora'] !== null && $l['valor_hora'] !== '') ? (float)$l['valor_hora'] : null;
         $l['bloqueada_pagamento'] = (bool)$l['bloqueada_pagamento'];
         $l['mega_pasta_vinculada'] = false;
         $l['video_publicado'] = false;
@@ -190,6 +195,7 @@ try {
     $mapaCron = [];   // horas cronometradas (cronometro_relatorios)
     $mapaOcio = [];   // horas ociosas (cronometro_relatorios)
     $mapaDecl = [];   // total declarado (todas as subtarefas)
+    $mapaDeclValor = []; // R$ do declarado (Σ segundos × valor_hora da tarefa) — ver subtarefas_estrutura.php
     $mapaDeclNaoPago = []; // declarado não pago (para modal de edição)
     $mapaPago = [];   // total de pagamentos
     $mapaDesc = [];   // total de descontos avulsos (pagamento_descontos)
@@ -254,13 +260,22 @@ try {
         // 'pendente': declarado = concluídas ainda NÃO travadas por pagamento
         // (bloqueada_pagamento=0). 'tudo'/'30dias' usam o recorte por período.
         $fragDeclTotal = $modoPendente ? ' AND bloqueada_pagamento = 0' : $filtroResumoRef;
+        // O R$ é somado POR TAREFA com o valor/hora congelado na declaração
+        // (`s.valor_hora`); tarefas antigas sem snapshot (NULL) caem no valor
+        // atual do usuário. Antes o frontend fazia `segundos × valor_hora ATUAL`
+        // sobre todo o histórico — um reajuste de R$/h reprecificava horas já
+        // pagas e o "A pagar" do TUDO divergia do PENDENTE (caso joao, 09/2026).
         $stD = $pdo->prepare("
-            SELECT COALESCE(SUM(segundos_gastos), 0)
-            FROM atividades_subtarefas
-            WHERE user_id = :uid AND concluida = 1 {$fragDeclTotal}
+            SELECT COALESCE(SUM(s.segundos_gastos), 0) AS seg,
+                   COALESCE(SUM(s.segundos_gastos * COALESCE(s.valor_hora, u.valor_hora, 0)), 0) / 3600 AS valor
+            FROM atividades_subtarefas s
+            LEFT JOIN usuarios u ON u.user_id = s.user_id
+            WHERE s.user_id = :uid AND s.concluida = 1 {$fragDeclTotal}
         ");
         $stD->execute([':uid' => $uid]);
-        $mapaDecl[$uid] = (int)$stD->fetchColumn();
+        $rowD = $stD->fetch(PDO::FETCH_ASSOC) ?: [];
+        $mapaDecl[$uid]      = (int)($rowD['seg'] ?? 0);
+        $mapaDeclValor[$uid] = round((float)($rowD['valor'] ?? 0), 2);
 
         // Total declarado (apenas NÃO pagas — para compatibilidade com modal de edição).
         // Respeita o mesmo recorte de período dos demais agregados ({$filtroResumoRef});
@@ -329,6 +344,7 @@ try {
         $l['segundos_ocioso_total']        = $mapaOcio[$uid] ?? 0;
         $l['segundos_declarados_total']    = $mapaDeclNaoPago[$uid] ?? 0;
         $l['segundos_declarados_total_geral'] = $decl;
+        $l['valor_declarado_total_geral']  = $mapaDeclValor[$uid] ?? 0.0;
         $l['segundos_nao_declarado_total'] = $naoDecl;
         $l['segundos_trabalhados_total']   = $decl + $naoDecl;
         $l['total_pago']                   = $mapaPago[$uid] ?? 0.0;
@@ -352,6 +368,7 @@ try {
             'segundos_ocioso_total'            => $mapaOcio[$user_id] ?? 0,
             'segundos_declarados_total'        => $mapaDeclNaoPago[$user_id] ?? 0,
             'segundos_declarados_total_geral'  => $declU,
+            'valor_declarado_total_geral'      => $mapaDeclValor[$user_id] ?? 0.0,
             'segundos_nao_declarado_total'     => $naoDeclU,
             'segundos_trabalhados_total'       => $declU + $naoDeclU,
             'total_pago'                       => $mapaPago[$user_id] ?? 0.0,

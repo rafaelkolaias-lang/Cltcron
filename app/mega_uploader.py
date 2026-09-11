@@ -14,7 +14,8 @@ Encapsula tudo que envolve a conta MEGA dedicada do sistema:
 
 Sem GUI. Pensado pra rodar em background thread (`_executar_em_background`).
 Erros viram exceções da hierarquia `ErroMega`. Auto-retry (1x) em sessão
-expirada — relogin transparente.
+expirada — relogin transparente. Auto-retry também no cold start do MEGAcmd
+(daemon ainda subindo na primeira chamada após ligar o PC).
 
 Dependências:
   - `pynacl` (libsodium binding) — único pacote externo novo. Stdlib pro resto.
@@ -111,6 +112,22 @@ BATS_OBRIGATORIOS_MEGACMD = (
 TIMEOUT_INSTALL_SEG = 180.0
 TIMEOUT_COMANDO_PADRAO_SEG = 30.0
 TIMEOUT_UPLOAD_PADRAO_SEG: float | None = None   # uploads grandes não expiram por tempo
+
+# Cold start do MEGAcmd: na PRIMEIRA chamada depois de ligar o PC o daemon
+# (`MEGAcmdServer.exe`) está desligado. O `MEGAclient.exe` sobe o daemon em
+# background e sai IMEDIATAMENTE com erro, SEM ter executado o comando:
+#   "MEGAcmd Server not running. Initiating in the background..."  rc=-2
+#   (-2 chega aqui como 4294967294 — unsigned 32-bit).
+# Como o comando comprovadamente não rodou, repetir é seguro (nada de efeito
+# colateral duplicado). O daemon leva alguns segundos pra aceitar conexões,
+# então esperamos em degraus crescentes antes de cada nova tentativa.
+MARCADORES_SERVIDOR_SUBINDO = (
+    "server not running",
+    "initiating in the background",
+    "initiating server",
+    "waiting for the server",
+)
+ESPERAS_SERVIDOR_SUBINDO_SEG = (3.0, 5.0, 8.0)
 
 
 # =============================================================
@@ -227,6 +244,15 @@ def _executar_silencioso(
                 os.unlink(p)
             except OSError:
                 pass
+
+
+def _servidor_ainda_subindo(proc: subprocess.CompletedProcess) -> bool:
+    """True se o comando falhou só porque o MEGAcmdServer ainda não estava de
+    pé (ver `MARCADORES_SERVIDOR_SUBINDO`). Nesse caso o comando NÃO rodou."""
+    if proc.returncode == 0:
+        return False
+    saida = ((proc.stdout or "") + (proc.stderr or "")).lower()
+    return any(marcador in saida for marcador in MARCADORES_SERVIDOR_SUBINDO)
 
 
 # =============================================================
@@ -666,7 +692,21 @@ class MegaUploader:
         # descarta as aspas internas se houver mais de um par e quebra no espaço.
         linha = subprocess.list2cmdline([str(bat), *args_safe])
         comando = f'cmd.exe /c "{linha}"'
-        return _executar_silencioso(comando, timeout=timeout)
+        r = _executar_silencioso(comando, timeout=timeout)
+
+        # Cold start: a primeira chamada do dia sobe o daemon e falha sem rodar
+        # o comando. Espera o daemon aceitar conexões e repete. Só entra aqui
+        # com o marcador explícito do MEGAcmd — qualquer outro erro propaga na
+        # hora, sem retry.
+        for espera in ESPERAS_SERVIDOR_SUBINDO_SEG:
+            if not _servidor_ainda_subindo(r):
+                break
+            logger.info(
+                "MEGAcmdServer ainda subindo; repetindo %s em %.0fs", nome_comando, espera
+            )
+            time.sleep(espera)
+            r = _executar_silencioso(comando, timeout=timeout)
+        return r
 
     def _buscar_segredo(self, identificador: str) -> str:
         """GET /credenciais/api/obter.php?identificador=X → texto puro."""

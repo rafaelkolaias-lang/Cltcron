@@ -134,9 +134,16 @@ def salvar_pref(chave: str, valor: object) -> None:
 # =========================
 # CONFIGURAÇÕES
 # =========================
-VERSAO_APLICACAO = "v4.1.6"
+VERSAO_APLICACAO = "v4.1.7"
 
 HISTORICO_VERSOES = [
+    {
+        "versao": "v4.1.7",
+        "data": "11/09/2026",
+        "notas": [
+            "Correção: ao abrir o programa pela primeira vez no dia (logo depois de ligar o computador) não aparece mais o aviso vermelho \"Pastas MEGA não sincronizadas\" com o botão Declarar Tarefa bloqueado. Isso acontecia porque o programa auxiliar do MEGA ainda estava ligando e o app não esperava; agora ele aguarda alguns segundos e tenta de novo sozinho.",
+        ],
+    },
     {
         "versao": "v4.1.6",
         "data": "09/09/2026",
